@@ -1,6 +1,6 @@
 # 聊天 emoji 的 GDI 修复候选
 
-2026-09-10：第五人格聊天将完整 UTF-16 emoji 传给 `DrawTextExW`，CodeWeavers 26.1 的普通 LTR 路径却跳过 shaping，最终分别画出两个 missing glyph。第一份补丁修复有效代理对；第二份补丁继续修复合法 emoji 组合的分段、替换和宽度计算。下文保留原因、反证、适用范围和复现入口；私人截图与原始日志不随仓。
+2026-09-10：第五人格聊天将完整 UTF-16 emoji 传给 `DrawTextExW`，CodeWeavers 26.1 的普通 LTR 路径却跳过 shaping，最终分别画出两个 missing glyph。第一份补丁修复有效代理对；第二份补丁继续修复合法 emoji 组合的分段、替换和宽度计算。**2026-09-23 公开 RC1 仍默认使用 r1，未包含这个 emoji2 修复，故公开版本复发。**下文保留原因、反证、适用范围和复现入口；私人截图与原始日志不随仓。
 
 ## 维护时先读：原因与取舍
 
@@ -33,7 +33,9 @@
 
 排版补丁仍需要选中字体本身覆盖 SMP；当前 Wine 的 ScriptShape 不会自动走 SystemLink。已在本机以 Arial Unicode MS 为底补入 Noto Emoji 的缺失字形，生成 `IdentityV Local Emoji Test`。最终 v6 SHA-256 为 `f782b20e17155e349347ca83fbcb99dea658b9614e5504c64b97faef13e336e8`。父协调者逐字验证原有 50,377 个字形的轮廓、宽度、行高和 38,917 个字符映射不变；最终总 glyph 数 52,345。
 
-生成字体仅保存在本机 private/ignored 区与本机游戏 prefix，不能把这份含系统字体的派生文件提交或加入发行包。Noto 字体来源是 Google Fonts 的 OFL 黑白版，SHA-256 `de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551`。后续可分发方案还需独立选择全 OFL 字体或本机生成流程，不能把本机候选直接宣称为公共安装方案。
+生成字体仅保存在本机 private/ignored 区与本机游戏 prefix，不能把这份含系统字体的派生文件提交或加入发行包。Noto Emoji 来源是 OFL 黑白版，SHA-256 `de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551`。
+
+2026-09-24 另用全 OFL 的 Noto Sans CJK SC 与 Noto Emoji 生成 `IdentityV Emoji CJK` 候选，SHA-256 `c002488492344453723dc491ecbe2646018f94a3060a8d0cb5829ef8b4d0d45b`。其 31 组隔离 Wine 行为回归通过；曾发现 CJK 子集漏掉 U+200B，使两个未合并 ZWJ 用例多一个空格宽，补入空零宽字形后归零。它尚未通过游戏内回归和发行安装链验收，因此不把“字体许可可分发”误写成“公开修复已交付”。生成步骤见[复现说明](REPRODUCE.md)。
 
 启动器支持 catalog 的可选 `fontConfiguration`（`cjkFamily` / `cjkFilename` / `cjkSha256`），只接受 prefix Fonts 内非 symlink 的精确哈希文件；无该字段的原引擎保持原路径。缺文件或损坏时拒绝该候选，避免静默切回不能显示 emoji 的字体。catalog 同时校验新 gdi32。
 

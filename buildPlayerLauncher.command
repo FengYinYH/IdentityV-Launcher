@@ -2,6 +2,12 @@
 set -euo pipefail
 
 PROJECT_ROOT="${0:A:h}"
+BUILD_SOURCE_COMMIT="$(/usr/bin/git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || true)"
+BUILD_SOURCE_CLEAN=false
+if [[ ${#BUILD_SOURCE_COMMIT} -eq 40 && "$BUILD_SOURCE_COMMIT" != *[^0-9a-f]* && -z "$(/usr/bin/git -C "$PROJECT_ROOT" status --porcelain --untracked-files=normal 2>/dev/null || true)" ]]; then
+  BUILD_SOURCE_CLEAN=true
+fi
+[[ ${#BUILD_SOURCE_COMMIT} -eq 40 ]] || BUILD_SOURCE_COMMIT=0000000000000000000000000000000000000000
 SOURCE_ROOT="$PROJECT_ROOT/playerLauncherApp"
 BUILD_ROOT="${IDENTITYV_BUILD_ROOT:-$SOURCE_ROOT/build}"
 [[ "$BUILD_ROOT" == /* ]] || { print -u2 -- "IDENTITYV_BUILD_ROOT 必须是绝对路径。"; exit 64; }
@@ -387,6 +393,12 @@ fi
 /usr/bin/codesign --force --sign - \
   --identifier com.fengyin.identityv.launcher.idv-login-downloader \
   "$IDV_LOGIN_DOWNLOADER_DESTINATION"
+# Build provenance records the source state before generated runner resources
+# are refreshed. Release packaging refuses a dirty/stale build and verifies
+# the selected engine against the bundled runtime manifest and catalog.
+/usr/bin/python3 "$PROJECT_ROOT/releasePackaging/releaseIdentity.py" stamp \
+  --repo "$PROJECT_ROOT" --app "$APP_PATH" \
+  --source-commit "$BUILD_SOURCE_COMMIT" --source-clean "$BUILD_SOURCE_CLEAN"
 # 由内到外签整个启动器 bundle（含内嵌 IdentityVGameRunner.app 与全部辅助二进制，
 # identifier 沿用上面指定的值）。不再用 --deep：它只把外层选项套一遍，内层仍会是
 # ad-hoc，产不出可公证的 Developer ID 树。
