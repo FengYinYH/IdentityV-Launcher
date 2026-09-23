@@ -1,0 +1,52 @@
+From: IdentityV on Mac maintainers
+Subject: [PATCH] winecoreaudio: copy only frames produced by capture converter
+
+AudioConverterFillComplexBuffer may report fewer output frames than requested.
+The capture path currently copies and publishes the full requested period even
+then, exposing stale bytes from a previous conversion at the end of the chunk.
+Use both the returned frame count and buffer byte count to bound the copy, and
+stop if the converter produced no frames. This is an isolated CodeWeavers 26.1
+candidate; the observed voice-message artifact has not yet been tied to this
+path, so it is not part of the shipping runtime patch series.
+
+diff --git a/dlls/winecoreaudio.drv/coreaudio.c b/dlls/winecoreaudio.drv/coreaudio.c
+--- a/dlls/winecoreaudio.drv/coreaudio.c
++++ b/dlls/winecoreaudio.drv/coreaudio.c
+@@ -1218,6 +1218,7 @@ static void capture_resample(struct coreaudio_stream *stream)
+     while(stream->cap_held_frames > resamp_period_frames * 2){
+         AudioBufferList converted_list;
+         UInt32 wanted_frames = stream->period_frames;
++        UInt32 produced_frames;
+ 
+         converted_list.mNumberBuffers = 1;
+         converted_list.mBuffers[0].mNumberChannels = stream->fmt->nChannels;
+@@ -1238,18 +1239,25 @@ static void capture_resample(struct coreaudio_stream *stream)
+             break;
+         }
+ 
++        produced_frames = min(wanted_frames,
++                              converted_list.mBuffers[0].mDataByteSize / stream->fmt->nBlockAlign);
++        if(!produced_frames){
++            WARN("AudioConverterFillComplexBuffer produced no capture frames\n");
++            break;
++        }
++
+         ca_wrap_buffer(stream->local_buffer,
+                        stream->wri_offs_frames * stream->fmt->nBlockAlign,
+                        stream->bufsize_frames * stream->fmt->nBlockAlign,
+-                       stream->resamp_buffer, wanted_frames * stream->fmt->nBlockAlign);
++                       stream->resamp_buffer, produced_frames * stream->fmt->nBlockAlign);
+ 
+-        stream->wri_offs_frames += wanted_frames;
++        stream->wri_offs_frames += produced_frames;
+         stream->wri_offs_frames %= stream->bufsize_frames;
+-        if(stream->held_frames + wanted_frames > stream->bufsize_frames){
++        if(stream->held_frames + produced_frames > stream->bufsize_frames){
+             stream->lcl_offs_frames += buf_ptr_diff(stream->lcl_offs_frames, stream->wri_offs_frames,
+                                                     stream->bufsize_frames);
+             stream->held_frames = stream->bufsize_frames;
+         }else
+-            stream->held_frames += wanted_frames;
++            stream->held_frames += produced_frames;
+     }
+ }
