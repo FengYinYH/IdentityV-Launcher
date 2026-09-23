@@ -70,6 +70,17 @@ def app_identity(app: Path) -> dict:
     runner_catalog = contents / "Helpers/IdentityVGameRunner.app/Contents/Resources/runtime-catalog.json"
     if sha256(runner_catalog) != sha256(resources / "runtime-catalog.json"):
         fail("embedded game runner and product manager have different runtime catalogs")
+    font = engine.get("fontConfiguration")
+    if font:
+        filename = font.get("cjkFilename", "")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+\.ttf", filename):
+            fail("invalid product font filename")
+        bundled_font = contents / "Helpers/IdentityVGameRunner.app/Contents/Resources/Fonts" / filename
+        if sha256(bundled_font) != font.get("cjkSha256"):
+            fail("selected product font differs from the catalog")
+        for notice in ("Noto-CJK-OFL-1.1.txt", "Noto-Emoji-OFL-1.1.txt"):
+            if not (resources / "ThirdParty" / notice).is_file():
+                fail(f"selected product font lacks notice: {notice}")
     version = info.get("IdentityVReleaseVersion")
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", version):
         fail("invalid App release version")

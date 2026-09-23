@@ -327,3 +327,17 @@ func TestDownloadCancellationStopsHTTPStream(t *testing.T) {
 		t.Fatal("download did not return after context cancellation")
 	}
 }
+
+func TestEmojiCandidatePEPatch(t *testing.T) {
+	path := filepath.Join("..", "wineEmojiPatch", "releasePayloads", "gdi32.dll")
+	if err := verifyPEMachine(path, "amd64"); err != nil {
+		t.Fatalf("audited emoji GDI payload is not an x86_64 PE DLL: %v", err)
+	}
+	wrong := filepath.Join(t.TempDir(), "gdi32.dll")
+	if err := os.WriteFile(wrong, []byte("not a PE DLL"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPEMachine(wrong, "amd64"); err == nil {
+		t.Fatal("accepted non-PE patch payload")
+	}
+}

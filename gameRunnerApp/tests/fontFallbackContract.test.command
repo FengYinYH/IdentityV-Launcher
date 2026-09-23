@@ -101,6 +101,8 @@ for function_name in validate_relative_path configure_catalog_cjk_font; do
   eval "$function_source"
 done
 CATALOG_FILE="$TEST_ROOT/catalog.json"
+APP_CONTENTS="$TEST_ROOT/runner/Contents"
+/bin/mkdir -p "$APP_CONTENTS/Resources/Fonts"
 fixture_family=''
 fixture_filename=''
 fixture_hash=''
@@ -120,11 +122,16 @@ fixture_filename='fixture.ttf'
 /bin/mkdir -p "$PREFIX/drive_c/windows/Fonts"
 print -r -- 'font-integrity-fixture' > "$PREFIX/drive_c/windows/Fonts/$fixture_filename"
 fixture_hash="$(/usr/bin/shasum -a 256 "$PREFIX/drive_c/windows/Fonts/$fixture_filename" | /usr/bin/awk '{print $1}')"
+/bin/cp "$PREFIX/drive_c/windows/Fonts/$fixture_filename" "$APP_CONTENTS/Resources/Fonts/$fixture_filename"
 configure_catalog_cjk_font
 [[ "$CJK_UI_FONT_FAMILY" == "$fixture_family" && "$CJK_UI_FONT_FILENAME" == "$fixture_filename" ]]
 refresh_registry_contract
 [[ "$(/usr/bin/grep -Fxc '"Microsoft YaHei"="IdentityV Fixture"' "$CAPTURED_REG")" == 2 ]]
 print -r -- 'changed' >> "$PREFIX/drive_c/windows/Fonts/$fixture_filename"
+configure_catalog_cjk_font
+/usr/bin/cmp -s "$PREFIX/drive_c/windows/Fonts/$fixture_filename" "$APP_CONTENTS/Resources/Fonts/$fixture_filename"
+print -r -- 'changed' >> "$PREFIX/drive_c/windows/Fonts/$fixture_filename"
+print -r -- 'changed' >> "$APP_CONTENTS/Resources/Fonts/$fixture_filename"
 ! configure_catalog_cjk_font
 print -r -- 'font-integrity-fixture' > "$TEST_ROOT/original.ttf"
 /bin/rm "$PREFIX/drive_c/windows/Fonts/$fixture_filename"

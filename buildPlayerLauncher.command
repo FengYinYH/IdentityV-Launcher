@@ -278,6 +278,21 @@ fi
   "$IDV_LOGIN_PAYLOAD_DESTINATION/uninstallIdentityVPreview.command"
 /bin/chmod 644 "$IDV_LOGIN_PAYLOAD_DESTINATION/idvLoginComponent.json" "$IDV_LOGIN_PAYLOAD_DESTINATION/migrateIdvLoginHotfixState.py"
 /usr/bin/ditto "$RUNNER_SOURCE_APP" "$RUNNER_DESTINATION_APP"
+# The catalog decides whether this App actually needs the redistributable
+# emoji font. Keep the payload and both OFL notices beside the selected runner
+# instead of treating the mere presence of an emoji candidate as a release.
+DEFAULT_FONT_NAME="$(/usr/bin/jq -r '[.engines[] | select(.candidateSelection.productDefault == true) | .fontConfiguration.cjkFilename // empty] | first // empty' "$RUNTIME_CATALOG_SOURCE")"
+if [[ -n "$DEFAULT_FONT_NAME" ]]; then
+  [[ "$DEFAULT_FONT_NAME" == IdentityV-Emoji-CJK.ttf ]] || { print -u2 -- "未知的默认字体载荷：$DEFAULT_FONT_NAME"; exit 65; }
+  DEFAULT_FONT_HASH="$(/usr/bin/jq -r '[.engines[] | select(.candidateSelection.productDefault == true) | .fontConfiguration.cjkSha256 // empty] | first // empty' "$RUNTIME_CATALOG_SOURCE")"
+  DEFAULT_FONT_SOURCE="$PROJECT_ROOT/wineEmojiPatch/releasePayloads/$DEFAULT_FONT_NAME"
+  [[ -f "$DEFAULT_FONT_SOURCE" && ! -L "$DEFAULT_FONT_SOURCE" ]] || { print -u2 -- "缺少默认字体载荷。"; exit 66; }
+  [[ "$(/usr/bin/shasum -a 256 "$DEFAULT_FONT_SOURCE" | /usr/bin/awk '{print $1}')" == "$DEFAULT_FONT_HASH" ]] || { print -u2 -- "默认字体与 catalog 哈希不符。"; exit 65; }
+  /bin/mkdir -p "$RUNNER_DESTINATION_APP/Contents/Resources/Fonts"
+  /usr/bin/install -m 444 "$DEFAULT_FONT_SOURCE" "$RUNNER_DESTINATION_APP/Contents/Resources/Fonts/$DEFAULT_FONT_NAME"
+  /usr/bin/install -m 444 "$PROJECT_ROOT/wineEmojiPatch/licenses/Noto-CJK-OFL-1.1.txt" "$THIRD_PARTY_DIR/Noto-CJK-OFL-1.1.txt"
+  /usr/bin/install -m 444 "$PROJECT_ROOT/wineEmojiPatch/licenses/Noto-Emoji-OFL-1.1.txt" "$THIRD_PARTY_DIR/Noto-Emoji-OFL-1.1.txt"
+fi
 # Always compile the bounded foreground helper from this source revision.
 /usr/bin/xcrun swiftc -O -target arm64-apple-macos14.0 -sdk "$SDK_PATH" \
   -framework AppKit -framework CoreGraphics "$PROJECT_ROOT/gameActivator/main.swift" \
