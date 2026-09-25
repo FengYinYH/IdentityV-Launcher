@@ -2,6 +2,31 @@
 
 本页记录公开 RC1 后确认、需要后续版本处理的问题。版本与包的身份以[版本约定](../releasePackaging/versioning.md)和包内 `build-provenance.json` 为准；开发中的补丁不代表 RC1 已包含修复。
 
+## 自建 GDI 补丁载荷里带着构建机源码路径（做下一次公开发行前必须处理）
+
+2026-09-26 为私有离线整包做隐私复核时发现：`runtimeBootstrap/releasePayloads/gdi32.dll`（也就是随 App 分发的
+`Contents/Resources/RuntimePatches/gdi32.dll`，`1.0.0-rc.1-test.2` 的 emoji2 候选）里有 **85 处**
+`/Users/xunfeng/codexDaily/local/diagnostics/identityV/20260910-emoji-ime/emoji-probe/source-build-ligature/dlls/gdi32/*.c`
+形式的绝对路径，来自它保留的 DWARF 调试段（`.debug_info`/`.debug_line`/`.debug_str`/`.debug_loc`/`.debug_ranges`）。
+这是本项目自建候选的构建残留，不是上游 `DWRG.dmg` 或网易组件带来的。
+
+- **影响面**：`/Applications` 当前那份 `1.0.0-rc.1-test.2` 与本次私有离线整包都带着它；公开 RC1
+  （`1.0.0-rc.1`、tag `v1.0.0-rc.1`）用的是 `r1` 默认运行时，不含这枚候选载荷。
+- **为什么公开封包会挡住**：`releasePackaging/buildAlpha1Preview.command` 的审计模式里明确含
+  `codexDaily` 与 `/Users/<name>/`，所以**只要这枚字节还在包里，下一次公开发行封包会直接失败**。
+  也就是说它是 RC2 的必经前置项，不是可选优化。
+- **为什么这次没改**：改它会动一个哈希锁定的运行时候选——需要去除调试段、重新签名，并同步
+  `runtimeBootstrap/runtime-manifest.json` 的 `sourceSha256`/`sha256`、
+  `runtimeManifest/runtime-catalog.json` 的 `verificationFiles` 与
+  `runtimeBootstrap/verifyRuntimePatchPayloads.command`，再按流程提升 runtime 版本并重建验证。
+  2026-09-26 风吟判断这份私有整包只交给一个人、泄漏内容仅为构建机路径而非账号或凭据，
+  因此决定本轮不改，**留到做下一次公开发行前处理**。
+- **修复方向**：在构建时去掉调试信息（或构建后 strip 掉 `.debug_*` 段），重新签名并走上述哈希/版本同步；
+  改完必须重跑 emoji 的 `compositeRegression` 与实机聊天复测，确认去调试段没有改变行为。
+- **同类残留（不是我们的，不能改）**：随包的网易 `downloadIPC.exe` 里有 `C:/Users/weiyufeng/go/pkg/mod/...`，
+  那是网易构建机路径，来自被哈希锁定的上游原件；`com.xunfeng.identityv.*` 是历史 bundle identifier，
+  属升级兼容契约，公开 RC1 同样存在。
+
 ## 国服启动延迟时误报 IDV-LAUNCH-203
 
 2026-09-25，风吟用本机 `1.0.0-rc.1-test.2` 启动国服时先收到 `IDV-LAUNCH-203`（20 秒内没有检测到游戏进程），随后游戏仍成功启动。只读检查确认报错后游戏进程已出现；源码中的 `waitForManagedGameStart` 固定等待 20 秒，超时只结束产品管理器的等待并返回错误，不会停止已分离运行的 runner，因此启动可在弹窗之后继续完成。20 秒判定随 2026-09-23 的第一方产品管理器基线进入当前工程；这是当前记录中的首次 `IDV-LAUNCH-203`，不表示启动链路刚刚变慢，也不能归因于本轮 emoji 或音频补丁。

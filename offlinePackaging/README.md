@@ -120,3 +120,23 @@ App 内没有游戏本体。它**不能**证明的：
 - 目标机器的 macOS 版本、Apple 芯片型号与可用磁盘空间是否满足。游戏本体十几 GB，
   加上 runtime 约 810 MB，安装盘至少需要 20 GB 余量。
 - 游戏内功能（表情、语音条）是否真的被 emoji2 + audio1 补丁修好。这属于实机验证，不是打包结论。
+
+### 包内不含用户状态（2026-09-26 实测）
+
+这份包只带产品代码与三个上游组件，**不含任何账号、登录态、cookie/token、证书、游戏 prefix、
+安装记录或本机用户状态**。DMG 可见条目只有启动器、`Applications` 链接与使用说明；App 内新增的
+只有 `Contents/Resources/OfflinePayloads/`。逐文件名扫描 `cookie/token/session/credential/
+keychain/p12/pem/*.reg/installation.json` 没有命中用户数据（只有随包的 `products.json` 产品目录）。
+账号与运行态在 `/Library/Application Support/IdentityVOnMac/…` 与
+`~/Library/Application Support/IdentityVOnMac/Prefixes/…`，打包流程不读不写这些目录。
+
+**已知残留（本轮有意未修）**：`Contents/Resources/RuntimePatches/gdi32.dll` 是 emoji2 候选的
+自建载荷，保留了 DWARF 调试段，里面有 85 处
+`/Users/xunfeng/codexDaily/local/diagnostics/identityV/…` 形式的构建机源码路径；它来自
+`1.0.0-rc.1-test.2` 的候选构建，公开 RC1 的 `r1` 默认运行时不含它。这是**构建机路径**，
+不是账号或凭据。2026-09-26 风吟判断本包只作一次性私人交付，决定本轮不改；但公开封包器的载荷
+审计明确拒绝 `codexDaily`/`/Users/<name>/`，因此**做下一次公开发行前必须处理**，
+步骤与验证要求见 [`../docs/knownIssues.md`](../docs/knownIssues.md)。
+
+网易 `downloadIPC.exe` 里的 `C:/Users/weiyufeng/…` 是网易构建机路径，来自受哈希锁定的上游原件，
+不是本项目能改的内容；`com.xunfeng.identityv.*` 是历史 bundle identifier（升级兼容契约）。

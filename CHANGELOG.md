@@ -21,6 +21,10 @@
 - 封包走新入口 `offlinePackaging/buildOfflinePackage.command`，Developer ID 签名 + 公证 +
   staple；DMG 里另附一份给普通用户的使用说明。公开封包器的载荷审计**未改动**，
   公开发行物依旧不包含这三组字节。
+- **已知残留**：包内 `RuntimePatches/gdi32.dll`（emoji2 自建候选）保留了 DWARF 调试段，含 85 处
+  构建机源码路径 `/Users/xunfeng/codexDaily/…`。不含账号、凭据或用户状态；本次一次性私人交付
+  决定不改，但公开封包器的审计会拒绝这些字符串，**下一次公开发行前必须去除调试段并同步
+  runtime 哈希/版本**，见[已知问题](docs/knownIssues.md)。
 - **这一条是私有交付，不是新候选**：随包的基础 runtime 与网易组件不由本项目持有再分发授权，
   边界与来源见 `offlinePackaging/payloadProvenance.md`。公开发行号仍停在 `1.0.0-rc.1`，
   `1.0.0-rc.2` 的范围与时间未定。
