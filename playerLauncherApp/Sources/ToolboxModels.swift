@@ -586,6 +586,13 @@ enum ToolboxPath {
     static let loginInstaller = installerPayload.appendingPathComponent("installIdentityVPasswordlessHelpers.command")
     static let idvLoginDownloader = resources.appendingPathComponent("IdentityVIdvLoginDownloader")
     static let idvLoginManifest = resources.appendingPathComponent("idvLoginComponent.json")
+    /// 离线安装包（可选）会把首装载荷放在 Contents/Resources/OfflinePayloads 下，让首装不再
+    /// 访问 GitHub；普通公开发行包不含该目录，所以这里只声明位置，调用方必须在载荷真实存在
+    /// 时才使用，缺失时所有路径保持与今天完全一致。
+    static let offlinePayloads = resources.appendingPathComponent("OfflinePayloads", isDirectory: true)
+    /// 载荷文件名带版本，与 IdvLoginRelease.version 同源，避免版本升级后仍指向旧载荷。
+    static let offlineIdvLoginPayload = offlinePayloads
+        .appendingPathComponent("idv-login-\(IdvLoginRelease.version).gz")
     static let idvLoginDownloadCache = userSupport.appendingPathComponent("Components/IdvLoginDownload", isDirectory: true)
     static func embeddedGameRunner(in bundleRoot: URL = Bundle.main.bundleURL) -> URL? {
         let root = bundleRoot.resolvingSymlinksInPath().standardizedFileURL

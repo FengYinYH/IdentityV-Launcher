@@ -63,15 +63,16 @@ func main() {
 	fs.SetOutput(os.Stderr)
 	manifestPath := fs.String("manifest", "", "absolute component manifest path")
 	destinationRoot := fs.String("destination-root", "", "absolute component root")
+	payloadDir := fs.String("payload-dir", "", "offline payload directory; replaces the network download")
 	if len(os.Args) < 2 || os.Args[1] != "install" || fs.Parse(os.Args[2:]) != nil || *manifestPath == "" || *destinationRoot == "" {
-		fmt.Fprintln(os.Stderr, "usage: IdentityVDownloaderCoreBootstrap install --manifest ABS --destination-root ABS")
+		fmt.Fprintln(os.Stderr, "usage: IdentityVDownloaderCoreBootstrap install --manifest ABS --destination-root ABS [--payload-dir ABS]")
 		os.Exit(2)
 	}
 	manifest, err := readManifest(*manifestPath)
 	if err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
-		err = install(ctx, manifest, *destinationRoot, defaultHTTPClient(), os.Stderr)
+		err = installWithPayload(ctx, manifest, *destinationRoot, *payloadDir, defaultHTTPClient(), os.Stderr)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "downloader core acquisition failed")
@@ -151,7 +152,17 @@ func emit(out io.Writer, event progressEvent) {
 	_ = json.NewEncoder(out).Encode(event)
 }
 
+// install keeps the original online-only acquisition as the entry point used by
+// unit fixtures and by any caller that has no offline payload.
 func install(ctx context.Context, manifest ComponentManifest, destinationRoot string, client *http.Client, out io.Writer) error {
+	return installWithPayload(ctx, manifest, destinationRoot, "", client, out)
+}
+
+// installWithPayload stages the component set.  payloadDir is an optional
+// offline directory that holds the manifest filenames: when it is set every file
+// is read from disk, and a missing or invalid file fails the install instead of
+// falling back to the network.
+func installWithPayload(ctx context.Context, manifest ComponentManifest, destinationRoot, payloadDir string, client *http.Client, out io.Writer) error {
 	if err := validateManifest(manifest); err != nil {
 		return err
 	}
@@ -187,10 +198,18 @@ func install(ctx context.Context, manifest ComponentManifest, destinationRoot st
 	}()
 	base, _ := url.Parse(manifest.Acquisition.SourceBaseURL)
 	for _, component := range manifest.Files {
-		source := *base
-		source.Path += component.Filename
 		target := filepath.Join(staging, component.Filename)
 		emit(out, progressEvent{SchemaVersion: 1, Event: "downloading", Filename: component.Filename, TotalBytes: component.ByteCount})
+		if payloadDir != "" {
+			// Offline package: the bytes already sit next to the App.  A missing
+			// or mismatching file is fatal; the network is never consulted.
+			if err = importVerified(filepath.Join(payloadDir, component.Filename), target, component, out); err != nil {
+				return err
+			}
+			continue
+		}
+		source := *base
+		source.Path += component.Filename
 		if err = downloadVerified(ctx, client, source.String(), target, component, out); err != nil {
 			return err
 		}
@@ -261,12 +280,45 @@ func downloadVerified(ctx context.Context, client *http.Client, source, target s
 	if response.StatusCode != http.StatusOK || response.ContentLength > component.ByteCount {
 		return errors.New("component download response rejected")
 	}
+	return storeVerified(response.Body, target, component, out)
+}
+
+// importVerified materialises one manifest file from the offline payload
+// directory.  It refuses anything that is not a plain file and then runs the
+// exact checks the download path runs, so an offline install cannot publish a
+// different component than an online one.
+func importVerified(source, target string, component ComponentFile, out io.Writer) error {
+	info, err := os.Lstat(source)
+	if err != nil {
+		return fmt.Errorf("offline payload %s: %w", component.Filename, err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("offline payload %s is not a regular file", component.Filename)
+	}
+	if info.Size() != component.ByteCount {
+		return fmt.Errorf("offline payload %s size mismatch", component.Filename)
+	}
+	file, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if err = storeVerified(file, target, component, out); err != nil {
+		return fmt.Errorf("offline payload %s: %w", component.Filename, err)
+	}
+	return nil
+}
+
+// storeVerified writes one component while hashing it, then enforces the pinned
+// size, digest and PE magic before emitting the verified event.  Both acquisition
+// paths share it so an offline payload is held to exactly the download bar.
+func storeVerified(source io.Reader, target string, component ComponentFile, out io.Writer) error {
 	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
 	hash := sha256.New()
-	limited := io.LimitReader(response.Body, component.ByteCount+1)
+	limited := io.LimitReader(source, component.ByteCount+1)
 	written, copyErr := io.Copy(io.MultiWriter(file, hash), limited)
 	if copyErr == nil {
 		copyErr = file.Sync()

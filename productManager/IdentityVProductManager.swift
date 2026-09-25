@@ -392,6 +392,25 @@ private func executableDirectory() -> URL {
     URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
 }
 
+/// 离线安装包（可选）把首装载荷放在 Contents/Resources/OfflinePayloads 下，而
+/// `executableDirectory()` 指向的正是产物所在的 Contents/Resources。普通公开发行包不含
+/// 该目录，所以这里只在载荷真实存在且可读时返回 URL，否则返回 nil：调用方据此完全沿用
+/// 原有的联网获取路径，不引入任何新的强制依赖。
+private func bundledOfflinePayload(_ name: String, expectsDirectory: Bool = false) -> URL? {
+    let candidate = executableDirectory()
+        .appendingPathComponent("OfflinePayloads", isDirectory: true)
+        .appendingPathComponent(name)
+    if expectsDirectory {
+        // --payload-dir 只接受目录：万一包内放的是同名文件，宁可当作没有载荷走在线路径，
+        // 也不要让 helper 收到一个类型不对的参数而在安装中途失败。
+        guard (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+            return nil
+        }
+    }
+    guard fileManager.isReadableFile(atPath: candidate.path) else { return nil }
+    return candidate
+}
+
 /// The product manager is embedded in the outer launcher Resources directory.
 /// It may launch only the sibling, bundled runner; no second /Applications app
 /// is part of the release topology.  The override exists solely for the
@@ -1523,7 +1542,13 @@ private func installDirectMainland(
     let bootstrap = executableDirectory().appendingPathComponent("IdentityVDownloaderCoreBootstrap")
     let componentManifest = executableDirectory().appendingPathComponent("downloaderCoreComponent.json")
     let componentRoot = supportDirectory.appendingPathComponent("Components/netease-download-core", isDirectory: true)
-    _ = try runTool(bootstrap, arguments: ["install", "--manifest", componentManifest.path, "--destination-root", componentRoot.path])
+    // 离线包（可选）自带 netease-download-core 目录：存在时让 bootstrap 直接使用包内副本，
+    // 首装不访问 GitHub。普通发行包没有该目录，参数与今天完全一致。
+    var coreBootstrapArguments = ["install", "--manifest", componentManifest.path, "--destination-root", componentRoot.path]
+    if let payloadDirectory = bundledOfflinePayload("netease-download-core", expectsDirectory: true) {
+        coreBootstrapArguments += ["--payload-dir", payloadDirectory.path]
+    }
+    _ = try runTool(bootstrap, arguments: coreBootstrapArguments)
     let coreDirectory = componentRoot.appendingPathComponent("current").resolvingSymlinksInPath().standardizedFileURL
     let managedCoreDirectory = try prepareManagedDownloaderCore(
         componentDirectory: coreDirectory,
@@ -1845,7 +1870,13 @@ private func saveRuntimeBinding(_ binding: RuntimeBinding) throws {
 private func runRuntimeBootstrapStreaming(_ bootstrap: URL, manifest: URL, destination: URL, patches: URL, reporter: DownloadProgressReporter) throws {
     let process = Process(); let stderr = Pipe(); let stdout = Pipe()
     process.executableURL = bootstrap
-    process.arguments = ["install", "--manifest", manifest.path, "--destination-root", destination.path, "--patch-root", patches.path]
+    // 离线包（可选）自带基础 runtime 镜像 BaseRuntime.dmg：存在时让 bootstrap 直接展开包内
+    // 镜像，首装不再访问 GitHub。普通发行包没有该文件，参数与今天完全一致。
+    var bootstrapArguments = ["install", "--manifest", manifest.path, "--destination-root", destination.path, "--patch-root", patches.path]
+    if let payloadImage = bundledOfflinePayload("BaseRuntime.dmg") {
+        bootstrapArguments += ["--payload-dmg", payloadImage.path]
+    }
+    process.arguments = bootstrapArguments
     process.standardError = stderr; process.standardOutput = stdout
     var output = Data(); var buffer = Data(); let lock = NSLock()
     stderr.fileHandleForReading.readabilityHandler = { handle in
@@ -2056,7 +2087,13 @@ private func repairManagedProduct(_ item: CatalogProduct, product: ProductID, st
     let bootstrap = executableDirectory().appendingPathComponent("IdentityVDownloaderCoreBootstrap")
     let componentManifest = executableDirectory().appendingPathComponent("downloaderCoreComponent.json")
     let componentRoot = supportDirectory.appendingPathComponent("Components/netease-download-core", isDirectory: true)
-    _ = try runTool(bootstrap, arguments: ["install", "--manifest", componentManifest.path, "--destination-root", componentRoot.path])
+    // 修复流程复用同一份离线载荷：存在时同样直接从包内取 netease-download-core，
+    // 缺失时参数保持原样（联网获取）。
+    var coreBootstrapArguments = ["install", "--manifest", componentManifest.path, "--destination-root", componentRoot.path]
+    if let payloadDirectory = bundledOfflinePayload("netease-download-core", expectsDirectory: true) {
+        coreBootstrapArguments += ["--payload-dir", payloadDirectory.path]
+    }
+    _ = try runTool(bootstrap, arguments: coreBootstrapArguments)
     let coreDirectory = componentRoot.appendingPathComponent("current").resolvingSymlinksInPath().standardizedFileURL
     let managedCoreDirectory = try prepareManagedDownloaderCore(
         componentDirectory: coreDirectory,

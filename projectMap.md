@@ -54,6 +54,7 @@ flowchart LR
 | `notices/` | 第三方许可、来源及对应源码材料生成入口；`.build/` 是生成目录。 |
 | `signing/` | entitlements、签名/公证脚本及候选第一方 ID 的只读验证；证书私钥留在系统安全存储，不进入 Git。 |
 | `releasePackaging/` | 版本约定、DMG 封包、`releaseIdentity.py` 包内身份核对及发行说明；`build/`、`.venv/` 是本机生成目录。 |
+| `offlinePackaging/` | **私有离线整包**，不是公开发行路径：把基础 Wine runtime、idv-login 与网易下载核心预先打进 App，供只能访问网易的目标用户首装。`prepareOfflinePayloads.command` 取件校验、`stageOfflinePayloads.command` 注入 App、`verifyOfflinePayloads.command` 独立复核、`buildOfflinePackage.command` 全流程封包；再分发边界见 `payloadProvenance.md`；`build/` 是本机生成目录。 |
 | `docs/` | 可公开的开发者框架、原因、取舍、历史命令和验证边界；从 `developerGuide.md` 进入，`engineeringDecisions.md` 解释工程组织，`firstPartyIdentity.md` 记录身份与旧安装兼容。 |
 | `local/` | 本机忽略的隔离候选与临时验证文件；不属于公开源码或已安装版。 |
 | `.build/` | 构建工具自动生成的中间文件，可再生且不进入 Git。 |
@@ -78,7 +79,7 @@ flowchart LR
 | 文件 | 执行后的主要作用 |
 | --- | --- |
 | `devIterate.command` | 日常总入口：`build` 生成候选，`run` 构建并打开候选，`install` 构建并更新 `/Applications`。 |
-| `buildPlayerLauncher.command` | 构建玩家启动器并记录源码提交、默认 runtime 与资源哈希，默认写 `playerLauncherApp/build/`，自身不更新 `/Applications`。 |
+| `buildPlayerLauncher.command` | 构建玩家启动器并记录源码提交、默认 runtime 与资源哈希，默认写 `playerLauncherApp/build/`，自身不更新 `/Applications`。设置绝对路径环境变量 `IDENTITYV_OFFLINE_PAYLOAD_ROOT` 时额外注入 `Contents/Resources/OfflinePayloads/`（离线整包专用，见 `offlinePackaging/`）；不设置时产物与公开发行一致。 |
 | `buildMaintenanceToolbox.command` | 构建维护者工具箱到 `maintenanceToolboxApp/build/`，自身不更新 `/Applications`。 |
 | `buildGameRunner.command` | 构建/装配内嵌游戏 runner 模板。 |
 | `buildIdentityVGameActivator.command` | 构建游戏前台激活辅助程序。 |

@@ -164,7 +164,7 @@ if [[ ! -f "$RUNTIME_BOOTSTRAP_MANIFEST_SOURCE" || ! -f "$RUNTIME_CATALOG_SOURCE
   print -u2 -- "请先运行 runtimeBootstrap/stageRuntimePatchPayloads.command。"
   exit 1
 fi
-for patch in winemac.so libgmp.10.dylib libpcre2-8.0.dylib libzstd.1.dylib; do
+for patch in winemac.so libgmp.10.dylib libpcre2-8.0.dylib libzstd.1.dylib gdi32.dll winecoreaudio.so; do
   [[ -f "$RUNTIME_PATCH_ROOT/$patch" && ! -L "$RUNTIME_PATCH_ROOT/$patch" ]] || { print -u2 -- "缺少 runtime patch：$patch"; exit 1; }
 done
 if [[ ! -f "$CORE_COMPONENT_MANIFEST_SOURCE" || ! -f "$IDV_LOGIN_COMPONENT_MANIFEST_SOURCE" || ! -f "$DIAGNOSTIC_EXPORTER_SOURCE" ]]; then
@@ -408,6 +408,16 @@ fi
 /usr/bin/codesign --force --sign - \
   --identifier com.fengyin.identityv.launcher.idv-login-downloader \
   "$IDV_LOGIN_DOWNLOADER_DESTINATION"
+# 离线整包（私有交付，见 offlinePackaging/README.md）：只有在调用方显式设置
+# IDENTITYV_OFFLINE_PAYLOAD_ROOT 时，才把已逐字节校验的上游组件打进
+# Contents/Resources/OfflinePayloads/，让只能访问网易的用户首装不必访问 GitHub。
+# 公开构建不设置这个变量，包内就不会出现这些字节；再分发边界的取舍与理由见
+# offlinePackaging/payloadProvenance.md。必须放在 stamp 与整树签名之前，
+# 这样 build-provenance.json 与签名都覆盖到最终形态的 App。
+if [[ -n "${IDENTITYV_OFFLINE_PAYLOAD_ROOT:-}" ]]; then
+  /bin/zsh "$PROJECT_ROOT/offlinePackaging/stageOfflinePayloads.command" \
+    --payload-root "$IDENTITYV_OFFLINE_PAYLOAD_ROOT" --app "$APP_PATH"
+fi
 # Build provenance records the source state before generated runner resources
 # are refreshed. Release packaging refuses a dirty/stale build and verifies
 # the selected engine against the bundled runtime manifest and catalog.

@@ -8,12 +8,21 @@
 
 维护者工具箱的 UI、浮窗和采集在 `maintenanceToolboxApp/Sources/`，独立构建与安装。两款 App 显式编译 `sharedDiagnostics/` 的健康、采样、采集状态和受限旧偏好迁移源码；工具箱不调用玩家 App 的私有源码目录。游戏运行数据、账号、prefix 与基础 runtime 在用户环境，仓库中保存来源、版本与哈希契约，并非真实用户数据。模块的逐项归属和源码入口见[地图](../projectMap.md)。
 
+首装时本来要从上游取的三样东西——基础 Wine runtime 镜像、idv-login、网易下载核心——都由 Go 获取器负责。它们各自接受一个可选的「离线载荷」参数（`--payload-dmg` / `--payload` / `--payload-dir`），只在 App 的 `Contents/Resources/OfflinePayloads/` 存在时由 `productManager/` 与 `ToolboxViewModel` 传入；校验契约与联网路径完全相同，缺失或校验失败都 fail closed，不回退网络。要把这三样字节随包分发，用 [`offlinePackaging/`](../offlinePackaging/README.md) 的私有路径，**不要**给公开发行脚本加开关：那条路径的载荷审计刻意拒绝这些字节，两条策略互斥。
+
 ## 修改一处功能时
 
 1. 先从界面所属 App 的 README 与 `Sources/` 找调用，再沿上面的模块关系定位实现；若跨两款 App，确认是明确共享的行为再放入 `sharedDiagnostics/`。先看对应测试与[工程取舍](engineeringDecisions.md)，避免只复制旧兼容分支。
 2. 在当前用户游戏/App 未依赖的隔离工作副本中修改。根入口 `./devIterate.command launcher build`、`./devIterate.command toolbox build` 只生成候选；玩家启动器构建还会更新仓内 runner 模板、签名输入与可再生输出，不能在有运行中的同一路径候选时原地覆盖。`keyboard build` 仅构建键盘组件，不产生可安装 App。需构建工具以各脚本的实际前置为准；主要使用 macOS SDK/Xcode 命令行工具，玩家构建还调用 Go 与若干本仓检查。
 3. 优先跑改动模块自己的合约测试，再对受影响 App 做完整构建与签名树/部署目标检查。构建脚本会调用多项自检；通过只证明对应静态与候选条件。`./devIterate.command … run` 会打开候选，`… install` 或 `./installIdentityVApps.command` 会替换 `/Applications` 并备份旧 App，这两步属于明确安排的真实运行/安装验收，不能和 `build` 混用。
+
 4. 若更改 App/runner 内容或签名输入，发行候选需从干净的确切源码提交重建、签名、公证并重算对应源码与材料哈希。构建把提交、构建前干净状态、发行号与实际默认 runtime 写入 App 的 `build-provenance.json`；封包器逐项核对并拒绝已公开的同名版本。纯文档整理不回写已签 App。版本及对用户的变化同步[变更记录](../CHANGELOG.md)，原因、失败路径和适用边界留在相关测试、代码注释或工程说明。结构、入口或脚本效果改变时，同步[项目地图](../projectMap.md)；普通函数细节不必改地图。
+
+### 更新与首装测试的空间收尾
+
+普通 App 更新只替换 `/Applications` 中的 App；现有游戏目录、Wine runtime、prefix 和账号状态各在 App 外，构建或安装新版 App 时不复制游戏。安装脚本为失败回滚保留旧 App，待新版完成本轮实际验收后，在同一任务中核对当前 App、所需回退版本与备份目录，移除过期 App 备份及构建/封包中间目录。未验收的候选保持隔离并注明归属，不把每日巡检当作正常收尾步骤。
+
+完整首装或卸载实验若需隔离旧游戏，旧游戏整树只作测试期间的临时副本。先单独保存无法重新下载的设置、键位、账号和诊断证据；确认活动游戏已由下载器重新建立且本轮不再需要旧状态时，立即删除旧游戏整树，并更新私人恢复点记录。游戏资源可重新下载，不能为了可能的快速回滚无限期保留十几 GB 的整树；只有当前实验确实要比较旧资源字节时才明确保留，并在实验结束时重新判断。每日空间巡检只报告遗漏的过期产物，不决定版本验收，也不自动删除活动运行数据。
 
 ## 入口和兼容边界
 

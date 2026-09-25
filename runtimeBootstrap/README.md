@@ -6,6 +6,9 @@
 326,791,695 bytes 和 SHA-256，才从只读 DMG 取出预期的 `wine-release` 根目录。
 
 这条下载路径不表示上游把该 runtime 授权给本项目重新分发；它恰恰避免了我们重分发这一问题。
+**公开发行仍然如此**：`releasePackaging/` 的载荷审计继续拒绝 `DWRG.dmg`。私有「离线整包」是一个
+刻意的例外——它用下面的 `--payload-dmg` 把同一份字节随包交给网络只能访问网易的用户；
+来源、字节与再分发边界见 [`../offlinePackaging/payloadProvenance.md`](../offlinePackaging/payloadProvenance.md)。
 
 ## 接口
 
@@ -22,11 +25,16 @@
 ```text
 IdentityVRuntimeBootstrap install --manifest /absolute/runtime-manifest.json \
   --destination-root "$HOME/Library/Application Support/IdentityVOnMac/Components/wine-runtime" \
-  --patch-root /absolute/read-only-patch-payloads
+  --patch-root /absolute/read-only-patch-payloads \
+  [--payload-dmg /absolute/BaseRuntime.dmg]
 ```
 
-`patch-root` 由安装器提供，必须含 manifest 中四个相对 payload 名：`winemac.so`、
-`libgmp.10.dylib`、`libpcre2-8.0.dylib` 和 `libzstd.1.dylib`。helper 不会创建、启动或读取任何 Wine
+`--payload-dmg` 是可选的离线来源：给了就用这个本地镜像代替下载，但**校验契约不变**——大小必须等于
+`manifest.source.byteCount`、SHA-256 必须等于 `manifest.source.sha256`，不符即失败，且**不会**退回
+网络。进度行仍按 `runtime-bootstrap stage=download …` 输出，界面不需要区分两种来源。
+
+`patch-root` 由安装器提供，必须含 manifest 中所有相对 payload 名；当前本地组合测试候选还含
+`lib/wine/x86_64-windows/gdi32.dll` 和 `lib/wine/x86_64-unix/winecoreaudio.so`。PE 补丁按 AMD64 DLL 格式核验，Mach-O 补丁按部署目标核验。helper 不会创建、启动或读取任何 Wine
 prefix，也不会启动游戏。它拒绝符号链接、路径逃逸、损坏/缺失 patch、非预期重定向和任何版本冲突；失败时
 不发布 `current`，并卸载临时 DMG。网络中断留下的 staging 会在下一次安全清理，不会被当作完成版本复用。
 
@@ -44,7 +52,7 @@ prefix，也不会启动游戏。它拒绝符号链接、路径逃逸、损坏/�
 IdentityVRuntimeBootstrap verify-tree --manifest /absolute/runtime-manifest.json --tree /absolute/runtime
 ```
 
-当前 manifest 是 macOS 15 Alpha 组合候选；其四枚自建 patch 与关键运行时哈希来自
+当前 manifest 是 macOS 15 的本地 emoji 与音频测试候选；公开 RC1 的 manifest 仍固定在其 Git tag 中。四枚既有 Mach-O patch 与关键运行时哈希来自
 [`../runtimeManifest/macosCompatibilityAudit.md`](../runtimeManifest/macosCompatibilityAudit.md)。
 
 ## 补丁载荷的签名与哈希契约（2026-09-21）
@@ -62,7 +70,7 @@ IdentityVRuntimeBootstrap verify-tree --manifest /absolute/runtime-manifest.json
 `verifyRuntimePatchPayloads.command` 与 `main.go` 继续使用 `sha256`（分发契约）。任何
 改动补丁字节的步骤都必须让 staging 脚本刷新这两处哈希，否则 runner 会在启动时以
 `integrity check failed` 中止。已签名补丁的功能尚未在真实游戏中单独回归，替换已装
-runtime 里这四枚文件时应先保留原文件以便回退。
+runtime 里的补丁时应先保留原版本以便回退。当前本机测试 payload 还包含从 CodeWeavers 26.1 源码构建并以本项目 Developer ID 签名的 x86_64 `winecoreaudio.so`；它只在新版本候选中验证，不覆盖 r1。
 
 2026-09-23 从空运行环境首装时发现一个先前被已有缓存遮住的失败路径：bootstrap
 以 `DisallowUnknownFields` 解析**同一份** manifest，但原先的 `patchSpec` 漏掉仅供 staging

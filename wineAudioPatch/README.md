@@ -66,12 +66,17 @@ compile-check 产物为 `a6433da6514d6f673f31c16a9a9bc4ab7d84257935a12b2413ab3bd
 源码级 rebase 的固定 SHA 是上面的 `275dd…06324`。它链接
 CoreAudio、AudioUnit、AudioToolbox、CoreMIDI、AppKit 与 AVFoundation，说明精确
 源码中的 CoreAudio 代码和补丁可完整通过模块编译。它不是发布物：现用 runtime
-模块是 x86_64，本机缺少 CodeWeavers 原始 x86_64 PE 交叉编译工具链与 32-bit
-development libraries，直接 `arch -x86_64 ./configure --enable-win64` 会在
-`-mabi=ms` / MinGW 检查失败，普通 x86_64 configure 会在 32-bit libraries 检查
-失败。因此尚不能声称与已发布 runtime 的完整 configure flags、第三方依赖闭包、
-签名或可运行行为一致。该隔离产物仅带 linker 自动加入的 ad-hoc 签名、没有 Team
-ID；它绝不能替换发布模块。
+该模块仍只是隔离 arm64 compile-check；它不能替换已安装的 x86_64 发布模块。此前把
+`-mabi=ms` 原生编译器探测失败和缺少 32-bit libraries 写成整体阻塞，后来发现本机
+另有 llvm-mingw 工具链，可让 x86_64 Wine configure 通过并构建该目标。
+
+## 录音重采样边界候选
+
+`capture-resample-produced-frames.patch` 修复另一个可静态确认的缓冲区边界：转换器实际输出可能少于请求帧数，旧代码却按请求量发布，短帧时会暴露重采样缓冲区中的旧数据。它是调查三秒破音的一条合理假设，但尚无现场证据证明破音由此产生。
+
+2026-09-24 使用 CodeWeavers 26.1 源码包 SHA-256 `e4ec87d5821a009dd1f1d2e36ffe2e24b8fcbae9516375ea42f95a16928ab8fa`，以现存 llvm-mingw + Bison 3.8.2 工具链完成 x86_64 configure，并只构建 `dlls/winecoreaudio.drv/winecoreaudio.so`。源码补丁前 SHA-256 为 `635347dcfc86800ed64737c6487a808836240e7846c6af699493e7a683d3f42c`，补丁后为 `d55561d42cfa69ed75a1b288a2f907ab55c92de42275769fd60df3caa5b4c624`。候选为 x86_64 Mach-O，install name `@rpath/winecoreaudio.so`，rpath `@loader_path/`，macOS minimum `10.15`；依赖列表和 exports 与当前 runtime 模块相同。最初 SDK 默认输出 minOS `27.0`，因此按 `MACOSX_DEPLOYMENT_TARGET=10.15` 重新链接目标和临时 ntdll，再复核 load commands 与链接诊断后才签名。
+
+最终候选以 `Developer ID Application: Qingxiong Yang (VNTCB2984V)` 和 hardened runtime 签名，SHA-256 `90419c1a4009407b28b353614b883ef3d1531e8b852416fe0eaf704c90b6fce0`。复建入口为 [`buildCaptureResampleX64.command`](buildCaptureResampleX64.command)：提供已校验 CodeWeavers 源码包、llvm-mingw 根目录、Bison 3.8.2 与唯一隔离 build root；脚本只产出未签名模块，不修改活动 runtime、prefix、启动器或游戏。签名是后续独立步骤。本机测试 runtime 必须使用新的不可变版本目录；公开 RC1 与原 r1 保持原字节。编译、签名、静态 runtime 校验和真实游戏录音回归是不同门槛；约三秒破音是否改变仍需风吟在游戏里验证。
 
 ## 验收计划
 

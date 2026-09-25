@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -339,5 +340,227 @@ func TestEmojiCandidatePEPatch(t *testing.T) {
 	}
 	if err := verifyPEMachine(wrong, "amd64"); err == nil {
 		t.Fatal("accepted non-PE patch payload")
+	}
+}
+
+// ── 离线载荷（--payload-dmg）────────────────────────────────────────────────────
+// 契约：给了本地镜像就完全替代网络，逐字节校验；不一致 fail closed，绝不回退联网。
+
+func realTempDir(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// buildRuntimeDMG wraps a runtime tree in the same kind of compressed image the
+// upstream publisher ships, so the offline path exercises the real mount flow.
+func buildRuntimeDMG(t *testing.T, sourceRoot string) string {
+	t.Helper()
+	if info, err := os.Stat("/usr/bin/hdiutil"); err != nil || info.Mode()&0111 == 0 {
+		t.Skip("hdiutil is required for the offline image fixture")
+	}
+	dmg := filepath.Join(t.TempDir(), "BaseRuntime.dmg")
+	output, err := exec.Command("/usr/bin/hdiutil", "create", "-quiet", "-format", "UDZO",
+		"-volname", "IdentityVRuntimeFixture", "-srcfolder", sourceRoot, dmg).CombinedOutput()
+	if err != nil {
+		t.Fatalf("cannot build DMG fixture: %v: %s", err, output)
+	}
+	return dmg
+}
+
+// offlineRuntimeFixture returns a manifest, patch root and image whose bytes all
+// agree, mirroring the packaged offline layout (BaseRuntime.dmg + RuntimePatches).
+func offlineRuntimeFixture(t *testing.T) (manifest, string, string) {
+	t.Helper()
+	patches := machoFixture(binary.LittleEndian, true, 0x32, 1, 15<<16)
+	patchHash := fixtureHash(patches)
+	patchRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(patchRoot, "patches"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"winemac.so", "gmp", "pcre", "zstd"}
+	specs := make([]patchSpec, 0, len(names))
+	for _, name := range names {
+		relative := filepath.Join("patches", name)
+		if err := os.WriteFile(filepath.Join(patchRoot, relative), patches, 0600); err != nil {
+			t.Fatal(err)
+		}
+		specs = append(specs, patchSpec{PatchRelativePath: relative, TargetRelativePath: "lib/" + name, SHA256: patchHash, MachOMinOSAtMost: "15.0"})
+	}
+	runtimeRoot := "App.app/Contents/Resources/runtime"
+	sourceRoot := t.TempDir()
+	source := filepath.Join(sourceRoot, runtimeRoot)
+	if err := os.MkdirAll(filepath.Join(source, "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, "lib"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	wine := []byte("runtime")
+	if err := os.WriteFile(filepath.Join(source, "bin", "wine"), wine, 0700); err != nil {
+		t.Fatal(err)
+	}
+	unsigned := []byte("unsigned-lib")
+	if err := os.WriteFile(filepath.Join(source, "lib", "winemac.so"), unsigned, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names[1:] {
+		if err := os.WriteFile(filepath.Join(source, "lib", name), unsigned, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dmg := buildRuntimeDMG(t, sourceRoot)
+	info, err := os.Stat(dmg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dmgHash, err := hashFile(dmg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := []fileSpec{{RelativePath: "bin/wine", SHA256: fixtureHash(wine), Executable: true}}
+	for _, name := range names {
+		final = append(final, fileSpec{RelativePath: "lib/" + name, SHA256: patchHash, MachOMinOSAtMost: "15.0"})
+	}
+	m := manifest{
+		SchemaVersion: 1, Component: "wine-runtime", Version: "fixture-r1", MinimumMacOS: "15.0",
+		Source: sourceSpec{
+			URL: "https://127.0.0.1:1/BaseRuntime.dmg", AllowedRedirectHosts: []string{"127.0.0.1:1"},
+			ByteCount: info.Size(), SHA256: dmgHash, RuntimeRoot: runtimeRoot,
+		},
+		SourceVerificationFiles: []fileSpec{{RelativePath: "bin/wine", SHA256: fixtureHash(wine), Executable: true}, {RelativePath: "lib/winemac.so", SHA256: fixtureHash(unsigned)}},
+		Patches:                 specs,
+		FinalVerificationFiles:  final,
+	}
+	return m, patchRoot, dmg
+}
+
+func TestOfflinePayloadImageInstallsWithoutNetwork(t *testing.T) {
+	m, patchRoot, dmg := offlineRuntimeFixture(t)
+	destination := realTempDir(t)
+	var progress bytes.Buffer
+	if err := installWithPayload(context.Background(), m, destination, patchRoot, dmg, &progress); err != nil {
+		t.Fatalf("offline install failed: %v", err)
+	}
+	final := filepath.Join(destination, m.Version)
+	if err := verifyTree(final, m.FinalVerificationFiles, true); err != nil {
+		t.Fatalf("published runtime does not verify: %v", err)
+	}
+	target, err := os.Readlink(filepath.Join(destination, "current"))
+	if err != nil || target != m.Version {
+		t.Fatalf("unexpected current link: target=%q err=%v", target, err)
+	}
+	patched, err := os.ReadFile(filepath.Join(final, "lib", "winemac.so"))
+	if err != nil || fixtureHash(patched) != m.Patches[0].SHA256 {
+		t.Fatalf("patch payload was not applied: err=%v", err)
+	}
+	text := progress.String()
+	for _, want := range []string{"using offline runtime payload", "runtime-bootstrap stage=download bytes=0 total=", "percent=100", "runtime bootstrap completed"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("progress stream missing %q: %q", want, text)
+		}
+	}
+	if strings.Contains(text, "downloading runtime from original publisher") {
+		t.Fatalf("offline install still announced a download: %q", text)
+	}
+}
+
+func TestOfflinePayloadVerificationFailsClosed(t *testing.T) {
+	payload := []byte("offline runtime image bytes")
+	m := fixtureManifest()
+	m.Source.ByteCount = int64(len(payload))
+	m.Source.SHA256 = fixtureHash(payload)
+	good := filepath.Join(t.TempDir(), "BaseRuntime.dmg")
+	if err := os.WriteFile(good, payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var progress bytes.Buffer
+	if err := verifyLocalSource(context.Background(), m, good, &progress); err != nil {
+		t.Fatalf("valid offline payload rejected: %v", err)
+	}
+	for _, want := range []string{"runtime-bootstrap stage=download bytes=0 total=", "percent=0", "percent=100"} {
+		if !strings.Contains(progress.String(), want) {
+			t.Fatalf("progress stream missing %q: %q", want, progress.String())
+		}
+	}
+	mutated := append([]byte(nil), payload...)
+	mutated[0] ^= 1
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"size mismatch", writeFixtureFile(t, "short.dmg", payload[:len(payload)-1])},
+		{"hash mismatch", writeFixtureFile(t, "mutated.dmg", mutated)},
+		{"missing file", filepath.Join(t.TempDir(), "missing.dmg")},
+	}
+	link := filepath.Join(t.TempDir(), "link.dmg")
+	if err := os.Symlink(good, link); err != nil {
+		t.Fatal(err)
+	}
+	cases = append(cases, struct {
+		name string
+		path string
+	}{"symlink", link})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := verifyLocalSource(context.Background(), m, tc.path, io.Discard); err == nil {
+				t.Fatal("invalid offline payload was accepted")
+			}
+		})
+	}
+}
+
+func writeFixtureFile(t *testing.T, name string, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestOfflineInstallRejectsTamperedPayloadWithoutNetworkFallback(t *testing.T) {
+	m := fixtureManifest()
+	m.Source.ByteCount = 8
+	m.Source.SHA256 = fixtureHash([]byte("expected"))
+	payload := writeFixtureFile(t, "BaseRuntime.dmg", []byte("tampered"))
+	destination := realTempDir(t)
+	var out bytes.Buffer
+	if err := installWithPayload(context.Background(), m, destination, t.TempDir(), payload, &out); err == nil {
+		t.Fatal("accepted a tampered offline payload")
+	}
+	if strings.Contains(out.String(), "downloading runtime from original publisher") {
+		t.Fatalf("offline failure fell back to the network: %q", out.String())
+	}
+	if _, err := os.Lstat(filepath.Join(destination, "current")); !os.IsNotExist(err) {
+		t.Fatalf("published current after a failed offline payload: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(destination, m.Version)); !os.IsNotExist(err) {
+		t.Fatalf("published a version after a failed offline payload: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(destination, "current")); !os.IsNotExist(err) {
+		t.Fatal("current must not exist after a rejected payload")
+	}
+}
+
+func TestInstallWithoutOfflinePayloadStillDownloads(t *testing.T) {
+	m := fixtureManifest()
+	m.Source.URL = "https://127.0.0.1:1/BaseRuntime.dmg"
+	m.Source.AllowedRedirectHosts = []string{"127.0.0.1:1"}
+	m.Source.ByteCount = 4
+	m.Source.SHA256 = stringsRepeat("a", 64)
+	destination := realTempDir(t)
+	var out bytes.Buffer
+	if err := installWithPayload(context.Background(), m, destination, t.TempDir(), "", &out); err == nil {
+		t.Fatal("expected the unreachable source to fail the online path")
+	}
+	if !strings.Contains(out.String(), "downloading runtime from original publisher") {
+		t.Fatalf("empty payload did not use the original download path: %q", out.String())
+	}
+	if strings.Contains(out.String(), "offline runtime payload") {
+		t.Fatalf("empty payload was treated as an offline image: %q", out.String())
 	}
 }

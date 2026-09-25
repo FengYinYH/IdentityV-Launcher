@@ -1,15 +1,18 @@
 package main
 
 import (
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -219,5 +222,179 @@ func TestBadRangeHashAndLock(t *testing.T) {
 	case <-done:
 	default:
 		t.Fatal("lock not released")
+	}
+}
+
+// ── 离线载荷（--payload）────────────────────────────────────────────────────────
+// 契约：gzip 只用来绕开 codesign 对裸 Mach-O 的重签；解压产物仍须逐字节通过
+// 大小/哈希/arm64 magic 校验，失败 fail closed 并清理 .partial，绝不回退联网。
+
+func gzipFixture(t *testing.T, input []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "idv-login-6.3.0.gz")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := gzip.NewWriter(file)
+	if _, err = writer.Write(input); err != nil {
+		t.Fatal(err)
+	}
+	if err = writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func offlineClient(t *testing.T) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("offline payload fell back to the network")
+		return nil, nil
+	})}
+}
+
+func TestParseArgsKeepsLegacyFormAndAcceptsPayload(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		payload string
+		ok      bool
+	}{
+		{"legacy positional", []string{"m.json", "/cache"}, "", true},
+		{"separate payload", []string{"m.json", "/cache", "--payload", "/payload.gz"}, "/payload.gz", true},
+		{"inline payload", []string{"m.json", "/cache", "--payload=/payload.gz"}, "/payload.gz", true},
+		{"missing arguments", []string{"m.json"}, "", false},
+		{"dangling flag", []string{"m.json", "/cache", "--payload"}, "", false},
+		{"empty payload", []string{"m.json", "/cache", "--payload", ""}, "", false},
+		{"unknown extra", []string{"m.json", "/cache", "extra"}, "", false},
+		{"unknown flag", []string{"m.json", "/cache", "--other", "/x"}, "", false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			manifestPath, cache, payload, err := parseArgs(testCase.args)
+			if (err == nil) != testCase.ok {
+				t.Fatalf("accepted=%v want %v (err=%v)", err == nil, testCase.ok, err)
+			}
+			if !testCase.ok {
+				return
+			}
+			if manifestPath != "m.json" || cache != "/cache" || payload != testCase.payload {
+				t.Fatalf("got manifest=%q cache=%q payload=%q", manifestPath, cache, payload)
+			}
+		})
+	}
+}
+
+func TestOfflinePayloadDecompressesAndVerifiesWithoutNetwork(t *testing.T) {
+	content := payload()
+	cache := t.TempDir()
+	m := testManifest("http://must-not-be-used.invalid", content)
+	archive := gzipFixture(t, content)
+	oldStderr := os.Stderr
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = writePipe
+	got, acquireErr := acquire(m, cache, offlineClient(t), archive)
+	_ = writePipe.Close()
+	os.Stderr = oldStderr
+	stderrBytes, _ := io.ReadAll(readPipe)
+	_ = readPipe.Close()
+	if acquireErr != nil {
+		t.Fatalf("offline payload install failed: %v", acquireErr)
+	}
+	if got != filepath.Join(cache, m.AssetName) {
+		t.Fatalf("unexpected final path %q", got)
+	}
+	if err = regularArm64(got, m); err != nil {
+		t.Fatalf("published component does not verify: %v", err)
+	}
+	info, err := os.Stat(got)
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("published mode = %v (err=%v), want 0600", info.Mode().Perm(), err)
+	}
+	if _, err = os.Lstat(got + ".partial"); !os.IsNotExist(err) {
+		t.Fatalf("partial file survived a successful install: %v", err)
+	}
+	want := `{"schemaVersion":1,"phase":"verifying","bytesWritten":1,"totalBytesExpected":1}`
+	if !strings.Contains(string(stderrBytes), want) {
+		t.Fatalf("verifying progress line missing from %q", string(stderrBytes))
+	}
+}
+
+func TestOfflinePayloadReusesVerifiedFinal(t *testing.T) {
+	content := payload()
+	cache := t.TempDir()
+	m := testManifest("http://must-not-be-used.invalid", content)
+	final := filepath.Join(cache, m.AssetName)
+	if err := os.WriteFile(final, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// An absent archive proves the verified final file short-circuits extraction.
+	got, err := acquire(m, cache, offlineClient(t), filepath.Join(t.TempDir(), "absent.gz"))
+	if err != nil {
+		t.Fatalf("verified final file was not reused: %v", err)
+	}
+	if got != final {
+		t.Fatalf("reused %q, want %q", got, final)
+	}
+}
+
+func TestOfflinePayloadFailsClosedAndCleansPartial(t *testing.T) {
+	content := payload()
+	mutated := append([]byte(nil), content...)
+	mutated[100] ^= 1
+	link := filepath.Join(t.TempDir(), "linked.gz")
+	if err := os.Symlink(gzipFixture(t, content), link); err != nil {
+		t.Fatal(err)
+	}
+	raw := filepath.Join(t.TempDir(), "raw.gz")
+	if err := os.WriteFile(raw, []byte("not a gzip stream"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{"missing archive", filepath.Join(t.TempDir(), "absent.gz")},
+		{"not gzip", raw},
+		{"symlinked archive", link},
+		{"truncated artefact", gzipFixture(t, content[:len(content)-1])},
+		{"hash mismatch", gzipFixture(t, mutated)},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cache := t.TempDir()
+			m := testManifest("http://must-not-be-used.invalid", content)
+			if _, err := acquire(m, cache, offlineClient(t), testCase.payload); err == nil {
+				t.Fatal("invalid offline payload was accepted")
+			}
+			final := filepath.Join(cache, m.AssetName)
+			if _, err := os.Lstat(final); !os.IsNotExist(err) {
+				t.Fatalf("failed payload published the final component: %v", err)
+			}
+			if _, err := os.Lstat(final + ".partial"); !os.IsNotExist(err) {
+				t.Fatalf("failed payload left a .partial behind: %v", err)
+			}
+		})
+	}
+}
+
+func TestWithoutPayloadStillDownloadsOverNetwork(t *testing.T) {
+	content := payload()
+	server := server(t, content, "full")
+	defer server.Close()
+	m := testManifest(server.URL, content)
+	cache := t.TempDir()
+	got, err := acquire(m, cache, server.Client(), "")
+	if err != nil {
+		t.Fatalf("online path failed: %v", err)
+	}
+	if err = regularArm64(got, m); err != nil {
+		t.Fatalf("downloaded component does not verify: %v", err)
 	}
 }

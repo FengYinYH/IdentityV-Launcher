@@ -80,6 +80,7 @@ func main() {
 		manifestPath := fs.String("manifest", "", "absolute manifest")
 		destination := fs.String("destination-root", "", "component root")
 		patches := fs.String("patch-root", "", "read-only patch root")
+		payloadDMG := fs.String("payload-dmg", "", "offline runtime image; replaces the network download")
 		fs.Parse(os.Args[2:])
 		m, err := readManifest(*manifestPath)
 		if err == nil {
@@ -88,7 +89,7 @@ func main() {
 			// download, attach or copy cannot outlive its parent process.
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			err = install(ctx, m, *destination, *patches, os.Stderr)
+			err = installWithPayload(ctx, m, *destination, *patches, *payloadDMG, os.Stderr)
 		}
 		fail(err)
 	case "verify-tree":
@@ -107,7 +108,7 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: IdentityVRuntimeBootstrap install --manifest ABS --destination-root ABS --patch-root ABS | verify-tree --manifest ABS --tree ABS")
+	fmt.Fprintln(os.Stderr, "usage: IdentityVRuntimeBootstrap install --manifest ABS --destination-root ABS --patch-root ABS [--payload-dmg ABS] | verify-tree --manifest ABS --tree ABS")
 	os.Exit(2)
 }
 func fail(err error) {
@@ -440,6 +441,32 @@ func httpClient(allowed map[string]bool) *http.Client {
 		return nil
 	}}
 }
+
+// verifyLocalSource accepts an offline copy of the release image only when it is
+// byte-for-byte the file the manifest pins.  The file is streamed through the
+// same machine-readable progress stream the network download uses, so the
+// launcher UI needs no second code path, and no HTTP request is ever created.
+func verifyLocalSource(ctx context.Context, m manifest, path string, out io.Writer) error {
+	info, err := regular(path)
+	if err != nil {
+		return fmt.Errorf("offline runtime payload: %w", err)
+	}
+	if info.Size() != m.Source.ByteCount {
+		return errors.New("offline runtime payload size mismatch")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	// The UI parses bytes/total from this stream; 0 and 100 must always appear.
+	fmt.Fprintf(out, "runtime-bootstrap stage=download bytes=0 total=%d percent=0\n", m.Source.ByteCount)
+	if err = writeVerifiedWithProgressContext(ctx, io.Discard, file, m.Source.ByteCount, m.Source.SHA256, out); err != nil {
+		return fmt.Errorf("offline runtime payload: %w", err)
+	}
+	return nil
+}
+
 func download(ctx context.Context, m manifest, target string, out io.Writer) error {
 	allowed := map[string]bool{}
 	for _, h := range m.Source.AllowedRedirectHosts {
@@ -717,7 +744,19 @@ func recoverPublishedRuntime(m manifest, destinationRoot string, checkMachO bool
 	}
 	return true, nil
 }
+
+// install keeps the original online-only transaction as the single entry point
+// used by unit fixtures and by any caller that has no offline image.
 func install(ctx context.Context, m manifest, destinationRoot, patchRoot string, out io.Writer) error {
+	return installWithPayload(ctx, m, destinationRoot, patchRoot, "", out)
+}
+
+// installWithPayload performs the complete install transaction.  payloadDMG is
+// an optional offline copy of the release image: when it is set the file is
+// verified against the manifest and used directly, and every mismatch is fatal
+// rather than a fallback to the network.  A 300+ MB image is streamed, never
+// read into memory.
+func installWithPayload(ctx context.Context, m manifest, destinationRoot, patchRoot, payloadDMG string, out io.Writer) error {
 	// Keep the internal API tolerant for deterministic unit fixtures that do
 	// not exercise cancellation.  The command-line install path always passes
 	// a SIGINT/SIGTERM-aware context.
@@ -752,9 +791,19 @@ func install(ctx context.Context, m manifest, destinationRoot, patchRoot string,
 	}
 	defer os.RemoveAll(stage)
 	dmg := filepath.Join(stage, "source.dmg")
-	fmt.Fprintln(out, "downloading runtime from original publisher")
-	if e = download(ctx, m, dmg, out); e != nil {
-		return e
+	if payloadDMG != "" {
+		// Offline package: the image is already on disk.  Verification below is
+		// the complete network substitute, so a bad payload must stop here.
+		fmt.Fprintln(out, "using offline runtime payload")
+		if e = verifyLocalSource(ctx, m, payloadDMG, out); e != nil {
+			return e
+		}
+		dmg = payloadDMG
+	} else {
+		fmt.Fprintln(out, "downloading runtime from original publisher")
+		if e = download(ctx, m, dmg, out); e != nil {
+			return e
+		}
 	}
 	mount := filepath.Join(stage, "mount")
 	if e = os.Mkdir(mount, 0700); e != nil {

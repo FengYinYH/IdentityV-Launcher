@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -185,12 +186,19 @@ func stream(resp *http.Response, f *os.File, offset int64, m manifest) error {
 	if resp.ContentLength != m.ByteSize-offset {
 		return errors.New("download response has unexpected length")
 	}
+	return writeStream(resp.Body, f, offset, m)
+}
+
+// writeStream copies the remaining component bytes while reporting bounded
+// progress.  Both the HTTP body and the offline gzip payload feed it, so the
+// UI sees one identical progress stream in either mode.
+func writeStream(source io.Reader, f *os.File, offset int64, m manifest) error {
 	done := offset
 	emitProgress("downloading", done, m.ByteSize)
 	buf := make([]byte, 128*1024)
 	last := time.Time{}
 	for {
-		n, e := resp.Body.Read(buf)
+		n, e := source.Read(buf)
 		if n > 0 {
 			if _, w := f.Write(buf[:n]); w != nil {
 				return w
@@ -213,7 +221,17 @@ func stream(resp *http.Response, f *os.File, offset int64, m manifest) error {
 	}
 	return nil
 }
+
+// download is the original online-only acquisition used by unit fixtures and by
+// any caller that has no offline payload.
 func download(m manifest, cache string, client *http.Client) (string, error) {
+	return acquire(m, cache, client, "")
+}
+
+// acquire resolves the pinned component into the cache slot.  payload is an
+// optional gzip-compressed copy of the decompressed artefact: when it is set the
+// archive replaces the network download entirely and any mismatch is fatal.
+func acquire(m manifest, cache string, client *http.Client, payload string) (string, error) {
 	if err := ensureDir(cache); err != nil {
 		return "", err
 	}
@@ -233,6 +251,12 @@ func download(m manifest, cache string, client *http.Client) (string, error) {
 	if reuseLegacy(cache, final, m) == nil {
 		emitProgress("verifying", 1, 1)
 		return final, nil
+	}
+	// Offline package: decompress the bundled copy into the same partial slot and
+	// run the same verification.  The network path below is never reached, so a
+	// bad payload cannot silently fall back to GitHub.
+	if payload != "" {
+		return importPayload(payload, final, m)
 	}
 	partial := final + ".partial"
 	offset := int64(0)
@@ -332,6 +356,93 @@ func download(m manifest, cache string, client *http.Client) (string, error) {
 	emitProgress("verifying", 1, 1)
 	return final, nil
 }
+
+// importPayload decompresses the offline gzip copy into the stable slot.  The
+// archive itself is not pinned (gzip only exists so codesign can re-sign the App
+// tree), so nothing is trusted until the decompressed bytes pass the exact size,
+// SHA-256 and arm64 Mach-O checks used for a download.  A failure removes the
+// partial file and never consults the network.
+func importPayload(payload, final string, m manifest) (string, error) {
+	info, err := os.Lstat(payload)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("offline payload is not a regular file")
+	}
+	source, err := os.Open(payload)
+	if err != nil {
+		return "", err
+	}
+	defer source.Close()
+	archive, err := gzip.NewReader(source)
+	if err != nil {
+		return "", err
+	}
+	defer archive.Close()
+	partial := final + ".partial"
+	if i, e := os.Lstat(partial); e == nil {
+		if !i.Mode().IsRegular() || i.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("partial component path is unsafe")
+		}
+		if e = os.Remove(partial); e != nil {
+			return "", e
+		}
+	} else if !os.IsNotExist(e) {
+		return "", e
+	}
+	out, err := os.OpenFile(partial, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return "", err
+	}
+	e := writeStream(archive, out, 0, m)
+	c := out.Close()
+	if e != nil || c != nil {
+		_ = os.Remove(partial)
+		if e != nil {
+			return "", e
+		}
+		return "", c
+	}
+	if err = regularArm64(partial, m); err != nil {
+		_ = os.Remove(partial)
+		return "", err
+	}
+	if err = os.Rename(partial, final); err != nil {
+		_ = os.Remove(partial)
+		return "", err
+	}
+	if err = os.Chmod(final, 0600); err != nil {
+		return "", err
+	}
+	emitProgress("verifying", 1, 1)
+	return final, nil
+}
+
+// parseArgs keeps the original two-positional form byte-for-byte compatible and
+// adds the optional offline payload form.  Both `--payload ABS` and
+// `--payload=ABS` are accepted so a quoting difference cannot silently select a
+// different file.
+func parseArgs(args []string) (manifestPath, cache string, payload string, err error) {
+	if len(args) < 2 {
+		return "", "", "", errors.New("missing arguments")
+	}
+	manifestPath, cache = args[0], args[1]
+	switch {
+	case len(args) == 2:
+	case len(args) == 3 && strings.HasPrefix(args[2], "--payload="):
+		payload = strings.TrimPrefix(args[2], "--payload=")
+	case len(args) == 4 && args[2] == "--payload":
+		payload = args[3]
+	default:
+		return "", "", "", errors.New("unexpected arguments")
+	}
+	if len(args) > 2 && payload == "" {
+		return "", "", "", errors.New("empty offline payload path")
+	}
+	return manifestPath, cache, payload, nil
+}
+
 func validatePinned(m manifest) error {
 	if m.Component != "idv-login" || m.Version != "6.3.0" || m.AssetName != "idv-login-v6.3.0-stable-mac" || m.ByteSize != 197215760 || m.SHA256 != "8e63be76de37b4aeb8c6617d0d4c44a983d3d8e6d29c565c5074085286fe6889" || m.DownloadURL != "https://github.com/KKeygen/idv-login/releases/download/v6.3.0-stable/idv-login-v6.3.0-stable-mac" {
 		return errors.New("invalid pinned IDV Login manifest")
@@ -347,10 +458,11 @@ func main() {
 		fmt.Println("idv-login-downloader self-test passed")
 		return
 	}
-	if len(os.Args) != 3 {
-		fail("usage: %s manifest.json cache-directory", filepath.Base(os.Args[0]))
+	manifestPath, cache, payload, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fail("usage: %s manifest.json cache-directory [--payload ABS]", filepath.Base(os.Args[0]))
 	}
-	b, e := os.ReadFile(os.Args[1])
+	b, e := os.ReadFile(manifestPath)
 	if e != nil {
 		fail("read manifest: %v", e)
 	}
@@ -361,7 +473,7 @@ func main() {
 	if e = validatePinned(m); e != nil {
 		fail("%v", e)
 	}
-	p, e := download(m, os.Args[2], safeClient())
+	p, e := acquire(m, cache, safeClient(), payload)
 	if e != nil {
 		fail("download component: %v", e)
 	}
