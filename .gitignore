@@ -16,6 +16,8 @@ __pycache__/
 # These tools are rebuilt from the tracked source during a product build.
 denseMetrics/idv-dense-metrics
 runtimeBootstrap/IdentityVRuntimeBootstrap
+downloaderCoreBootstrap/IdentityVDownloaderCoreBootstrap
+idvLoginComponent/downloader/identityv-idv-login-downloader
 inputLatencyProbe/IdentityVInputLatencyProbe
 wineAudioPatch/build-26.1/
 

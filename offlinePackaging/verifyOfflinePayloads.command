@@ -59,7 +59,6 @@ extra_ok=(
   "$app" "$payloads" "$manifest" \
   "$runtime_manifest" "$core_manifest" "$idv_manifest" \
   "${extra_ok[@]}" <<'PY'
-import gzip
 import hashlib
 import json
 import os
@@ -118,6 +117,15 @@ listed_core = {entry["filename"]: (entry["byteCount"], entry["sha256"]) for entr
 if expected_core != listed_core:
     fail("包内下载核心清单与 downloaderCoreComponent.json 不一致")
 
+# idv-login 随包的是本项目重签后的那一份：上游哈希用于证明派生关系，offlineSha256/offlineByteCount
+# 才是这一份实际的期望值。两项缺一不可。
+if not isinstance(payload_manifest["idvLogin"].get("offlineSha256"), str) \
+        or not isinstance(payload_manifest["idvLogin"].get("offlineByteCount"), int) \
+        or payload_manifest["idvLogin"]["offlineByteCount"] <= 0:
+    fail("包内载荷清单缺少 idv-login 的 offlineSha256/offlineByteCount")
+if payload_manifest["idvLogin"]["offlineSha256"] != payload_manifest["idvLogin"]["offlineSha256"].lower():
+    fail("offlineSha256 必须是小写十六进制")
+
 # 2. 三个组件逐字节复核。
 require_pinned(
     os.path.join(payloads, payload_manifest["runtime"]["file"]),
@@ -134,24 +142,14 @@ for filename, (byte_count, sha256) in sorted(expected_core.items()):
         f"网易下载核心 {filename}",
     )
 
-gzip_path = os.path.join(payloads, payload_manifest["idvLogin"]["file"])
+# idv-login 装在内嵌磁盘映像里：这里先核对映像文件本身；映像里那个上游二进制的字节
+# 由后面 shell 段的挂载复核负责。
 require_pinned(
-    gzip_path,
+    os.path.join(payloads, payload_manifest["idvLogin"]["file"]),
     payload_manifest["idvLogin"]["payloadByteCount"],
     payload_manifest["idvLogin"]["payloadSha256"],
-    "idv-login 压缩载荷",
+    "idv-login 载荷映像",
 )
-h = hashlib.sha256()
-decompressed_size = 0
-with gzip.open(gzip_path, "rb") as source:
-    for block in iter(lambda: source.read(1024 * 1024), b""):
-        decompressed_size += len(block)
-        h.update(block)
-if decompressed_size != idv_manifest["byteSize"]:
-    fail(f"idv-login 解压后字节数不符（期望 {idv_manifest['byteSize']}，实际 {decompressed_size}）")
-if h.hexdigest() != idv_manifest["sha256"]:
-    fail("idv-login 解压后 SHA-256 不符")
-print(f"  通过 idv-login 解压还原  {decompressed_size} bytes  {h.hexdigest()[:16]}…")
 
 # 3. 白名单之外不得出现游戏 payload。离线整包的边界就是「除了游戏本体，其他都带」。
 forbidden = []
@@ -169,5 +167,45 @@ if forbidden:
 
 print("离线载荷复核通过：三个组件齐全，且 App 内没有游戏本体。")
 PY
+
+# idv-login 载荷映像的内层复核：挂载出来，确认里面就是这一份、字节等于本次打包记录的哈希，
+# 并且带 Developer ID 签名 + Hardened Runtime + 安全时间戳——最后三条正是 Apple 公证的硬要求，
+# 在这里先验一遍，免得走到提交公证才发现。
+idv_asset="$(/usr/bin/jq -r '.assetName' "$idv_manifest")"
+idv_upstream_hash="$(/usr/bin/jq -r '.sha256' "$idv_manifest")"
+idv_offline_hash="$(/usr/bin/jq -r '.idvLogin.offlineSha256' "$manifest")"
+idv_offline_bytes="$(/usr/bin/jq -r '.idvLogin.offlineByteCount' "$manifest")"
+[[ "$idv_offline_hash" =~ ^[0-9a-f]{64}$ ]] || fail "offlinePayloads.json 里的 offlineSha256 格式无效"
+[[ "$(/usr/bin/jq -r '.idvLogin.sha256' "$manifest")" == "$idv_upstream_hash" ]] \
+  || fail "离线清单记录的上游哈希与 idvLoginComponent.json 不一致"
+[[ "$(/usr/bin/jq -r '.idvLogin.byteCount' "$manifest")" == "$(/usr/bin/jq -r '.byteSize' "$idv_manifest")" ]] \
+  || fail "离线清单记录的上游字节数与 idvLoginComponent.json 不一致"
+idv_image="$payloads/$(/usr/bin/jq -r '.idvLogin.file' "$manifest")"
+idv_mount="$(/usr/bin/mktemp -d /private/tmp/identityv-verify-payload.XXXXXX)"
+idv_device=""
+detach_idv_mount() {
+  if [[ -n "$idv_device" ]]; then
+    /usr/bin/hdiutil detach "$idv_device" >/dev/null 2>&1 || \
+      /usr/bin/hdiutil detach -force "$idv_device" >/dev/null 2>&1 || true
+    idv_device=""
+  fi
+  [[ -n "${idv_mount:-}" && "$idv_mount" == /private/tmp/identityv-verify-payload.* && -d "$idv_mount" ]] && /bin/rmdir "$idv_mount" 2>/dev/null || true
+}
+trap detach_idv_mount EXIT INT TERM
+idv_device="$(/usr/bin/hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$idv_mount" "$idv_image" \
+  | /usr/bin/awk '/^\/dev\/disk/{print $1; exit}')"
+[[ "$idv_device" == /dev/disk* ]] || fail "idv-login 载荷映像挂载失败"
+[[ -f "$idv_mount/$idv_asset" && ! -L "$idv_mount/$idv_asset" ]] || fail "载荷映像里没有 $idv_asset"
+inner_bytes="$(/usr/bin/stat -f %z "$idv_mount/$idv_asset")"
+[[ "$inner_bytes" == "$idv_offline_bytes" ]] || fail "载荷映像里的 idv-login 字节数不符（期望 $idv_offline_bytes，实际 $inner_bytes）"
+inner_hash="$(/usr/bin/shasum -a 256 "$idv_mount/$idv_asset" | /usr/bin/awk '{print $1}')"
+[[ "$inner_hash" == "$idv_offline_hash" ]] || fail "载荷映像里的 idv-login 哈希不符（实际 ${inner_hash[1,16]}…）"
+inner_signature="$(/usr/bin/codesign -d --verbose=4 "$idv_mount/$idv_asset" 2>&1 || true)"
+[[ "$inner_signature" == *"Authority=Developer ID Application"* ]] || fail "载荷映像里的 idv-login 不是 Developer ID 签名"
+[[ "$inner_signature" == *"flags="*"runtime"* ]] || fail "载荷映像里的 idv-login 没有 Hardened Runtime"
+[[ "$inner_signature" == *"Timestamp="* ]] || fail "载荷映像里的 idv-login 没有安全时间戳"
+detach_idv_mount
+trap - EXIT INT TERM
+print -- "  通过 idv-login 载荷映像内层  $idv_asset  重签 ${inner_hash[1,16]}…（上游 ${idv_upstream_hash[1,16]}…，Developer ID + runtime + timestamp）"
 
 /usr/bin/du -sh "$payloads" | /usr/bin/sed 's/^/  OfflinePayloads 合计 /'

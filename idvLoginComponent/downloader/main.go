@@ -1,7 +1,6 @@
 package main
 
 import (
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,7 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -186,19 +187,12 @@ func stream(resp *http.Response, f *os.File, offset int64, m manifest) error {
 	if resp.ContentLength != m.ByteSize-offset {
 		return errors.New("download response has unexpected length")
 	}
-	return writeStream(resp.Body, f, offset, m)
-}
-
-// writeStream copies the remaining component bytes while reporting bounded
-// progress.  Both the HTTP body and the offline gzip payload feed it, so the
-// UI sees one identical progress stream in either mode.
-func writeStream(source io.Reader, f *os.File, offset int64, m manifest) error {
 	done := offset
 	emitProgress("downloading", done, m.ByteSize)
 	buf := make([]byte, 128*1024)
 	last := time.Time{}
 	for {
-		n, e := source.Read(buf)
+		n, e := resp.Body.Read(buf)
 		if n > 0 {
 			if _, w := f.Write(buf[:n]); w != nil {
 				return w
@@ -225,13 +219,35 @@ func writeStream(source io.Reader, f *os.File, offset int64, m manifest) error {
 // download is the original online-only acquisition used by unit fixtures and by
 // any caller that has no offline payload.
 func download(m manifest, cache string, client *http.Client) (string, error) {
-	return acquire(m, cache, client, "")
+	return acquire(m, cache, client, "", "")
 }
 
-// acquire resolves the pinned component into the cache slot.  payload is an
-// optional gzip-compressed copy of the decompressed artefact: when it is set the
-// archive replaces the network download entirely and any mismatch is fatal.
-func acquire(m manifest, cache string, client *http.Client, payload string) (string, error) {
+// acquire resolves the pinned component into the cache slot.  payloadImage and
+// payloadManifest are the optional packaged offline pair: the image holds the
+// re-signed artefact and the manifest records the expectation for exactly those
+// bytes.  When present the image replaces the network download entirely and any
+// mismatch is fatal.
+func acquire(m manifest, cache string, client *http.Client, payloadImage, payloadManifest string) (string, error) {
+	if (payloadImage == "") != (payloadManifest == "") {
+		return "", errors.New("offline payload image and manifest must be supplied together")
+	}
+	if payloadManifest != "" {
+		expectedBytes, expectedHash, err := readOfflineManifest(payloadManifest, m)
+		if err != nil {
+			return "", err
+		}
+		// The caller has already validated the upstream lock with validatePinned.
+		// Packaging re-signs idv-login, so the shipped bytes no longer match that
+		// lock; a secure timestamp makes the signature non-reproducible, so the
+		// expected size/hash can only come from the manifest packaged beside the
+		// image.  Overriding here, before any cache or verification decision,
+		// keeps regularArm64, copyVerified, reuseLegacy and publication all
+		// judged by the same effective expectation.  An upstream build and a
+		// re-signed build therefore never satisfy each other and each is
+		// acquired again: that is intentional.
+		m.ByteSize = expectedBytes
+		m.SHA256 = expectedHash
+	}
 	if err := ensureDir(cache); err != nil {
 		return "", err
 	}
@@ -252,11 +268,11 @@ func acquire(m manifest, cache string, client *http.Client, payload string) (str
 		emitProgress("verifying", 1, 1)
 		return final, nil
 	}
-	// Offline package: decompress the bundled copy into the same partial slot and
-	// run the same verification.  The network path below is never reached, so a
-	// bad payload cannot silently fall back to GitHub.
-	if payload != "" {
-		return importPayload(payload, final, m)
+	// Offline package: mount the bundled disk image, copy the pinned artefact into
+	// the same partial slot and run the same verification.  The network path below
+	// is never reached, so a bad image cannot silently fall back to GitHub.
+	if payloadImage != "" {
+		return importPayloadImage(payloadImage, final, m)
 	}
 	partial := final + ".partial"
 	offset := int64(0)
@@ -357,29 +373,130 @@ func acquire(m manifest, cache string, client *http.Client, payload string) (str
 	return final, nil
 }
 
-// importPayload decompresses the offline gzip copy into the stable slot.  The
-// archive itself is not pinned (gzip only exists so codesign can re-sign the App
-// tree), so nothing is trusted until the decompressed bytes pass the exact size,
-// SHA-256 and arm64 Mach-O checks used for a download.  A failure removes the
-// partial file and never consults the network.
-func importPayload(payload, final string, m manifest) (string, error) {
-	info, err := os.Lstat(payload)
+// attachDiskImage mounts a read-only offline payload image and returns the
+// device node hdiutil reported.  This mirrors runtimeBootstrap/main.go's
+// attachDMG; that helper lives in a separate main package, so the small proven
+// logic is copied instead of imported.
+func attachDiskImage(image, mount string) (string, error) {
+	output, err := exec.Command("/usr/bin/hdiutil", "attach", "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", mount, image).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("cannot mount offline payload image: %s", strings.TrimSpace(string(output)))
+	}
+	// The volume line also names the mountpoint.  Prefer that device over the
+	// outer container: detaching the container can fail while its volume is
+	// mounted, which would strand a mounted payload on the host.
+	needle := mount
+	if resolved, resolveErr := filepath.EvalSymlinks(mount); resolveErr == nil {
+		needle = resolved
+	}
+	fallback := ""
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || !strings.HasPrefix(fields[0], "/dev/disk") {
+			continue
+		}
+		fallback = fields[0]
+		if strings.Contains(line, needle) {
+			return fields[0], nil
+		}
+	}
+	if fallback == "" {
+		return "", errors.New("mounted image did not report a disk")
+	}
+	return fallback, nil
+}
+
+// detachDiskImage ejects the attached image and then removes the private
+// mountpoint.  Both steps are retried and the detach is finally forced, so a
+// volume that is still busy cannot leave a mounted payload behind.
+func detachDiskImage(device, mount string) {
+	if device != "" {
+		for attempt := 0; attempt < 3; attempt++ {
+			if exec.Command("/usr/bin/hdiutil", "detach", device).Run() == nil {
+				break
+			}
+			if exec.Command("/usr/bin/hdiutil", "detach", "-force", device).Run() == nil {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	for attempt := 0; attempt < 5; attempt++ {
+		if err := os.Remove(mount); err == nil || os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// requireSingleArtefact enforces the packaging contract: the mounted image must
+// hold exactly one non-hidden regular file, and it must be the pinned asset
+// name.  Finder and the OS leave synthetic hidden entries such as .DS_Store or
+// .Trashes behind, so hidden names are ignored; a second visible file means the
+// image was built wrong and must not be trusted.
+func requireSingleArtefact(mount string, m manifest) error {
+	entries, err := os.ReadDir(mount)
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		if found {
+			return errors.New("offline payload image contains more than one file")
+		}
+		if entry.Name() != m.AssetName {
+			return fmt.Errorf("offline payload image contains an unexpected file: %s", entry.Name())
+		}
+		info, err := os.Lstat(filepath.Join(mount, entry.Name()))
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("offline payload artefact is not a regular file")
+		}
+		found = true
+	}
+	if !found {
+		return errors.New("offline payload image does not contain the pinned artefact")
+	}
+	return nil
+}
+
+// importPayloadImage mounts the bundled read-only disk image, copies out its
+// single pinned artefact and verifies it exactly as a download would.  The image
+// is packaging scaffolding, not a notarisation loophole: notarisation does
+// inspect Mach-O files inside an embedded image, so the artefact was already
+// re-signed with this project's Developer ID (hardened runtime + secure
+// timestamp) before it went in.  Keeping it inside an image stops the outer
+// bundle signing pass from rewriting those bytes, which is what makes the
+// packaging-time digest recorded in offlinePayloads.json stable.  The image is
+// detached on every path, including failures, and no network is ever consulted.
+func importPayloadImage(image, final string, m manifest) (string, error) {
+	info, err := os.Lstat(image)
 	if err != nil {
 		return "", err
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return "", errors.New("offline payload is not a regular file")
+		return "", errors.New("offline payload image is not a regular file")
 	}
-	source, err := os.Open(payload)
+	mount, err := os.MkdirTemp("", "idv-login-payload-")
 	if err != nil {
 		return "", err
 	}
-	defer source.Close()
-	archive, err := gzip.NewReader(source)
+	device, err := attachDiskImage(image, mount)
 	if err != nil {
+		_ = os.Remove(mount)
 		return "", err
 	}
-	defer archive.Close()
+	// detachDiskImage also removes the private mountpoint, so a failure anywhere
+	// below cannot strand a mounted payload on the host.
+	defer detachDiskImage(device, mount)
+	if err = requireSingleArtefact(mount, m); err != nil {
+		return "", err
+	}
 	partial := final + ".partial"
 	if i, e := os.Lstat(partial); e == nil {
 		if !i.Mode().IsRegular() || i.Mode()&os.ModeSymlink != 0 {
@@ -391,19 +508,35 @@ func importPayload(payload, final string, m manifest) (string, error) {
 	} else if !os.IsNotExist(e) {
 		return "", e
 	}
-	out, err := os.OpenFile(partial, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	source, err := os.Open(filepath.Join(mount, m.AssetName))
 	if err != nil {
 		return "", err
 	}
-	e := writeStream(archive, out, 0, m)
-	c := out.Close()
-	if e != nil || c != nil {
-		_ = os.Remove(partial)
-		if e != nil {
-			return "", e
-		}
-		return "", c
+	out, err := os.OpenFile(partial, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		_ = source.Close()
+		return "", err
 	}
+	hash := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(out, hash), source)
+	sourceErr := source.Close()
+	closeErr := out.Close()
+	if copyErr != nil || sourceErr != nil || closeErr != nil {
+		_ = os.Remove(partial)
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if sourceErr != nil {
+			return "", sourceErr
+		}
+		return "", closeErr
+	}
+	if written != m.ByteSize || !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), m.SHA256) {
+		_ = os.Remove(partial)
+		return "", errors.New("offline payload artefact size or hash mismatch")
+	}
+	// regularArm64 re-checks size, digest and the arm64 Mach-O magic on the
+	// published bytes, so an offline install cannot bypass the download checks.
 	if err = regularArm64(partial, m); err != nil {
 		_ = os.Remove(partial)
 		return "", err
@@ -419,28 +552,100 @@ func importPayload(payload, final string, m manifest) (string, error) {
 	return final, nil
 }
 
+// offlineManifest is the subset of OfflinePayloads/offlinePayloads.json the
+// downloader relies on.  Packaging re-signs idv-login with this project's
+// Developer ID (a secure timestamp makes the signature non-reproducible), so the
+// bytes that must be installed are the ones recorded here, not the upstream
+// release digest.  byteCount/sha256 still describe the upstream release: they
+// prove the document was derived from the same lock the component manifest
+// carries.
+type offlineManifest struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Kind          string `json:"kind"`
+	IDVLogin      struct {
+		AssetName        string `json:"assetName"`
+		Version          string `json:"version"`
+		ByteCount        int64  `json:"byteCount"`
+		SHA256           string `json:"sha256"`
+		OfflineByteCount int64  `json:"offlineByteCount"`
+		OfflineSHA256    string `json:"offlineSha256"`
+	} `json:"idvLogin"`
+}
+
+var offlineHashRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// readOfflineManifest derives the effective expectation for this build.  The
+// document must still agree with the upstream lock on identity and on the
+// upstream digest; only then is the re-signed offline expectation accepted.
+func readOfflineManifest(path string, locked manifest) (int64, string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, "", err
+	}
+	defer file.Close()
+	var document offlineManifest
+	if err = json.NewDecoder(io.LimitReader(file, 1<<20)).Decode(&document); err != nil {
+		return 0, "", fmt.Errorf("invalid offline payload manifest: %w", err)
+	}
+	if document.SchemaVersion != 1 || document.Kind != "identityv-offline-payloads" {
+		return 0, "", errors.New("unsupported offline payload manifest")
+	}
+	if document.IDVLogin.AssetName != locked.AssetName || document.IDVLogin.Version != locked.Version {
+		return 0, "", errors.New("offline payload manifest does not describe the pinned component")
+	}
+	if document.IDVLogin.ByteCount != locked.ByteSize || !strings.EqualFold(document.IDVLogin.SHA256, locked.SHA256) {
+		return 0, "", errors.New("offline payload manifest was not derived from the pinned upstream release")
+	}
+	if document.IDVLogin.OfflineByteCount < 1 || !offlineHashRE.MatchString(strings.ToLower(document.IDVLogin.OfflineSHA256)) {
+		return 0, "", errors.New("offline payload manifest has no usable offline expectation")
+	}
+	return document.IDVLogin.OfflineByteCount, strings.ToLower(document.IDVLogin.OfflineSHA256), nil
+}
+
 // parseArgs keeps the original two-positional form byte-for-byte compatible and
-// adds the optional offline payload form.  Both `--payload ABS` and
-// `--payload=ABS` are accepted so a quoting difference cannot silently select a
-// different file.
-func parseArgs(args []string) (manifestPath, cache string, payload string, err error) {
+// adds the paired offline disk-image form.  `--payload-image` and
+// `--payload-manifest` must be supplied together: guessing the other half would
+// silently verify against the wrong expectation, so a lone flag is a usage
+// error rather than a fallback.  Both `--flag ABS` and `--flag=ABS` are accepted
+// for either option, in any order, and the superseded gzip `--payload` form is
+// rejected.
+func parseArgs(args []string) (manifestPath, cache, payloadImage, payloadManifest string, err error) {
 	if len(args) < 2 {
-		return "", "", "", errors.New("missing arguments")
+		return "", "", "", "", errors.New("missing arguments")
 	}
 	manifestPath, cache = args[0], args[1]
-	switch {
-	case len(args) == 2:
-	case len(args) == 3 && strings.HasPrefix(args[2], "--payload="):
-		payload = strings.TrimPrefix(args[2], "--payload=")
-	case len(args) == 4 && args[2] == "--payload":
-		payload = args[3]
-	default:
-		return "", "", "", errors.New("unexpected arguments")
+	rest := args[2:]
+	for index := 0; index < len(rest); index++ {
+		name, value, hasValue := strings.Cut(rest[index], "=")
+		if name != "--payload-image" && name != "--payload-manifest" {
+			return "", "", "", "", errors.New("unexpected arguments")
+		}
+		if !hasValue {
+			index++
+			if index >= len(rest) {
+				return "", "", "", "", errors.New("missing option value")
+			}
+			value = rest[index]
+		}
+		if value == "" {
+			return "", "", "", "", errors.New("empty option value")
+		}
+		if name == "--payload-image" {
+			if payloadImage != "" {
+				return "", "", "", "", errors.New("duplicate --payload-image")
+			}
+			payloadImage = value
+			continue
+		}
+		if payloadManifest != "" {
+			return "", "", "", "", errors.New("duplicate --payload-manifest")
+		}
+		payloadManifest = value
 	}
-	if len(args) > 2 && payload == "" {
-		return "", "", "", errors.New("empty offline payload path")
+	if (payloadImage == "") != (payloadManifest == "") {
+		return "", "", "", "", errors.New("--payload-image and --payload-manifest must be supplied together")
 	}
-	return manifestPath, cache, payload, nil
+	return manifestPath, cache, payloadImage, payloadManifest, nil
 }
 
 func validatePinned(m manifest) error {
@@ -458,9 +663,9 @@ func main() {
 		fmt.Println("idv-login-downloader self-test passed")
 		return
 	}
-	manifestPath, cache, payload, err := parseArgs(os.Args[1:])
+	manifestPath, cache, payloadImage, payloadManifest, err := parseArgs(os.Args[1:])
 	if err != nil {
-		fail("usage: %s manifest.json cache-directory [--payload ABS]", filepath.Base(os.Args[0]))
+		fail("usage: %s manifest.json cache-directory [--payload-image ABS --payload-manifest ABS]", filepath.Base(os.Args[0]))
 	}
 	b, e := os.ReadFile(manifestPath)
 	if e != nil {
@@ -473,7 +678,7 @@ func main() {
 	if e = validatePinned(m); e != nil {
 		fail("%v", e)
 	}
-	p, e := acquire(m, cache, safeClient(), payload)
+	p, e := acquire(m, cache, safeClient(), payloadImage, payloadManifest)
 	if e != nil {
 		fail("download component: %v", e)
 	}

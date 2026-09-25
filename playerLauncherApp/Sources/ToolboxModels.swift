@@ -591,8 +591,15 @@ enum ToolboxPath {
     /// 时才使用，缺失时所有路径保持与今天完全一致。
     static let offlinePayloads = resources.appendingPathComponent("OfflinePayloads", isDirectory: true)
     /// 载荷文件名带版本，与 IdvLoginRelease.version 同源，避免版本升级后仍指向旧载荷。
-    static let offlineIdvLoginPayload = offlinePayloads
-        .appendingPathComponent("idv-login-\(IdvLoginRelease.version).gz")
+    /// 用磁盘映像而不是压缩包：公证会展开归档并逐个检查里面的 Mach-O，而 idv-login 上游只有
+    /// ad-hoc 签名；原样装进 DMG 后由 Go 侧挂载取出、再校验原始大小的 SHA-256。
+    static let offlineIdvLoginPayloadImage = offlinePayloads
+        .appendingPathComponent("idv-login-\(IdvLoginRelease.version).dmg")
+    /// 包内离线清单：本次打包真实产物的期望字节数与 SHA-256 记在这里。idv-login 必须由本项目
+    /// Developer ID 重签才能过公证，而重签会改变字节、签名时间戳又不可复现，所以期望值不能写死
+    /// 在代码里，只能随包提供并与磁盘映像成对使用。
+    static let offlinePayloadsManifest = offlinePayloads
+        .appendingPathComponent("offlinePayloads.json")
     static let idvLoginDownloadCache = userSupport.appendingPathComponent("Components/IdvLoginDownload", isDirectory: true)
     static func embeddedGameRunner(in bundleRoot: URL = Bundle.main.bundleURL) -> URL? {
         let root = bundleRoot.resolvingSymlinksInPath().standardizedFileURL

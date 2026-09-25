@@ -159,10 +159,18 @@ trap cleanup EXIT INT TERM
 # ── 签名、公证 .app ────────────────────────────────────────────────────────────
 print -- "④ 由内到外签名并公证 App"
 "$runtime_patch_audit" "$app_stage"
+# 载荷复核会挂载内嵌的 idv-login 磁盘映像，而 hdiutil 会往映像文件写
+# com.apple.diskimages.recentcksum；codesign 对包内带这类扩展属性的文件会整体拒绝
+# （"resource fork, Finder information, or similar detritus not allowed"）。
+# 扩展属性不属于文件内容，清掉不改变任何已校验的哈希，所以签名前统一清一次。
+/usr/bin/xattr -cr "$app_stage/Contents/Resources/OfflinePayloads" 2>/dev/null || true
 identityv_sign_bundle_tree "$app_stage"
 "$runtime_patch_audit" "$app_stage"
 identityv_verify_bundle_tree "$app_stage"
-"$verify_payloads" --app "$app_stage"
+# 载荷复核刻意放在签名**之前**（见上面 ditto 之后那一次）：它要挂载内嵌的 idv-login
+# 磁盘映像，而挂载会往映像文件写 com.apple.diskimages.recentcksum。签完名再挂载会给
+# 已封存的资源添上新的扩展属性，虽然 codesign 目前仍判有效，但没有理由把这种依赖留在
+# 流程里；签名后的完整性由 runtime_patch_audit 与 identityv_verify_bundle_tree 负责。
 "$project_root/signing/notarizeIdentityV.command" "$app_stage" --profile "$notary_profile"
 
 IDV_MAX_MACOS_DEPLOYMENT_TARGET=14.0 \

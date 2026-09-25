@@ -6,9 +6,16 @@
 运行时的行为、补丁与 test.2 完全一致（`r1-emoji2-audio1`），区别在于发行形态：
 
 - App 的 `Contents/Resources/OfflinePayloads/` 里预先带了基础 Wine runtime 镜像（上游 `DWRG.dmg`
-  的原始字节）、idv-login 6.3.0（gzip 存放）和网易下载核心三个文件。启动器优先使用包内字节，
-  校验方式与联网路径完全相同（大小 + SHA-256，idv-login 还要解压还原后核对原始哈希），
+  的原始字节）、idv-login 6.3.0（装在内嵌磁盘映像里）和网易下载核心三个文件。启动器优先使用包内
+  字节，校验方式与联网路径完全相同（大小 + SHA-256，idv-login 还要取出后核对原始哈希），
   校验失败即失败，不回退网络。
+- idv-login 之所以由本项目重签后再装进内嵌磁盘映像：上游只有 ad-hoc 签名，而 Apple 公证要求包里
+  每个 Mach-O 都由 Developer ID 签名并带时间戳与 Hardened Runtime，且公证会展开归档、连内嵌
+  磁盘映像里的二进制也逐个检查（已用最小包实测）。改动只有签名，没有改任何一行上游代码；
+  重签后实测 `--help` 可正常启动。映像内的那一份因此字节不同，其大小/哈希由本次打包写进包内
+  `offlinePayloads.json` 的 `offlineByteCount`/`offlineSha256`，下载器用 `--payload-manifest`
+  读取；上游原始哈希仍留在同一份清单里作为派生依据。原因、边界与「这是一份被修改过的
+  GPL 版本」的说明记在 `offlinePackaging/README.md` 与 `payloadProvenance.md`。
 - 因此首装不需要访问 GitHub：只访问网易即可装好 runtime、登录组件和下载核心，
   游戏本体仍由用户在启动器内从网易官方 CDN 下载。
 - 封包走新入口 `offlinePackaging/buildOfflinePackage.command`，Developer ID 签名 + 公证 +

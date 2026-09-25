@@ -1515,11 +1515,16 @@ final class ToolboxViewModel: ObservableObject {
         let stderrCollector = BoundedLineCollector()
         let ioQueue = DispatchQueue(label: "com.fengyin.identityv.idv-login-download-io")
         process.executableURL = ToolboxPath.idvLoginDownloader
-        // 离线包（可选）自带 gzip 压缩的 IDV Login 组件：存在时让下载器直接解包使用，首装
-        // 不访问 GitHub。普通发行包没有该载荷，参数就保持原来的两个位置参数不变。
+        // 离线包（可选）自带 idv-login 的磁盘映像与包内清单：两者齐备时让下载器挂载取出、按清单
+        // 校验（重签会改变字节且时间戳不可复现，期望值只能来自包内），首装不访问 GitHub。
+        // 任一缺失就都不追加，参数回到原来的两个位置参数，行为与今天一致。
         var downloaderArguments = [ToolboxPath.idvLoginManifest.path, downloadCache.path]
-        if FileManager.default.isReadableFile(atPath: ToolboxPath.offlineIdvLoginPayload.path) {
-            downloaderArguments += ["--payload", ToolboxPath.offlineIdvLoginPayload.path]
+        if FileManager.default.isReadableFile(atPath: ToolboxPath.offlineIdvLoginPayloadImage.path),
+           FileManager.default.isReadableFile(atPath: ToolboxPath.offlinePayloadsManifest.path) {
+            downloaderArguments += [
+                "--payload-image", ToolboxPath.offlineIdvLoginPayloadImage.path,
+                "--payload-manifest", ToolboxPath.offlinePayloadsManifest.path
+            ]
         }
         process.arguments = downloaderArguments
         process.standardOutput = stdout

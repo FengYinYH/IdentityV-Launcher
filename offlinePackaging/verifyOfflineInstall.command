@@ -99,18 +99,22 @@ done
 print -- "  通过：commit $core_commit"
 
 # ── 试验组 3：idv-login ───────────────────────────────────────────────────────
-print -- "③ 试验组 · idv-login（--payload）"
+# 期望值是「本项目重签后的那一份」，来自包内离线清单，不是上游发布物的哈希。
+print -- "③ 试验组 · idv-login（--payload-image + --payload-manifest）"
 idv_version="$(/usr/bin/jq -r '.version' "$idv_manifest")"
 idv_asset="$(/usr/bin/jq -r '.assetName' "$idv_manifest")"
-idv_hash="$(/usr/bin/jq -r '.sha256' "$idv_manifest")"
+offline_manifest_path="$payloads/offlinePayloads.json"
+idv_hash="$(/usr/bin/jq -r '.idvLogin.offlineSha256' "$offline_manifest_path")"
 idv_cache="$fake_home/Library/Application Support/IdentityVOnMac/Components/IdvLoginDownload/$idv_version"
 published="$(/usr/bin/env -i HOME="$fake_home" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
   "${block_env[@]}" \
-  "$idv_downloader" "$idv_manifest" "$idv_cache" --payload "$payloads/idv-login-$idv_version.gz" 2>"$work/idv.log")" \
+  "$idv_downloader" "$idv_manifest" "$idv_cache" \
+    --payload-image "$payloads/idv-login-$idv_version.dmg" \
+    --payload-manifest "$offline_manifest_path" 2>"$work/idv.log")" \
   || { /usr/bin/tail -20 "$work/idv.log" >&2; fail "带载荷的 idv-login 发布失败"; }
 [[ "$published" == "$idv_cache/$idv_asset" ]] || fail "idv-login 返回的路径不符合预期：$published"
 [[ "$(/usr/bin/shasum -a 256 "$published" | /usr/bin/awk '{print $1}')" == "$idv_hash" ]] \
-  || fail "idv-login 发布后哈希不符"
+  || fail "idv-login 发布后哈希与包内清单不符"
 print -- "  通过：$idv_asset"
 
 # ── 对照组：同样的 helper、同样的阻断代理，只是不给载荷 ────────────────────────

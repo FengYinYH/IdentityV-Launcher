@@ -1,7 +1,7 @@
 package main
 
 import (
-	"compress/gzip"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -225,93 +226,268 @@ func TestBadRangeHashAndLock(t *testing.T) {
 	}
 }
 
-// ── 离线载荷（--payload）────────────────────────────────────────────────────────
-// 契约：gzip 只用来绕开 codesign 对裸 Mach-O 的重签；解压产物仍须逐字节通过
-// 大小/哈希/arm64 magic 校验，失败 fail closed 并清理 .partial，绝不回退联网。
+// ── 离线载荷（--payload-image，内嵌只读磁盘映像）────────────────────────────────
+// 契约：上游 Mach-O 不重签、不改字节，装进磁盘映像以绕开 notary 对裸 Mach-O 的检查。
+// 取出的产物仍须逐字节通过大小/哈希/arm64 magic 校验；失败 fail closed、清理
+// .partial、必须 detach 不留挂载点，且绝不回退联网。
 
-func gzipFixture(t *testing.T, input []byte) string {
+func offlineClient(t *testing.T) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("offline payload image fell back to the network")
+		return nil, nil
+	})}
+}
+
+// imageFixture builds a real disk image whose volume root holds exactly what
+// prepare writes.  The shipped payload is UDZO ("UDZO"); the fail-closed matrix
+// uses UDRW because it is faster to build and exercises the identical
+// hdiutil attach/detach code path.  It mirrors runtimeBootstrap's buildRuntimeDMG.
+func imageFixture(t *testing.T, format string, prepare func(source string)) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "idv-login-6.3.0.gz")
-	file, err := os.Create(path)
+	if info, err := os.Stat("/usr/bin/hdiutil"); err != nil || info.Mode()&0111 == 0 {
+		t.Skip("hdiutil is required for the offline payload image fixture")
+	}
+	source := t.TempDir()
+	prepare(source)
+	image := filepath.Join(t.TempDir(), "IdvLoginPayload.dmg")
+	output, err := exec.Command("/usr/bin/hdiutil", "create", "-quiet", "-format", format,
+		"-volname", "IdvLoginPayload", "-srcfolder", source, image).CombinedOutput()
+	if err != nil {
+		t.Fatalf("cannot build DMG fixture: %v: %s", err, output)
+	}
+	return image
+}
+
+func mustWriteFixture(t *testing.T, directory, name string, content []byte) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(directory, name), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// artefactImage is the well-formed packaging: exactly one visible regular file
+// carrying the untouched artefact.
+func artefactImage(t *testing.T, format, name string, content []byte) string {
+	t.Helper()
+	return imageFixture(t, format, func(source string) { mustWriteFixture(t, source, name, content) })
+}
+
+// scopeTempRoot points this test process at a private TMPDIR.  The helper creates
+// its mountpoint under os.TempDir(), so without this two concurrent runs of the
+// same package would see each other's live mountpoints and appear to leak.
+func scopeTempRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("TMPDIR", root)
+	return root
+}
+
+// assertNoStaleMounts fails when a payload mountpoint survived in this test's
+// private TMPDIR, which is how a missed hdiutil detach surfaces.
+func assertNoStaleMounts(t *testing.T) {
+	t.Helper()
+	stale, err := filepath.Glob(filepath.Join(os.TempDir(), "idv-login-payload-*"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	writer := gzip.NewWriter(file)
-	if _, err = writer.Write(input); err != nil {
+	if len(stale) != 0 {
+		t.Fatalf("payload mountpoints were not cleaned up: %v", stale)
+	}
+}
+
+func fixtureHashHex(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
+}
+
+// offlineDocument models the packaged OfflinePayloads/offlinePayloads.json.  The
+// upstream fields must equal the component lock, while offlineByteCount /
+// offlineSha256 describe the re-signed artefact that actually ships inside the
+// image.
+func offlineDocument(upstream manifest, offline []byte) map[string]any {
+	return map[string]any{
+		"schemaVersion": 1,
+		"kind":          "identityv-offline-payloads",
+		"idvLogin": map[string]any{
+			"file":             "idv-login-" + upstream.Version + ".dmg",
+			"version":          upstream.Version,
+			"assetName":        upstream.AssetName,
+			"byteCount":        upstream.ByteSize,
+			"sha256":           upstream.SHA256,
+			"offlineByteCount": len(offline),
+			"offlineSha256":    fixtureHashHex(offline),
+		},
+	}
+}
+
+func writeOfflineDocument(t *testing.T, document map[string]any) string {
+	t.Helper()
+	encoded, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err = writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err = file.Close(); err != nil {
+	return writeOfflineRaw(t, string(append(encoded, '\n')))
+}
+
+func writeOfflineRaw(t *testing.T, raw string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "offlinePayloads.json")
+	if err := os.WriteFile(path, []byte(raw), 0644); err != nil {
 		t.Fatal(err)
 	}
 	return path
 }
 
-func offlineClient(t *testing.T) *http.Client {
-	return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		t.Fatal("offline payload fell back to the network")
-		return nil, nil
-	})}
+// offlineFixture is the packaged shape: an image holding the re-signed bytes plus
+// a manifest whose offline expectation matches those bytes while its upstream
+// fields still match the locked release.  Re-signing normally changes the size,
+// so the fixture grows the artefact as well.
+func offlineFixture(t *testing.T) (upstream manifest, offline []byte, image, document string) {
+	t.Helper()
+	upstreamBytes := payload()
+	upstream = testManifest("http://must-not-be-used.invalid", upstreamBytes)
+	upstream.Version = "6.2.3"
+	offline = append(append([]byte(nil), upstreamBytes...), bytes.Repeat([]byte{7}, 8192)...)
+	image = artefactImage(t, "UDZO", upstream.AssetName, offline)
+	document = writeOfflineDocument(t, offlineDocument(upstream, offline))
+	return upstream, offline, image, document
 }
 
-func TestParseArgsKeepsLegacyFormAndAcceptsPayload(t *testing.T) {
+func effectiveManifest(upstream manifest, offline []byte) manifest {
+	effective := upstream
+	effective.ByteSize = int64(len(offline))
+	effective.SHA256 = fixtureHashHex(offline)
+	return effective
+}
+
+func TestParseArgsKeepsLegacyFormAndAcceptsPairedPayload(t *testing.T) {
 	cases := []struct {
-		name    string
-		args    []string
-		payload string
-		ok      bool
+		name     string
+		args     []string
+		image    string
+		document string
+		ok       bool
 	}{
-		{"legacy positional", []string{"m.json", "/cache"}, "", true},
-		{"separate payload", []string{"m.json", "/cache", "--payload", "/payload.gz"}, "/payload.gz", true},
-		{"inline payload", []string{"m.json", "/cache", "--payload=/payload.gz"}, "/payload.gz", true},
-		{"missing arguments", []string{"m.json"}, "", false},
-		{"dangling flag", []string{"m.json", "/cache", "--payload"}, "", false},
-		{"empty payload", []string{"m.json", "/cache", "--payload", ""}, "", false},
-		{"unknown extra", []string{"m.json", "/cache", "extra"}, "", false},
-		{"unknown flag", []string{"m.json", "/cache", "--other", "/x"}, "", false},
+		{"legacy positional", []string{"m.json", "/cache"}, "", "", true},
+		{"paired separate", []string{"m.json", "/cache", "--payload-image", "/p.dmg", "--payload-manifest", "/o.json"}, "/p.dmg", "/o.json", true},
+		{"paired inline", []string{"m.json", "/cache", "--payload-image=/p.dmg", "--payload-manifest=/o.json"}, "/p.dmg", "/o.json", true},
+		{"paired reversed order", []string{"m.json", "/cache", "--payload-manifest", "/o.json", "--payload-image", "/p.dmg"}, "/p.dmg", "/o.json", true},
+		{"image only", []string{"m.json", "/cache", "--payload-image", "/p.dmg"}, "", "", false},
+		{"manifest only", []string{"m.json", "/cache", "--payload-manifest", "/o.json"}, "", "", false},
+		{"image only inline", []string{"m.json", "/cache", "--payload-image=/p.dmg"}, "", "", false},
+		{"missing arguments", []string{"m.json"}, "", "", false},
+		{"dangling image", []string{"m.json", "/cache", "--payload-image"}, "", "", false},
+		{"empty image", []string{"m.json", "/cache", "--payload-image", ""}, "", "", false},
+		{"duplicate image", []string{"m.json", "/cache", "--payload-image", "/a.dmg", "--payload-image", "/b.dmg", "--payload-manifest", "/o.json"}, "", "", false},
+		{"retired gzip form", []string{"m.json", "/cache", "--payload", "/p.gz"}, "", "", false},
+		{"retired gzip inline", []string{"m.json", "/cache", "--payload=/p.gz"}, "", "", false},
+		{"unknown extra", []string{"m.json", "/cache", "extra"}, "", "", false},
+		{"unknown flag", []string{"m.json", "/cache", "--other", "/x"}, "", "", false},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manifestPath, cache, payload, err := parseArgs(testCase.args)
+			manifestPath, cache, image, document, err := parseArgs(testCase.args)
 			if (err == nil) != testCase.ok {
 				t.Fatalf("accepted=%v want %v (err=%v)", err == nil, testCase.ok, err)
 			}
 			if !testCase.ok {
 				return
 			}
-			if manifestPath != "m.json" || cache != "/cache" || payload != testCase.payload {
-				t.Fatalf("got manifest=%q cache=%q payload=%q", manifestPath, cache, payload)
+			if manifestPath != "m.json" || cache != "/cache" || image != testCase.image || document != testCase.document {
+				t.Fatalf("got manifest=%q cache=%q image=%q document=%q", manifestPath, cache, image, document)
 			}
 		})
 	}
 }
 
-func TestOfflinePayloadDecompressesAndVerifiesWithoutNetwork(t *testing.T) {
-	content := payload()
+func TestAcquireRequiresPairedOfflineArguments(t *testing.T) {
+	scopeTempRoot(t)
+	upstream := testManifest("http://unused", payload())
+	upstream.Version = "6.2.3"
 	cache := t.TempDir()
-	m := testManifest("http://must-not-be-used.invalid", content)
-	archive := gzipFixture(t, content)
+	if _, err := acquire(upstream, cache, offlineClient(t), "/tmp/only.dmg", ""); err == nil {
+		t.Fatal("accepted an image without its manifest")
+	}
+	if _, err := acquire(upstream, cache, offlineClient(t), "", "/tmp/only.json"); err == nil {
+		t.Fatal("accepted a manifest without its image")
+	}
+}
+
+func TestRequireSingleArtefactEnforcesPackagingContract(t *testing.T) {
+	content := payload()
+	m := testManifest("http://unused", content)
+	t.Run("single artefact with hidden system entries", func(t *testing.T) {
+		mount := t.TempDir()
+		mustWriteFixture(t, mount, m.AssetName, content)
+		mustWriteFixture(t, mount, ".DS_Store", []byte("finder"))
+		if err := os.Mkdir(filepath.Join(mount, ".Trashes"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := requireSingleArtefact(mount, m); err != nil {
+			t.Fatalf("valid image rejected: %v", err)
+		}
+	})
+	t.Run("second visible file", func(t *testing.T) {
+		mount := t.TempDir()
+		mustWriteFixture(t, mount, m.AssetName, content)
+		mustWriteFixture(t, mount, "extra.bin", content)
+		if requireSingleArtefact(mount, m) == nil {
+			t.Fatal("accepted a second visible file")
+		}
+	})
+	t.Run("unexpected name", func(t *testing.T) {
+		mount := t.TempDir()
+		mustWriteFixture(t, mount, "other.bin", content)
+		if requireSingleArtefact(mount, m) == nil {
+			t.Fatal("accepted an unexpected filename")
+		}
+	})
+	t.Run("symlinked artefact", func(t *testing.T) {
+		mount := t.TempDir()
+		// The target is hidden so the symlink stays the only visible entry and
+		// this subtest isolates the symlink rejection.
+		mustWriteFixture(t, mount, ".target", content)
+		if err := os.Symlink(filepath.Join(mount, ".target"), filepath.Join(mount, m.AssetName)); err != nil {
+			t.Fatal(err)
+		}
+		if requireSingleArtefact(mount, m) == nil {
+			t.Fatal("accepted a symlinked artefact")
+		}
+	})
+	t.Run("empty image", func(t *testing.T) {
+		if requireSingleArtefact(t.TempDir(), m) == nil {
+			t.Fatal("accepted an image without the pinned artefact")
+		}
+	})
+}
+
+func TestOfflinePayloadImageInstallsWithoutNetwork(t *testing.T) {
+	scopeTempRoot(t)
+	upstream, offline, image, document := offlineFixture(t)
+	cache := t.TempDir()
 	oldStderr := os.Stderr
 	readPipe, writePipe, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	os.Stderr = writePipe
-	got, acquireErr := acquire(m, cache, offlineClient(t), archive)
+	got, acquireErr := acquire(upstream, cache, offlineClient(t), image, document)
 	_ = writePipe.Close()
 	os.Stderr = oldStderr
 	stderrBytes, _ := io.ReadAll(readPipe)
 	_ = readPipe.Close()
 	if acquireErr != nil {
-		t.Fatalf("offline payload install failed: %v", acquireErr)
+		t.Fatalf("offline payload image install failed: %v", acquireErr)
 	}
-	if got != filepath.Join(cache, m.AssetName) {
+	if got != filepath.Join(cache, upstream.AssetName) {
 		t.Fatalf("unexpected final path %q", got)
 	}
-	if err = regularArm64(got, m); err != nil {
-		t.Fatalf("published component does not verify: %v", err)
+	if err = regularArm64(got, effectiveManifest(upstream, offline)); err != nil {
+		t.Fatalf("published component does not verify against the offline expectation: %v", err)
+	}
+	published, err := os.ReadFile(got)
+	if err != nil || fixtureHashHex(published) != fixtureHashHex(offline) {
+		t.Fatalf("published bytes are not the re-signed offline artefact: err=%v", err)
 	}
 	info, err := os.Stat(got)
 	if err != nil || info.Mode().Perm() != 0600 {
@@ -324,63 +500,148 @@ func TestOfflinePayloadDecompressesAndVerifiesWithoutNetwork(t *testing.T) {
 	if !strings.Contains(string(stderrBytes), want) {
 		t.Fatalf("verifying progress line missing from %q", string(stderrBytes))
 	}
+	assertNoStaleMounts(t)
 }
 
-func TestOfflinePayloadReusesVerifiedFinal(t *testing.T) {
-	content := payload()
-	cache := t.TempDir()
-	m := testManifest("http://must-not-be-used.invalid", content)
-	final := filepath.Join(cache, m.AssetName)
-	if err := os.WriteFile(final, content, 0600); err != nil {
-		t.Fatal(err)
-	}
-	// An absent archive proves the verified final file short-circuits extraction.
-	got, err := acquire(m, cache, offlineClient(t), filepath.Join(t.TempDir(), "absent.gz"))
-	if err != nil {
-		t.Fatalf("verified final file was not reused: %v", err)
-	}
-	if got != final {
-		t.Fatalf("reused %q, want %q", got, final)
-	}
+func TestOfflinePayloadExpectationDrivesReuse(t *testing.T) {
+	scopeTempRoot(t)
+	upstream, offline, image, document := offlineFixture(t)
+
+	t.Run("reuses the verified offline build without mounting", func(t *testing.T) {
+		cache := t.TempDir()
+		final := filepath.Join(cache, upstream.AssetName)
+		if err := os.WriteFile(final, offline, 0600); err != nil {
+			t.Fatal(err)
+		}
+		// A path that cannot be mounted proves the cache check short-circuits.
+		got, err := acquire(upstream, cache, offlineClient(t), filepath.Join(t.TempDir(), "absent.dmg"), document)
+		if err != nil {
+			t.Fatalf("verified offline build was not reused: %v", err)
+		}
+		if got != final {
+			t.Fatalf("reused %q, want %q", got, final)
+		}
+		assertNoStaleMounts(t)
+	})
+
+	t.Run("does not reuse the mismatching upstream build", func(t *testing.T) {
+		cache := t.TempDir()
+		// The upstream artefact satisfies the upstream lock but not the offline
+		// expectation, so it must be replaced by the re-signed build.
+		if err := os.WriteFile(filepath.Join(cache, upstream.AssetName), payload(), 0600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := acquire(upstream, cache, offlineClient(t), image, document)
+		if err != nil {
+			t.Fatalf("re-signed build was not acquired: %v", err)
+		}
+		published, err := os.ReadFile(got)
+		if err != nil || fixtureHashHex(published) != fixtureHashHex(offline) {
+			t.Fatalf("upstream build was reused instead of the offline one: err=%v", err)
+		}
+		assertNoStaleMounts(t)
+	})
 }
 
-func TestOfflinePayloadFailsClosedAndCleansPartial(t *testing.T) {
-	content := payload()
-	mutated := append([]byte(nil), content...)
+func TestOfflinePayloadImageFailsClosed(t *testing.T) {
+	scopeTempRoot(t)
+	upstream, offline, goodImage, goodDocument := offlineFixture(t)
+	upstreamBytes := payload()
+	mutated := append([]byte(nil), offline...)
 	mutated[100] ^= 1
-	link := filepath.Join(t.TempDir(), "linked.gz")
-	if err := os.Symlink(gzipFixture(t, content), link); err != nil {
+	noMagic := append([]byte(nil), offline...)
+	for i := 0; i < 8; i++ {
+		noMagic[i] = 0
+	}
+	brokenImage := filepath.Join(t.TempDir(), "broken.dmg")
+	if err := os.WriteFile(brokenImage, []byte("this is not a disk image"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	raw := filepath.Join(t.TempDir(), "raw.gz")
-	if err := os.WriteFile(raw, []byte("not a gzip stream"), 0600); err != nil {
+	linkedImage := filepath.Join(t.TempDir(), "linked.dmg")
+	if err := os.Symlink(artefactImage(t, "UDRW", upstream.AssetName, offline), linkedImage); err != nil {
 		t.Fatal(err)
 	}
-	cases := []struct {
-		name    string
-		payload string
+	secondVisible := imageFixture(t, "UDRW", func(source string) {
+		mustWriteFixture(t, source, upstream.AssetName, offline)
+		mustWriteFixture(t, source, "extra.bin", []byte("extra"))
+	})
+	unexpectedName := imageFixture(t, "UDRW", func(source string) {
+		mustWriteFixture(t, source, "other.bin", offline)
+	})
+	withDocument := func(mutate func(document map[string]any)) string {
+		document := offlineDocument(upstream, offline)
+		mutate(document)
+		return writeOfflineDocument(t, document)
+	}
+	assertRejected := func(t *testing.T, image, document string) {
+		t.Helper()
+		cache := t.TempDir()
+		if _, err := acquire(upstream, cache, offlineClient(t), image, document); err == nil {
+			t.Fatal("invalid offline payload was accepted")
+		}
+		final := filepath.Join(cache, upstream.AssetName)
+		if _, err := os.Lstat(final); !os.IsNotExist(err) {
+			t.Fatalf("failed payload published the final component: %v", err)
+		}
+		if _, err := os.Lstat(final + ".partial"); !os.IsNotExist(err) {
+			t.Fatalf("failed payload left a .partial behind: %v", err)
+		}
+		assertNoStaleMounts(t)
+	}
+
+	imageCases := []struct {
+		name     string
+		image    string
+		document string
 	}{
-		{"missing archive", filepath.Join(t.TempDir(), "absent.gz")},
-		{"not gzip", raw},
-		{"symlinked archive", link},
-		{"truncated artefact", gzipFixture(t, content[:len(content)-1])},
-		{"hash mismatch", gzipFixture(t, mutated)},
+		{"missing image", filepath.Join(t.TempDir(), "absent.dmg"), goodDocument},
+		{"not a disk image", brokenImage, goodDocument},
+		{"symlinked image", linkedImage, goodDocument},
+		{"second visible file", secondVisible, goodDocument},
+		{"unexpected filename", unexpectedName, goodDocument},
+		{"size mismatch", artefactImage(t, "UDRW", upstream.AssetName, offline[:len(offline)-1]), goodDocument},
+		{"hash mismatch", artefactImage(t, "UDRW", upstream.AssetName, mutated), goodDocument},
+		{"missing arm64 magic", artefactImage(t, "UDRW", upstream.AssetName, noMagic), writeOfflineDocument(t, offlineDocument(upstream, noMagic))},
+		// The manifest matches the upstream lock, but the expectation it carries
+		// does not match the bytes inside the image.
+		{"offline hash does not match image", goodImage, withDocument(func(document map[string]any) {
+			document["idvLogin"].(map[string]any)["offlineSha256"] = fixtureHashHex(upstreamBytes)
+		})},
+		{"offline size does not match image", goodImage, withDocument(func(document map[string]any) {
+			document["idvLogin"].(map[string]any)["offlineByteCount"] = len(offline) + 1
+		})},
 	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			cache := t.TempDir()
-			m := testManifest("http://must-not-be-used.invalid", content)
-			if _, err := acquire(m, cache, offlineClient(t), testCase.payload); err == nil {
-				t.Fatal("invalid offline payload was accepted")
-			}
-			final := filepath.Join(cache, m.AssetName)
-			if _, err := os.Lstat(final); !os.IsNotExist(err) {
-				t.Fatalf("failed payload published the final component: %v", err)
-			}
-			if _, err := os.Lstat(final + ".partial"); !os.IsNotExist(err) {
-				t.Fatalf("failed payload left a .partial behind: %v", err)
-			}
-		})
+	for _, testCase := range imageCases {
+		t.Run(testCase.name, func(t *testing.T) { assertRejected(t, testCase.image, testCase.document) })
+	}
+
+	manifestCases := []struct {
+		name     string
+		document string
+	}{
+		{"missing manifest", filepath.Join(t.TempDir(), "absent.json")},
+		{"malformed manifest", writeOfflineRaw(t, "{not json")},
+		{"wrong kind", withDocument(func(document map[string]any) { document["kind"] = "something-else" })},
+		{"wrong schema version", withDocument(func(document map[string]any) { document["schemaVersion"] = 2 })},
+		{"asset name mismatch", withDocument(func(document map[string]any) {
+			document["idvLogin"].(map[string]any)["assetName"] = "other"
+		})},
+		{"version mismatch", withDocument(func(document map[string]any) {
+			document["idvLogin"].(map[string]any)["version"] = "9.9.9"
+		})},
+		{"upstream byteCount mismatch", withDocument(func(document map[string]any) {
+			document["idvLogin"].(map[string]any)["byteCount"] = upstream.ByteSize + 1
+		})},
+		{"upstream sha256 mismatch", withDocument(func(document map[string]any) {
+			document["idvLogin"].(map[string]any)["sha256"] = strings.Repeat("0", 64)
+		})},
+		{"missing offline expectation", withDocument(func(document map[string]any) {
+			delete(document["idvLogin"].(map[string]any), "offlineByteCount")
+			delete(document["idvLogin"].(map[string]any), "offlineSha256")
+		})},
+	}
+	for _, testCase := range manifestCases {
+		t.Run(testCase.name, func(t *testing.T) { assertRejected(t, goodImage, testCase.document) })
 	}
 }
 
@@ -390,7 +651,7 @@ func TestWithoutPayloadStillDownloadsOverNetwork(t *testing.T) {
 	defer server.Close()
 	m := testManifest(server.URL, content)
 	cache := t.TempDir()
-	got, err := acquire(m, cache, server.Client(), "")
+	got, err := acquire(m, cache, server.Client(), "", "")
 	if err != nil {
 		t.Fatalf("online path failed: %v", err)
 	}

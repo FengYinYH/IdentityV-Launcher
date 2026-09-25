@@ -6,14 +6,18 @@
 
 公开发行的第五人格启动器**不**携带下列组件，而是在首装时按固定 URL、大小和 SHA-256 从上游直接取得（原因见 `runtimeBootstrap/README.md` 与 `notices/README.md`）。离线整包面向网络环境只能访问网易的目标用户，GitHub 取不到，所以把这些字节提前放进 App。
 
-启动器仍然逐个校验后才安装：`IdentityVRuntimeBootstrap` 校验基础镜像的大小与 SHA-256 之后才挂载并打补丁；`IdentityVDownloaderCoreBootstrap` 逐个校验三个 PE 文件；`IdentityVIdvLoginDownloader` 解压后校验原始大小与 SHA-256。任何一项不符都会失败并终止安装，不会退回网络、也不会写入半成品。
+启动器仍然逐个校验后才安装：`IdentityVRuntimeBootstrap` 校验基础镜像的大小与 SHA-256 之后才挂载并打补丁；`IdentityVDownloaderCoreBootstrap` 逐个校验三个 PE 文件；`IdentityVIdvLoginDownloader` 挂载内嵌磁盘映像取出 idv-login，并按**本次打包记录的**大小与 SHA-256 校验后才发布。任何一项不符都会失败并终止安装，不会退回网络、也不会写入半成品。
+
+**idv-login 这一份被本项目重签过，请注意这是「修改过的版本」**：上游只提供 ad-hoc 签名，而 Apple 公证要求包里每个 Mach-O 都由 Developer ID 签名、带安全时间戳并启用 Hardened Runtime（公证会展开归档、连内嵌磁盘映像里的二进制也会逐个检查——我们已用最小包实测）。所以离线包在打包时用本项目 Developer ID 重签了这份上游二进制，并附加 PyInstaller 必需的三条 entitlements。**改动只有签名，没有改动任何一行上游代码。** 因为它仍是 GPL-3.0 覆盖的 idv-login 6.3.0 的修改版本，随包材料里保留了上游来源、许可与「这是一份被修改过的版本」的说明；对应源码以上游仓库 `KKeygen/idv-login` 的 v6.3.0-stable 标签为准。
+
+上游原始字节的 `byteSize` / `sha256` 仍记录在 `offlinePayloads.json`，用来证明这份离线清单是从同一份上游锁派生的；实际分发的那一份的大小与哈希记在同文件的 `offlineByteCount` / `offlineSha256`。公开路径不受影响，它仍然下载并校验上游原始字节。
 
 ## 随包的三个组件
 
 | 组件 | 包内位置 | 上游来源 | 原始字节 | SHA-256（前 16 位） |
 | --- | --- | --- | --- | --- |
 | 基础 Wine runtime 镜像 | `BaseRuntime.dmg` | `https://github.com/novak037/yanyun-on-mac/releases/download/v0.1.2/DWRG.dmg` | 326,791,695 | `69b79d250b794af8` |
-| idv-login 6.3.0（gzip 存放） | `idv-login-6.3.0.gz` | `https://github.com/KKeygen/idv-login/releases/download/v6.3.0-stable/idv-login-v6.3.0-stable-mac` | 197,215,760（解压后） | `8e63be76de37b4ae` |
+| idv-login 6.3.0（装在内嵌磁盘映像里，本项目重签） | `idv-login-6.3.0.dmg` | `https://github.com/KKeygen/idv-login/releases/download/v6.3.0-stable/idv-login-v6.3.0-stable-mac` | 197,215,760（上游）/ 见 `offlinePayloads.json`（重签后） | `8e63be76de37b4ae`（上游） |
 | 网易下载核心 | `netease-download-core/` | `https://raw.githubusercontent.com/KKeygen/idv-login/9b1ff598da6cb9ae6a952a8978ccf88bc8b2ae5c/binaries/` | 见下 | — |
 
 网易下载核心三个文件：
