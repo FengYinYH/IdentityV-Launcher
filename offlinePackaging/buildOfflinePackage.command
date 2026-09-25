@@ -227,6 +227,8 @@ print -- "⑥ 签名并公证 DMG"
 # ── 发布产物 ───────────────────────────────────────────────────────────────────
 /bin/mv -f "$temporary_dmg" "$dmg_path"
 /bin/cp "$guide_source" "$guide_copy"
+# 说明是要发给别人的文件，显式给普通可读权限，避免继承只读副本上偶然的 0600。
+/bin/chmod 644 "$guide_copy"
 (
   cd "$output_root"
   /usr/bin/shasum -a 256 "${dmg_path:t}" "${guide_copy:t}" > "$checksums"
