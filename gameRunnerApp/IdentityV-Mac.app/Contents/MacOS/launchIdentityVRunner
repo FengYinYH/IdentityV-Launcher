@@ -414,14 +414,22 @@ STALL_SAMPLE_PID_FILE=""
 STALL_SAMPLE_EXIT_CODE=0
 STALL_SAMPLE_TIMED_OUT=0
 STALL_SAMPLE_ELAPSED_SECONDS=0
+STALL_SAMPLE_RAW_FILE=""
+STALL_SAMPLE_RAW_BYTES=0
+STALL_SAMPLE_OUTPUT_STATUS="not-captured"
 STALL_SNAPSHOT_SEQUENCE=0
 STALL_MAX_SNAPSHOTS=4
 STALL_SNAPSHOT_MARKER=".runner-stall-v2"
-# sample output and its diagnostic stderr are each bounded by this file limit.
-# Four marker-owned snapshots therefore stay within roughly 2 MiB of stack
-# output across runner restarts; legacy unmarked evidence is never deleted here.
+# Wine/Rosetta symbolication has previously needed a 40-second allowance and
+# produced a 42 MiB text report for a one-second sparse sample.  The 2026-09-27
+# four 3-second/256-KiB attempts all yielded empty stacks.  Bound the temporary
+# raw report separately, keep a small readable prefix, and compress the full
+# report before deleting the raw file.  No diagnostic work runs on the monitor
+# loop; the same worker owns sample, compression and cleanup.
 STALL_SAMPLE_MAX_BYTES=262144
-STALL_SAMPLE_TIMEOUT_SECONDS=3
+STALL_SAMPLE_RAW_MAX_BYTES=67108864
+STALL_SAMPLE_ARCHIVE_MAX_BYTES=4194304
+STALL_SAMPLE_TIMEOUT_SECONDS=45
 STALL_PS_BIN="/bin/ps"
 STALL_LSAPPINFO_BIN="/usr/bin/lsappinfo"
 STALL_STAT_BIN="/usr/bin/stat"
@@ -544,17 +552,26 @@ stall_snapshot_worker_cleanup() {
     /bin/kill -KILL "$child" >/dev/null 2>&1 || true
   fi
   [[ -z "$STALL_SAMPLE_PID_FILE" ]] || : >"$STALL_SAMPLE_PID_FILE"
+  [[ -z "$STALL_SAMPLE_RAW_FILE" ]] || /bin/rm -f -- "$STALL_SAMPLE_RAW_FILE"
+  STALL_SAMPLE_RAW_FILE=""
   STALL_SAMPLE_PID=""
 }
 
 run_stall_sample() {
-  local pid="$1" output="$2" error="$3" pid_file="${4:-}" blocks started now
+  local pid="$1" output="$2" error="$3" pid_file="${4:-}" raw raw_blocks archive_blocks started now archive archive_started archive_ok
   STALL_SAMPLE_TIMED_OUT=0
-  blocks=$(( (STALL_SAMPLE_MAX_BYTES + 511) / 512 ))
+  STALL_SAMPLE_RAW_BYTES=0
+  STALL_SAMPLE_OUTPUT_STATUS="not-captured"
+  raw="$output.raw"
+  archive="$output.gz"
+  STALL_SAMPLE_RAW_FILE="$raw"
+  raw_blocks=$(( (STALL_SAMPLE_RAW_MAX_BYTES + 511) / 512 ))
+  archive_blocks=$(( (STALL_SAMPLE_ARCHIVE_MAX_BYTES + 511) / 512 ))
   # exec makes the tracked PID the sample process itself.  ulimit bounds both
-  # redirected files; the polling deadline bounds a hung sample invocation.
-  /bin/zsh -c 'limit="$1"; shift; ulimit -f "$limit" 2>/dev/null || exit 65; exec "$@"' \
-    zsh "$blocks" "$STALL_SAMPLE_BIN" "$pid" 1 100 -mayDie -file /dev/fd/1 >"$output" 2>"$error" &
+  # raw output and stderr; the polling deadline bounds symbolication.  sample
+  # can write through fd 1 without creating its default /tmp report.
+  /bin/zsh -c 'limit="$1"; raw="$2"; shift 2; ulimit -f "$limit" 2>/dev/null || exit 65; exec "$@" -file /dev/fd/1 >"$raw"' \
+    zsh "$raw_blocks" "$raw" "$STALL_SAMPLE_BIN" "$pid" 1 100 -mayDie 2>"$error" &
   STALL_SAMPLE_PID=$!
   [[ -z "$pid_file" ]] || print -r -- "$STALL_SAMPLE_PID" >"$pid_file"
   started="$(/bin/date +%s)"
@@ -574,8 +591,46 @@ run_stall_sample() {
   else
     STALL_SAMPLE_EXIT_CODE=$?
   fi
+  STALL_SAMPLE_PID=""
+  [[ -z "$pid_file" ]] || : >"$pid_file"
   now="$(/bin/date +%s)"
   STALL_SAMPLE_ELAPSED_SECONDS=$((now - started))
+  STALL_SAMPLE_RAW_BYTES="$(/usr/bin/stat -f '%z' "$raw" 2>/dev/null || print 0)"
+  if (( STALL_SAMPLE_TIMED_OUT == 0 && STALL_SAMPLE_EXIT_CODE == 0 && STALL_SAMPLE_RAW_BYTES > 0 )); then
+    if /usr/bin/head -c "$STALL_SAMPLE_MAX_BYTES" "$raw" >"$output"; then
+      STALL_SAMPLE_OUTPUT_STATUS="summary-only"
+      (ulimit -f "$archive_blocks" 2>/dev/null && exec /usr/bin/gzip -1 -c "$raw") >"$archive" 2>>"$error" &
+      STALL_SAMPLE_PID=$!
+      [[ -z "$pid_file" ]] || print -r -- "$STALL_SAMPLE_PID" >"$pid_file"
+      archive_started="$(/bin/date +%s)"
+      archive_ok=1
+      while /bin/kill -0 "$STALL_SAMPLE_PID" >/dev/null 2>&1; do
+        now="$(/bin/date +%s)"
+        if (( now - archive_started >= 5 )); then
+          archive_ok=0
+          /bin/kill -TERM "$STALL_SAMPLE_PID" >/dev/null 2>&1 || true
+          /bin/sleep 0.2
+          /bin/kill -KILL "$STALL_SAMPLE_PID" >/dev/null 2>&1 || true
+          break
+        fi
+        /bin/sleep 0.1
+      done
+      wait "$STALL_SAMPLE_PID" >/dev/null 2>&1 || archive_ok=0
+      if (( archive_ok )) && [[ -s "$archive" ]]; then
+        STALL_SAMPLE_OUTPUT_STATUS="summary-and-gzip"
+      else
+        /bin/rm -f -- "$archive"
+      fi
+    else
+      STALL_SAMPLE_OUTPUT_STATUS="summary-failed"
+    fi
+  elif (( STALL_SAMPLE_TIMED_OUT )); then
+    STALL_SAMPLE_OUTPUT_STATUS="timed-out"
+  else
+    STALL_SAMPLE_OUTPUT_STATUS="sample-failed-or-empty"
+  fi
+  /bin/rm -f -- "$raw"
+  STALL_SAMPLE_RAW_FILE=""
   [[ -z "$pid_file" ]] || : >"$pid_file"
   STALL_SAMPLE_PID=""
 }
@@ -621,6 +676,8 @@ run_stall_snapshot_worker() {
     print "sample_exit_code=$STALL_SAMPLE_EXIT_CODE"
     print "sample_timed_out=$STALL_SAMPLE_TIMED_OUT"
     print "sample_elapsed_seconds=$STALL_SAMPLE_ELAPSED_SECONDS"
+    print "sample_raw_bytes=$STALL_SAMPLE_RAW_BYTES"
+    print "sample_output_status=$STALL_SAMPLE_OUTPUT_STATUS"
     print "memory_pressure=$(/usr/bin/memory_pressure -Q 2>/dev/null | /usr/bin/tr -d '\n' || true)"
     /usr/bin/vm_stat 2>/dev/null | /usr/bin/grep -E 'Pages free|Pages active|Pages wired|Pages occupied by compressor|Swapins|Swapouts' || true
     /usr/bin/sysctl -n vm.swapusage 2>/dev/null || true
