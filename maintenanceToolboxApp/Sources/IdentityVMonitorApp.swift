@@ -112,7 +112,13 @@ enum MetalHUDSettings {
 }
 
 @MainActor final class MonitorViewModel: ObservableObject {
-    @Published private(set) var gamePID: Int32?; @Published private(set) var monitoringState: DenseMonitoringState = .idle; @Published private(set) var outputDirectory: URL; @Published private(set) var message: String?; @Published private(set) var combinedPhase: CombinedCapturePhase = .idle; @Published private(set) var visualCaptureStatus = "画面变化率：未启动"; @Published private(set) var screenRecordingAuthorization: ScreenRecordingAuthorizationState = .notAuthorized; @Published private(set) var overlayEnabled = false; @Published var includeVisual = true; @Published var includeMetal = true; @Published var metalHUDEnabled = MetalHUDSettings.read()
+    @Published private(set) var gamePID: Int32?; @Published private(set) var monitoringState: DenseMonitoringState = .idle; @Published private(set) var outputDirectory: URL; @Published private(set) var message: String?; @Published private(set) var combinedPhase: CombinedCapturePhase = .idle; @Published private(set) var visualCaptureStatus = "画面变化率：未启动"; @Published private(set) var screenRecordingAuthorization: ScreenRecordingAuthorizationState = .notAuthorized; @Published private(set) var overlayEnabled = false
+    @Published var includeVisual = true
+    @Published var includeMetal = true
+    // A sample can briefly suspend the game and contaminate the freeze being measured.
+    // Keep visual observation independent; opt in only when a thread stack is needed.
+    @Published var includeAutomaticFreezeStack = false
+    @Published var metalHUDEnabled = MetalHUDSettings.read()
     private let controller: DenseMonitoringController?; private let visual = VisualCaptureController(); private var record: CombinedCaptureRecord?; private var poller: AnyCancellable?; private var activationObserver: AnyCancellable?; private var visualIsCapturing = false
     @Published private(set) var resourceCaptureStatus = "CPU/GPU 记录：未开始"
     @Published private(set) var captureEndReason: String?
@@ -205,7 +211,10 @@ enum MetalHUDSettings {
         resourceSamples = 0
         resourceOutput = MonitorSecureFS.createExclusiveFile(directory.appendingPathComponent("resource-metrics.jsonl"))
         resourceCaptureStatus = resourceOutput == nil ? "CPU/GPU 记录：创建失败" : "CPU/GPU 记录：采集中"
-        guard includeVisual else { combinedPhase = includeMetal ? .recordingWithoutVisual : .recordingDenseOnly; message = "高密度采集已启动。"; return }; guard CGPreflightScreenCaptureAccess() else { combinedPhase = .recordingWithoutVisual; visualCaptureStatus = "画面变化率：部分失败（未授予工具箱屏幕录制权限）"; message = "高密度与 Metal 正在采集；画面变化率未启动。"; return }; combinedPhase = .recording; message = "联合采集已启动。"; visual.armAutomaticFreezeStackCapture(captureDirectory: directory, targetPID: pid); visual.beginStart(targetPID: pid, outputURL: new.visualOutputURL)
+        guard includeVisual else { combinedPhase = includeMetal ? .recordingWithoutVisual : .recordingDenseOnly; message = "高密度采集已启动。"; return }; guard CGPreflightScreenCaptureAccess() else { combinedPhase = .recordingWithoutVisual; visualCaptureStatus = "画面变化率：部分失败（未授予工具箱屏幕录制权限）"; message = "高密度与 Metal 正在采集；画面变化率未启动。"; return }; combinedPhase = .recording; message = includeAutomaticFreezeStack ? "联合采集已启动；画面静止时可自动采样线程。" : "联合采集已启动；自动线程采样已关闭。"
+        if includeAutomaticFreezeStack { visual.armAutomaticFreezeStackCapture(captureDirectory: directory, targetPID: pid) }
+        else { visual.disarmAutomaticFreezeStackCapture() }
+        visual.beginStart(targetPID: pid, outputURL: new.visualOutputURL)
     }
     func stop() {
         stop(reason: "手动停止")
@@ -415,6 +424,10 @@ private struct MonitorView: View {
                             Button("停止并导出", action: model.stop).buttonStyle(.bordered)
                         }
                     }
+                    Toggle("画面静止时自动采样线程", isOn: $model.includeAutomaticFreezeStack)
+                        .disabled(isCapturing || !model.includeVisual)
+                    Text("默认关闭。开启后，运动画面静止约 1 秒且游戏窗口仍可见时，最多采样两次线程；采样可能短暂停顿游戏，停止采集或退出工具箱时会停止。")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             GroupBox("输出目录") {
