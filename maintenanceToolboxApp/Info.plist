@@ -12,6 +12,6 @@
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>仅用于记录第五人格窗口中央战斗画面的实际变化率，不保存截图、视频或音频。</string>
+    <string>用于记录第五人格窗口中央画面变化率，以及用户手动启动的最长 30 秒第五人格游戏播放声音短录；声音短录不采集麦克风或画面。</string>
     <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

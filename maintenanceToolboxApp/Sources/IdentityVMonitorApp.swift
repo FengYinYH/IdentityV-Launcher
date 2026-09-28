@@ -129,14 +129,21 @@ enum MetalHUDSettings {
     private var resources: MonitorResourceSnapshot?
     private var watchedIdentity: GameProcessIdentity?
     private var resourceOutput: FileHandle?
+    private let gameAudio = GameAudioCaptureController()
+    @Published private(set) var gameAudioPhase: GameAudioCapturePhase = .idle
+    @Published private(set) var gameAudioMessage = "游戏声音录制：未开始"
+    @Published private(set) var gameAudioSecondsRemaining = 0
+    @Published private(set) var gameAudioOutputURL: URL?
+    private nonisolated static let gameAudioRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("IdentityVOnMac/Diagnostics/GameAudio", isDirectory: true)
     nonisolated private static let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("IdentityVOnMac/Diagnostics/Dense", isDirectory: true)
-    init() { outputDirectory = Self.root; controller = DenseMonitoringController(samplerURL: Bundle.main.url(forResource: "idv-dense-metrics", withExtension: nil), root: Self.root); visual.onUpdate = { [weak self] metrics in Task { @MainActor in self?.visualUpdate(metrics) } }; poller = Timer.publish(every: 1, on: .main, in: .common).autoconnect().sink { [weak self] _ in self?.refresh() }; activationObserver = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).sink { [weak self] _ in self?.refresh() }; refresh(); let legacyPath = "/Applications/第五人格性能浮窗" + ".app"; if FileManager.default.fileExists(atPath: legacyPath) || !NSRunningApplication.runningApplications(withBundleIdentifier: "com.xunfeng.identityv.monitor" + "-overlay").isEmpty { message = "检测到已退役的旧性能浮窗；请迁移到本工具箱。它不会被自动启动、停止或删除。" } }
+    init() { outputDirectory = Self.root; controller = DenseMonitoringController(samplerURL: Bundle.main.url(forResource: "idv-dense-metrics", withExtension: nil), root: Self.root); visual.onUpdate = { [weak self] metrics in Task { @MainActor in self?.visualUpdate(metrics) } }; gameAudio.onUpdate = { [weak self] update in Task { @MainActor in self?.applyGameAudioUpdate(update) } }; IdentityVMonitorAppDelegate.prepareForTermination = { [weak self] in await self?.stopGameAudioForTermination() }; poller = Timer.publish(every: 1, on: .main, in: .common).autoconnect().sink { [weak self] _ in self?.refresh() }; activationObserver = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).sink { [weak self] _ in self?.refresh() }; refresh(); let legacyPath = "/Applications/第五人格性能浮窗" + ".app"; if FileManager.default.fileExists(atPath: legacyPath) || !NSRunningApplication.runningApplications(withBundleIdentifier: "com.xunfeng.identityv.monitor" + "-overlay").isEmpty { message = "检测到已退役的旧性能浮窗；请迁移到本工具箱。它不会被自动启动、停止或删除。" } }
     func refresh() {
         refresh(readSnapshot: Self.snapshot)
     }
     private func refresh(readSnapshot: () -> String) {
         let observedRecord = record
         let snap = readSnapshot()
+        gameAudio.stopIfTargetExited(snapshot: snap)
         // ps.waitUntilExit may dispatch a Start action while this refresh is
         // suspended. Its snapshot predates that new sampler; never use it as
         // evidence that the just-started capture has already exited.
@@ -298,6 +305,29 @@ enum MetalHUDSettings {
             || resources.gameGPUPercent != nil || resources.systemGPUPercent != nil
     }
     func revealOutput() { NSWorkspace.shared.activateFileViewerSelecting([outputDirectory]) }
+    func startGameAudio() {
+        guard !gameAudioPhase.isBusy else { return }
+        let snapshot = Self.snapshot()
+        guard let pid = MonitorGameProcessMatcher.gamePID(in: snapshot), let identity = GameProcessIdentity.read(pid) else {
+            gameAudioMessage = "未发现正在运行的 dwrg.exe；没有开始录音。"
+            gameAudioPhase = .failed
+            return
+        }
+        gameAudioOutputURL = nil
+        gameAudio.start(targetPID: pid, identity: identity)
+    }
+    func stopGameAudio() { gameAudio.stopManually() }
+    func revealGameAudio() {
+        if let gameAudioOutputURL { NSWorkspace.shared.activateFileViewerSelecting([gameAudioOutputURL]) }
+        else { NSWorkspace.shared.activateFileViewerSelecting([Self.gameAudioRoot]) }
+    }
+    private func applyGameAudioUpdate(_ update: GameAudioCaptureUpdate) {
+        gameAudioPhase = update.phase
+        gameAudioMessage = update.message
+        gameAudioSecondsRemaining = update.secondsRemaining
+        if let outputURL = update.outputURL { gameAudioOutputURL = outputURL }
+    }
+    private func stopGameAudioForTermination() async { await gameAudio.stopForToolboxExit() }
     func setMetalHUD(_ enabled: Bool) { do { try MetalHUDSettings.write(enabled: enabled); metalHUDEnabled = enabled; message = "Metal HUD 已\(enabled ? "开启" : "关闭")；下次启动或重启游戏生效，当前游戏不变。" } catch { metalHUDEnabled = MetalHUDSettings.read(); message = "无法保存 Metal HUD 设置：\(error.localizedDescription)" } }
     private func visualUpdate(_ metrics: VisualMetrics) {
         visualCaptureStatus = metrics.localizedDescription
@@ -356,8 +386,21 @@ enum MetalHUDSettings {
     }
 }
 
+final class IdentityVMonitorAppDelegate: NSObject, NSApplicationDelegate {
+    static var prepareForTermination: (() async -> Void)?
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let prepareForTermination = Self.prepareForTermination else { return .terminateNow }
+        Task { @MainActor in
+            await prepareForTermination()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+}
+
 #if !MONITOR_PROCESS_SELF_TEST
 @main struct IdentityVMonitorApp: App {
+    @NSApplicationDelegateAdaptor(IdentityVMonitorAppDelegate.self) private var appDelegate
     @StateObject private var model: MonitorViewModel
     init() {
         IdentityVLegacyPreferences.migrateForCurrentApp()
@@ -445,6 +488,29 @@ private struct MonitorView: View {
                     Text("默认关闭。开启后，运动画面静止约 1 秒且游戏窗口仍可见时，最多采样两次线程；采样可能短暂停顿游戏，停止采集或退出工具箱时会停止。")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            GroupBox("游戏声音短录") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(model.gameAudioMessage, systemImage: model.gameAudioPhase == .recording ? "waveform.circle.fill" : "waveform.circle")
+                        .font(.callout)
+                        .foregroundStyle(model.gameAudioPhase == .recording ? Color.red : Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if model.gameAudioPhase == .recording {
+                        Text("录制中 · 自动结束倒计时：\(model.gameAudioSecondsRemaining) 秒")
+                            .font(.title3.monospacedDigit().weight(.semibold))
+                    }
+                    Text("只录当前已识别的第五人格游戏播放声音，不录麦克风或画面。手动停止保存，最多 30 秒；游戏或工具箱退出时收尾。")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        if model.gameAudioPhase.isBusy {
+                            Button("停止并保存", action: model.stopGameAudio).buttonStyle(.borderedProminent)
+                        } else {
+                            Button("开始录制游戏声音", action: model.startGameAudio).buttonStyle(.borderedProminent).disabled(model.gamePID == nil)
+                        }
+                        Button(model.gameAudioPhase == .failed ? "显示录音结果" : "在访达中显示录音", action: model.revealGameAudio).buttonStyle(.bordered).disabled(model.gameAudioOutputURL == nil)
+                    }
                 }
             }
             GroupBox("输出目录") {

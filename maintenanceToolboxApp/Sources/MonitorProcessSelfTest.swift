@@ -62,6 +62,7 @@ import Metal
             securityChecks.allSatisfy { $0 },
             MetalHUDSettings.fixtureChecks().allSatisfy { $0 },
             !String(describing: CombinedCaptureRecord.self).contains("Sidecar"),
+            GameAudioCaptureController.fixtureChecks().allSatisfy { $0 },
         ] + DenseMonitoringProcessMatcherSelfTest.checks()
         guard checks.allSatisfy({ $0 }) else { FileHandle.standardError.write(Data("第五人格工具箱自检失败：\(checks) freeze=\(freezeChecks) dense=\(denseChecks)\n".utf8)); exit(1) }
     }

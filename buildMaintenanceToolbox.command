@@ -16,6 +16,7 @@ DENSE_SOURCE="$PROJECT_ROOT/sharedDiagnostics/DenseMonitoring.swift"
 LEGACY_PREF_SOURCE="$PROJECT_ROOT/sharedDiagnostics/LegacyPreferences.swift"
 OVERLAY_SOURCE="$SOURCE_ROOT/Sources/PerformanceOverlay.swift"
 FREEZE_STACK_SOURCE="$SOURCE_ROOT/Sources/FreezeStackCapture.swift"
+GAME_AUDIO_SOURCE="$SOURCE_ROOT/Sources/GameAudioCapture.swift"
 HEALTH_SOURCE="$PROJECT_ROOT/sharedDiagnostics/GameHealth.swift"
 RESOURCE_SOURCE="$PROJECT_ROOT/sharedDiagnostics/ResourceSampling.swift"
 PROTOCOL_SOURCE="$SOURCE_ROOT/Sources/OverlayProtocol.swift"
@@ -34,6 +35,7 @@ identityv_resolve_identity
 [[ -f "$DENSE_SOURCE" ]] || { print -u2 -- "缺少已验证的高密度采集 ownership 控制器。"; exit 1; }
 [[ -f "$OVERLAY_SOURCE" ]] || { print -u2 -- "缺少进程内性能浮窗与画面采集器。"; exit 1; }
 [[ -f "$FREEZE_STACK_SOURCE" ]] || { print -u2 -- "缺少联合采集冻结栈捕获器。"; exit 1; }
+[[ -f "$GAME_AUDIO_SOURCE" ]] || { print -u2 -- "缺少游戏声音短录控制器。"; exit 1; }
 [[ -f "$DISPLAY_HELPER_SOURCE" ]] || { print -u2 -- "缺少跨全屏 Space 的仅显示性能浮窗辅助进程。"; exit 1; }
 [[ -f "$ICON_SOURCE" ]] || { print -u2 -- "缺少第五人格工具箱图标 IdentityVToolbox.icns。"; exit 1; }
 "$PROJECT_ROOT/denseMetrics/build.command"
@@ -46,10 +48,11 @@ python3 "$PROJECT_ROOT/denseMetrics/testLifecycle.py"
 /usr/bin/xcrun swiftc \
   -swift-version 5 -warnings-as-errors -O -parse-as-library \
   -target arm64-apple-macos14.0 -sdk "$SDK_PATH" \
-  -framework AppKit -framework SwiftUI -framework ScreenCaptureKit -framework CoreMedia -framework CoreVideo -framework IOKit \
+  -framework AppKit -framework SwiftUI -framework ScreenCaptureKit -framework CoreMedia -framework CoreVideo -framework AudioToolbox -framework IOKit \
   "$SOURCE_ROOT/Sources/IdentityVMonitorApp.swift" \
   "$OVERLAY_SOURCE" \
   "$FREEZE_STACK_SOURCE" \
+  "$GAME_AUDIO_SOURCE" \
   "$HEALTH_SOURCE" "$RESOURCE_SOURCE" "$PROTOCOL_SOURCE" \
   "$DENSE_SOURCE" \
   "$LEGACY_PREF_SOURCE" \
@@ -84,10 +87,11 @@ python3 "$PROJECT_ROOT/signing/verifyFirstPartyIdentity.py" toolbox "$APP_PATH"
   -swift-version 5 -warnings-as-errors -O -parse-as-library \
   -D MONITOR_PROCESS_SELF_TEST -D TOOLBOX_PROCESS_SELF_TEST \
   -target arm64-apple-macos14.0 -sdk "$SDK_PATH" \
-  -framework AppKit -framework SwiftUI -framework ScreenCaptureKit -framework CoreMedia -framework CoreVideo -framework IOKit \
+  -framework AppKit -framework SwiftUI -framework ScreenCaptureKit -framework CoreMedia -framework CoreVideo -framework AudioToolbox -framework IOKit \
   "$SOURCE_ROOT/Sources/IdentityVMonitorApp.swift" \
   "$OVERLAY_SOURCE" \
   "$FREEZE_STACK_SOURCE" \
+  "$GAME_AUDIO_SOURCE" \
   "$HEALTH_SOURCE" "$RESOURCE_SOURCE" "$PROTOCOL_SOURCE" \
   "$SOURCE_ROOT/Sources/MonitorProcessSelfTest.swift" \
   "$DENSE_SOURCE" \
