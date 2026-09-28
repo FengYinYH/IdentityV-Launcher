@@ -365,10 +365,17 @@ enum MetalHUDSettings {
     }
     var body: some Scene {
         Window("第五人格工具箱", id: "identityv-toolbox") {
-            MonitorView().environmentObject(model).frame(minWidth: 620, minHeight: 500)
+            // Keep native title-bar controls outside the content and let status
+            // text grow without covering the capture controls on small screens.
+            ScrollView {
+                MonitorView()
+                    .environmentObject(model)
+                    .padding(22)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minWidth: 620, minHeight: 500)
         }
-        .defaultSize(width: 700, height: 560)
-        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 760, height: 700)
         .commands { CommandGroup(replacing: .newItem) {} }
     }
 }
@@ -384,7 +391,6 @@ private struct MonitorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("第五人格工具箱").font(.system(size: 28, weight: .bold, design: .rounded))
             GroupBox("游戏进程") {
                 HStack {
                     Label(model.gamePID.map { "已识别 dwrg.exe · PID \($0)" } ?? "未发现 dwrg.exe", systemImage: model.gamePID == nil ? "circle" : "checkmark.circle.fill")
@@ -397,21 +403,31 @@ private struct MonitorView: View {
                     Label(model.screenRecordingAuthorization.localizedDescription, systemImage: model.screenRecordingAuthorization == .notAuthorized ? "lock.circle" : "checkmark.shield.fill")
                         .foregroundStyle(model.screenRecordingAuthorization == .notAuthorized ? Color.secondary : Color.green)
                     Text(model.visualCaptureStatus).font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     HStack {
                         Button(model.screenRecordingAuthorization == .notAuthorized ? "启用画面采集权限" : "检查画面采集权限", action: model.requestVisualPermission).buttonStyle(.bordered)
                         Button(model.overlayEnabled ? "关闭性能浮窗" : "显示性能浮窗", action: model.toggleOverlay).buttonStyle(.bordered)
                         Spacer()
                         Toggle("Metal HUD", isOn: Binding(get: { model.metalHUDEnabled }, set: model.setMetalHUD)).toggleStyle(.switch)
                     }
-                    Text("CPU 的 100% 代表一个核心。GPU 依次为游戏时间占比、整机负载，两者不直接相减。浮窗随游戏前台状态自动显隐，无需画面采集权限。Metal HUD 下次启动生效。").font(.caption).foregroundStyle(.secondary)
+                    Text("CPU 的 100% 代表一个核心。GPU 依次为游戏时间占比、整机负载，两者不直接相减。浮窗随游戏前台状态自动显隐，无需画面采集权限。Metal HUD 下次启动生效。")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             GroupBox("联合采集") {
                 VStack(alignment: .leading, spacing: 10) {
                     Label(model.combinedPhase.title, systemImage: model.combinedPhase.systemImage).font(.title3.weight(.semibold))
-                    Text(model.monitoringState.localizedDescription + " · " + model.resourceCaptureStatus).font(.caption).foregroundStyle(.secondary)
-                    Text("无时长上限；手动停止或游戏退出时结束。退出工具箱也会结束采集。").font(.caption).foregroundStyle(.secondary)
-                    if let reason = model.captureEndReason { Text("结束原因：\(reason)").font(.caption).foregroundStyle(.secondary) }
+                    Text(model.monitoringState.localizedDescription + " · " + model.resourceCaptureStatus)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("无时长上限；手动停止或游戏退出时结束。退出工具箱也会结束采集。")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let reason = model.captureEndReason {
+                        Text("结束原因：\(reason)").font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     HStack {
                         Toggle("包含画面变化率", isOn: $model.includeVisual).disabled(isCapturing)
                         Toggle("导出 Metal trace", isOn: $model.includeMetal).disabled(isCapturing)
@@ -428,18 +444,22 @@ private struct MonitorView: View {
                         .disabled(isCapturing || !model.includeVisual)
                     Text("默认关闭。开启后，运动画面静止约 1 秒且游戏窗口仍可见时，最多采样两次线程；采样可能短暂停顿游戏，停止采集或退出工具箱时会停止。")
                         .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             GroupBox("输出目录") {
                 HStack {
                     Text(model.outputDirectory.path).font(.caption).textSelection(.enabled).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button("在访达中显示结果", action: model.revealOutput).buttonStyle(.bordered)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            if let message = model.message { Text(message).font(.callout).foregroundStyle(.secondary) }
-            Spacer(minLength: 0)
-        }.padding(22)
+            if let message = model.message {
+                Text(message).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 #endif
