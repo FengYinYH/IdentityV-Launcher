@@ -1,18 +1,22 @@
 # 固定 IDV Login 组件
 
-当前固定上游未修改的 `idv-login` `v6.3.0-stable` 原始 macOS arm64 二进制。唯一发行清单是 `../idvLoginComponent.json`；下载器编译时锁定版本、完整 URL、大小与 SHA-256，测试同时核对启动器的版本/缓存常量，避免只换清单而旧版 UI 仍误判“已安装”。
+当前固定上游未修改的 `idv-login` `v6.3.1-beta` 原始 macOS arm64 二进制。唯一发行清单是 `../idvLoginComponent.json`；下载器编译时锁定版本、完整 URL、大小与 SHA-256，测试同时核对启动器的版本/缓存常量，避免只换清单而旧版 UI 仍误判“已安装”。
 
 维护者已有官方下载成品时，可离线暂存：
 
 ```zsh
-./stageIdvLoginReleasePayload.command /绝对路径/idv-login-v6.3.0-stable-mac
+./stageIdvLoginReleasePayload.command /绝对路径/idv-login-v6.3.1-beta-mac
 ```
 
-它离线校验精确大小、SHA-256 和 arm64 架构，并写入 Git 忽略、权限 `0700/0600` 的 `releaseCache/6.3.0/`，只用于维护者安装准备。构建 App 不需要这个 cache，也不会从 `/Library` 现有安装或旧 App 提取二进制。
+它离线校验精确大小、SHA-256 和 arm64 架构，并写入 Git 忽略、权限 `0700/0600` 的 `releaseCache/6.3.1/`，只用于维护者安装准备。构建 App 不需要这个 cache，也不会从 `/Library` 现有安装或旧 App 提取二进制。
 
 最终 App 的 `InstallerPayload/` 含 manifest、root 安装器、特权 helper 输入、state tool、迁移脚本、预览卸载器和 ThirdPartyNotices，**不含 idv-login 二进制**。用户安装时从固定的上游 Release 下载。
 
 跨版本由现有安装器先停止旧后台、备份配置并隔离全部旧 Python 热修复覆盖层，再原子切换 `current`。不能只替换可执行文件：旧覆盖层可能盖住新版模块。账号与证书保留，原始内容不写入项目日志；具体安全边界以本目录源码和合约测试为准。
+
+2026-10-03 升级锁定官方 `v6.3.1-beta`（不是 stable）；mac 资产 197,556,448 字节，SHA-256 与官方资产 digest 一致，源码 commit `116149162aecec41c1bfa95bed7a96a7f957da8e`，许可证文本哈希与旧版一致。已下载原始资产的 arm64 Mach-O 和无状态 `--help` 检查通过；登录、新功能与真实账号行为不由这些检查证明。
+
+默认安装器仍拒绝活动游戏，以免拆除游戏所依赖的代理。维护者已明确确认停止代理、保持游戏时，可使用 `--allow-running-game-with-stopped-proxy`，但必须先通过限定 stop helper 完全停止代理并清理托管 hosts；root 阶段再次核查两项条件，不符合就退出 75。此例外不发给 UI，不退出 Wine 或游戏，也不自动启动新版登录。回退保留旧版本组件槽及迁移器产生的旧配置/热修复备份；旧覆盖层只能随对应旧版本恢复，不能重新覆盖新版模块。
 
 ## 用户侧下载缓存
 

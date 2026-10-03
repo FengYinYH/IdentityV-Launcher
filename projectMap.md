@@ -97,7 +97,7 @@ flowchart LR
 | --- | --- |
 | `installIdentityVApps.command` | 按 `launcher` 或 `toolbox` 更新 `/Applications` 并备份旧 App。 |
 | `installIdentityVIdvLoginLauncherShim.command` | 安装或更新旧登录 shim。 |
-| `installIdentityVPasswordlessHelpers.command` | 安装特权 helper 和授权配置，可能请求管理员权限。 |
+| `installIdentityVPasswordlessHelpers.command` | 安装特权 helper 和授权配置，可能请求管理员权限。常规更新要求退出游戏；显式维护例外仅允许代理已停止且托管 hosts 已清理时保留活动游戏，见组件说明。 |
 | `restartIdentityVGame.command` | 停止并重启游戏，`--dry-run` 才只观察。 |
 | `stopIdentityVIdvLogin.command` | 停止相关登录进程/服务，必要时提权。 |
 | `stopIdentityVMonitoring.command` | 停止旧监测进程或服务。 |

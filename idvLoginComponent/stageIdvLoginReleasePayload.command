@@ -8,7 +8,7 @@ MANIFEST="$ROOT/idvLoginComponent.json"
 CACHE_ROOT="$ROOT/idvLoginComponent/releaseCache"
 
 if (( $# != 1 )) || [[ "$1" != /* ]]; then
-  print -u2 -- "用法：stageIdvLoginReleasePayload.command /绝对路径/idv-login-v6.3.0-stable-mac"
+  print -u2 -- "用法：stageIdvLoginReleasePayload.command /绝对路径/idv-login-v6.3.1-beta-mac"
   exit 64
 fi
 SOURCE="$1"
@@ -21,8 +21,8 @@ VERSION="$(read_manifest version)"
 ASSET_NAME="$(read_manifest assetName)"
 EXPECTED_SIZE="$(read_manifest byteSize)"
 EXPECTED_SHA="$(read_manifest sha256)"
-[[ "$VERSION" == "6.3.0" && "$ASSET_NAME" == "idv-login-v6.3.0-stable-mac" ]] || {
-  print -u2 -- "只允许当前固定的 IDV Login 6.3.0 payload。"; exit 1;
+[[ "$VERSION" == "6.3.1" && "$ASSET_NAME" == "idv-login-v6.3.1-beta-mac" ]] || {
+  print -u2 -- "只允许当前固定的 IDV Login 6.3.1 payload。"; exit 1;
 }
 [[ "$EXPECTED_SIZE" == <-> && "$EXPECTED_SHA" != *[^0-9a-f]* && ${#EXPECTED_SHA} -eq 64 ]] || {
   print -u2 -- "组件清单的大小或 SHA-256 格式无效。"; exit 1;

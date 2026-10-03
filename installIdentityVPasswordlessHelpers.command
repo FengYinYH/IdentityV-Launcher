@@ -11,9 +11,14 @@ DEFAULT_MANIFEST="$PAYLOAD_ROOT/idvLoginComponent.json"
 COMPONENT_SOURCE=""
 MANIFEST_SOURCE="$DEFAULT_MANIFEST"
 VERIFY_ONLY=false
+ALLOW_RUNNING_GAME_WITH_STOPPED_PROXY=false
 
 while (( $# > 0 )); do
   case "$1" in
+    --allow-running-game-with-stopped-proxy)
+      ALLOW_RUNNING_GAME_WITH_STOPPED_PROXY=true
+      shift
+      ;;
     --root)
       shift
       ;;
@@ -143,13 +148,14 @@ if [[ "$VERIFY_ONLY" == true ]]; then
 fi
 
 if [[ "$(/usr/bin/id -u)" -ne 0 ]]; then
-  /usr/bin/osascript - "$0" "$PAYLOAD_ROOT" "$COMPONENT_SOURCE" "$MANIFEST_SOURCE" <<'OSA'
+  /usr/bin/osascript - "$0" "$PAYLOAD_ROOT" "$COMPONENT_SOURCE" "$MANIFEST_SOURCE" "$ALLOW_RUNNING_GAME_WITH_STOPPED_PROXY" <<'OSA'
 on run argv
   set installerPath to item 1 of argv
   set payloadRoot to item 2 of argv
   set componentPath to item 3 of argv
   set manifestPath to item 4 of argv
   set commandText to quoted form of installerPath & " --root --payload-root " & quoted form of payloadRoot & " --component " & quoted form of componentPath & " --manifest " & quoted form of manifestPath
+  if item 5 of argv is "true" then set commandText to commandText & " --allow-running-game-with-stopped-proxy"
   do shell script commandText with administrator privileges
 end run
 OSA
@@ -205,15 +211,19 @@ resolve_console_user() {
 verify_payload
 resolve_console_user
 
-# Reinstalling replaces the proxy's launch/stop lifecycle. Do not tear that
-# shared service down under a running match; this guard also covers direct
-# installer invocation outside the launcher's UI.
+# Normal installation cannot tear down a proxy underneath a match. An explicit
+# maintenance-only exception requires the proxy and managed hosts to have been
+# stopped beforehand; it never stops the game or bypasses an active proxy.
 if /bin/ps -axo comm= | /usr/bin/awk '
   { gsub(/\\/, "/"); if ($0 ~ /(^|\/)dwrg[.]exe$/) found=1 }
   END { exit !found }
 '; then
-  print -u2 -- '第五人格仍在运行；请先退出游戏，再更新 IDV Login 组件。'
-  exit 75
+  if [[ "$ALLOW_RUNNING_GAME_WITH_STOPPED_PROXY" != true ]] ||
+     /bin/ps -axo comm= | /usr/bin/grep -Eq '/IdentityVOnMac/Components/idv-login/.*/idv-login$|/idv-login-v[0-9][^/ ]*-mac(-mac)?$' ||
+     /usr/bin/grep -q 'identityv-on-mac-compat' /etc/hosts; then
+    print -u2 -- '第五人格仍在运行；常规更新须退出游戏，维护例外须先停止代理并清理其 hosts。'
+    exit 75
+  fi
 fi
 
 current_version=""

@@ -30,7 +30,9 @@ RC1 采用“不二次分发基础闭包”的开箱路线：
 
 ## 应随发行物提供的材料
 
-### idv-login 6.3.0 stable
+### idv-login 6.3.0 stable 的发行审计与 6.3.1 beta 本机更新
+
+2026-10-03 本机更新固定组件至官方 `v6.3.1-beta`，source commit `116149162aecec41c1bfa95bed7a96a7f957da8e`；许可原文哈希未变，生成器的精确来源锁已同步。官方 Git tree（未截断）确认该 commit 仍含下述 Windows payload，继续只提供许可证与精确源码获取说明，不二次分发其源码归档或二进制。下述 6.3.0 stable 记录是原 RC1 审计证据，不能把它写成 6.3.1 的运行回归结论；公开发行包尚未由本次维护更新重新发布。
 
 - 发行 tag：[`v6.3.0-stable`](https://github.com/KKeygen/idv-login/releases/tag/v6.3.0-stable)，精确源 commit：[`389d23a7763fe9e5985cb77a3114b8c4dcb670e1`](https://github.com/KKeygen/idv-login/tree/389d23a7763fe9e5985cb77a3114b8c4dcb670e1)。
 - 许可证原文：[`LICENSE` (GPLv3 文本)](https://github.com/KKeygen/idv-login/blob/389d23a7763fe9e5985cb77a3114b8c4dcb670e1/LICENSE)。锁定 commit 的 [`src/main.py`](https://github.com/KKeygen/idv-login/blob/389d23a7763fe9e5985cb77a3114b8c4dcb670e1/src/main.py) 与 [`src/certmgr.py`](https://github.com/KKeygen/idv-login/blob/389d23a7763fe9e5985cb77a3114b8c4dcb670e1/src/certmgr.py) 文件头明确给出 GPL 第 3 版或后续版本的选择；README 和本地组件 JSON 的“GPLv3 / GPL-3.0”是简称，不能据此推翻源文件的明确授权。2026-09-23 从该 commit 的原始 LICENSE 复验 SHA-256 为 `3972dc97…36986`，与锁定值相同；`GPL-3.0-or-later` 的材料标签由源文件声明支持，且仍须保留原作者及其独立许可证。

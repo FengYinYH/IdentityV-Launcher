@@ -18,6 +18,8 @@ denseMetrics/idv-dense-metrics
 runtimeBootstrap/IdentityVRuntimeBootstrap
 downloaderCoreBootstrap/IdentityVDownloaderCoreBootstrap
 idvLoginComponent/downloader/identityv-idv-login-downloader
+# Exact upstream staging cache stays local; never redistribute binary payloads.
+idvLoginComponent/releaseCache/
 inputLatencyProbe/IdentityVInputLatencyProbe
 wineAudioPatch/build-26.1/
 
