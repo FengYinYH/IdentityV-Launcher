@@ -42,7 +42,7 @@ The first installation or launch may request macOS permissions. If administrator
 
 Use Control+C and Control+V to copy and paste in the game, rather than Command+C and Command+V.
 
-Game audio is being updated to follow the current macOS default input and output devices. The new implementation is deployed in the local candidate, but real device switching, switching time, and voice quality have not been verified. Seamless switching is not guaranteed, and this change is not a verified fix for periodic artifacts in voice messages. Choose devices in macOS System Settings → Sound.
+Game audio follows the current macOS default input and output devices, confirmed in a local candidate test. Switching time and different device combinations have not been measured, so seamless switching is not guaranteed. Periodic artifacts in voice messages remain a separate known issue. Choose devices in macOS System Settings → Sound.
 
 A mouse polling rate above 1 kHz may cause severe stuttering. Function-row mapping on external keyboards may also be unreliable.
 

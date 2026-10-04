@@ -996,7 +996,7 @@ private func repairGameWindowsPath(gameRoot: URL, prefix: URL, product: ProductI
         let resolvedTarget = URL(fileURLWithPath: target, relativeTo: managedLink.deletingLastPathComponent())
             .resolvingSymlinksInPath().standardizedFileURL
         if resolvedTarget == gameRoot.resolvingSymlinksInPath().standardizedFileURL {
-            return "C:\\Games\\IdentityV"
+            return "C:\\Games\\\(windowsProductRoot)"
         }
     }
 
@@ -3146,6 +3146,19 @@ private func runSelfTest() throws {
         if error.errorDescription == "direct install accepted path outside Y: root" { throw error }
     }
     let mappingFixture = testRoot.appendingPathComponent("dosdevices-fixture", isDirectory: true)
+    // Exercise the actual repair-root resolver for both products. A shared
+    // core must preserve each product's mount, including when files are missing.
+    let repairRootFixture = testRoot.appendingPathComponent("repair-game-root", isDirectory: true)
+    let repairPrefixFixture = testRoot.appendingPathComponent("repair-prefix", isDirectory: true)
+    let repairGamesFixture = repairPrefixFixture.appendingPathComponent("drive_c/Games", isDirectory: true)
+    try fileManager.createDirectory(at: repairRootFixture, withIntermediateDirectories: true)
+    try fileManager.createDirectory(at: repairGamesFixture, withIntermediateDirectories: true)
+    for (product, name) in [(ProductID.mainland, "IdentityV"), (ProductID.global, "IdentityVGlobal")] {
+        try fileManager.createSymbolicLink(at: repairGamesFixture.appendingPathComponent(name), withDestinationURL: repairRootFixture)
+        guard try repairGameWindowsPath(gameRoot: repairRootFixture, prefix: repairPrefixFixture, product: product) == "C:\\Games\\\(name)" else {
+            throw ManagerError.message("shared repair core used the wrong product Windows root")
+        }
+    }
     try fileManager.createDirectory(at: mappingFixture, withIntermediateDirectories: true)
     for (name, target) in [
         ("c:", "../drive_c"), (directInstallDosDevice, workspace.installRoot.path),
