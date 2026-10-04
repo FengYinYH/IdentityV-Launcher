@@ -1,0 +1,747 @@
+--- a/dlls/winecoreaudio.drv/coreaudio.c
++++ b/dlls/winecoreaudio.drv/coreaudio.c
+@@ -70,6 +70,7 @@
+ 
+ #include "unixlib.h"
+ #include "coreaudio_cocoa.h"
++#include "default-device-following-state.h"
+ 
+ #if !defined(MAC_OS_VERSION_12_0) || MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_VERSION_12_0
+ #define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster
+@@ -83,6 +84,9 @@
+     os_unfair_lock lock;
+     AudioComponentInstance unit;
+     AudioConverterRef converter;
++    Float32 master_volume;
++    Float32 *session_volumes, *channel_volumes;
++    BOOL have_volumes;
+     AudioStreamBasicDescription dev_desc; /* audio unit format, not necessarily the same as fmt */
+     AudioDeviceID dev_id;
+ 
+@@ -92,6 +96,8 @@
+     HANDLE event;
+ 
+     BOOL playing, please_quit;
++    BOOL audio_available, reconfiguring, getbuf_drop;
++    REFERENCE_TIME duration;
+     REFERENCE_TIME period;
+     UINT32 period_frames;
+     UINT32 bufsize_frames, resamp_bufsize_frames;
+@@ -108,7 +114,38 @@
+ static const REFERENCE_TIME min_period = 50000;
+ 
+ static ULONG_PTR zero_bits = 0;
++
++static AudioObjectPropertyAddress default_device_address(EDataFlow flow)
++{
++    AudioObjectPropertyAddress addr =
++    {
++        .mScope = kAudioObjectPropertyScopeGlobal,
++        .mElement = kAudioObjectPropertyElementMain,
++        .mSelector = flow == eRender ? kAudioHardwarePropertyDefaultOutputDevice :
++                                       kAudioHardwarePropertyDefaultInputDevice,
++    };
++    return addr;
++}
++
++/* Read only the current default property. Do not query the global device list. */
++static HRESULT get_default_device(EDataFlow flow, AudioDeviceID *device)
++{
++    AudioObjectPropertyAddress addr = default_device_address(flow);
++    UInt32 size = sizeof(*device);
++    OSStatus sc = AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &size, device);
++
++    if(sc != noErr || *device == kAudioObjectUnknown){
++        *device = kAudioObjectUnknown;
++        return AUDCLNT_E_DEVICE_INVALIDATED;
++    }
++    return S_OK;
++}
+ 
++static BOOL stream_is_quitting(struct coreaudio_stream *stream)
++{
++    return __atomic_load_n(&stream->please_quit, __ATOMIC_ACQUIRE);
++}
++
+ static NTSTATUS unix_not_implemented(void *args)
+ {
+     return STATUS_SUCCESS;
+@@ -226,11 +263,11 @@
+ static NTSTATUS unix_get_endpoint_ids(void *args)
+ {
+     struct get_endpoint_ids_params *params = args;
+-    unsigned int num_devices, i, needed, offset;
++    unsigned int num_devices = 0, i, needed, offset;
+     AudioDeviceID *devices, default_id;
+     AudioObjectPropertyAddress addr;
+     struct endpoint *endpoint;
+-    UInt32 devsize, size;
++    UInt32 size;
+     struct endpoint_info
+     {
+         CFStringRef name;
+@@ -243,64 +280,28 @@
+     params->num = 0;
+     params->default_idx = 0;
+ 
+-    addr.mScope = kAudioObjectPropertyScopeGlobal;
+-    addr.mElement = kAudioObjectPropertyElementMain;
+-    if(params->flow == eRender) addr.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+-    else if(params->flow == eCapture) addr.mSelector = kAudioHardwarePropertyDefaultInputDevice;
+-    else{
++    if(params->flow != eRender && params->flow != eCapture){
+         params->result = E_INVALIDARG;
+         return STATUS_SUCCESS;
+     }
+ 
+-    size = sizeof(default_id);
+-    sc = AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &size, &default_id);
+-    if(params->flow == eCapture){
+-        /* Do not enumerate global devices: that wakes Continuity inputs. */
+-        if(sc != noErr || default_id == kAudioObjectUnknown){
+-            WARN("Getting default input device failed: %x\n", (int)sc);
+-            params->result = S_OK;
+-            return STATUS_SUCCESS;
+-        }
+-        num_devices = 1;
+-        devices = malloc(sizeof(*devices));
+-        if(!devices){
+-            params->result = E_OUTOFMEMORY;
+-            return STATUS_SUCCESS;
+-        }
+-        devices[0] = default_id;
+-    }
+-    else{
+-        if(sc != noErr){
+-            WARN("Getting _DefaultInputDevice property failed: %x\n", (int)sc);
+-            default_id = -1;
+-        }
+-
+-        addr.mSelector = kAudioHardwarePropertyDevices;
+-        sc = AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &addr, 0, NULL, &devsize);
+-        if(sc != noErr){
+-            WARN("Getting _Devices property size failed: %x\n", (int)sc);
+-            params->result = osstatus_to_hresult(sc);
+-            return STATUS_SUCCESS;
+-        }
+-
+-        num_devices = devsize / sizeof(AudioDeviceID);
+-        devices = malloc(devsize);
+-        if(!devices){
+-            params->result = E_OUTOFMEMORY;
+-            return STATUS_SUCCESS;
+-        }
+-
+-        sc = AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &devsize, devices);
+-        if(sc != noErr){
+-            WARN("Getting _Devices property failed: %x\n", (int)sc);
+-            free(devices);
+-            params->result = osstatus_to_hresult(sc);
+-            return STATUS_SUCCESS;
+-        }
++    addr = default_device_address(params->flow);
++    if(FAILED(get_default_device(params->flow, &default_id))){
++        /* No fallback scan: that can wake unrelated/Continuity inputs. */
++        params->result = S_OK;
++        return STATUS_SUCCESS;
+     }
+ 
++    num_devices = 1;
++    devices = malloc(sizeof(*devices));
++    if(!devices){
++        params->result = E_OUTOFMEMORY;
++        return STATUS_SUCCESS;
++    }
++    devices[0] = default_id;
+     info = malloc(num_devices * sizeof(*info));
+-    if(!info){
++    if(!devices || !info){
++        free(info);
+         free(devices);
+         params->result = E_OUTOFMEMORY;
+         return STATUS_SUCCESS;
+@@ -420,7 +421,7 @@
+ 
+     os_unfair_lock_lock(&stream->lock);
+ 
+-    if(stream->playing){
++    if(stream->playing && stream->audio_available){
+         lcl_offs_bytes = stream->lcl_offs_frames * stream->fmt->nBlockAlign;
+         to_copy_frames = min(nframes, stream->held_frames);
+         to_copy_bytes = to_copy_frames * stream->fmt->nBlockAlign;
+@@ -477,6 +478,11 @@
+ 
+     os_unfair_lock_lock(&stream->lock);
+ 
++    if(!stream->audio_available){
++        os_unfair_lock_unlock(&stream->lock);
++        return noErr;
++    }
++
+     cap_wri_offs_frames = (stream->cap_offs_frames + stream->cap_held_frames) % stream->cap_bufsize_frames;
+ 
+     list.mNumberBuffers = 1;
+@@ -712,6 +718,66 @@
+     return S_OK;
+ }
+ 
++static HRESULT create_stream_audio_unit(struct coreaudio_stream *stream, AudioDeviceID device,
++                                        AudioComponentInstance *unit_out,
++                                        AudioStreamBasicDescription *dev_desc_out,
++                                        AudioConverterRef *converter_out)
++{
++    AURenderCallbackStruct input;
++    AudioComponentInstance unit;
++    AudioConverterRef converter = NULL;
++    HRESULT hr;
++    OSStatus sc;
++
++    *unit_out = NULL;
++    *converter_out = NULL;
++    if(!(unit = get_audiounit(stream->flow, device)))
++        return AUDCLNT_E_DEVICE_INVALIDATED;
++
++    hr = ca_setup_audiounit(stream->flow, unit, stream->fmt, dev_desc_out, &converter);
++    if(FAILED(hr)) goto failed;
++
++    input.inputProcRefCon = stream;
++    if(stream->flow == eCapture){
++        input.inputProc = ca_capture_cb;
++        sc = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_SetInputCallback,
++                                  kAudioUnitScope_Output, 1, &input, sizeof(input));
++    }else{
++        input.inputProc = ca_render_cb;
++        sc = AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback,
++                                  kAudioUnitScope_Input, 0, &input, sizeof(input));
++    }
++    if(sc != noErr){
++        WARN("Couldn't set callback: %x\n", (int)sc);
++        hr = osstatus_to_hresult(sc);
++        goto failed;
++    }
++
++    *unit_out = unit;
++    *converter_out = converter;
++    return S_OK;
++
++failed:
++    if(converter) AudioConverterDispose(converter);
++    AudioComponentInstanceDispose(unit);
++    return hr;
++}
++
++static HRESULT start_stream_audio_unit(AudioComponentInstance unit)
++{
++    OSStatus sc = AudioUnitInitialize(unit);
++    if(sc != noErr){
++        WARN("Couldn't initialize: %x\n", (int)sc);
++        return osstatus_to_hresult(sc);
++    }
++    sc = AudioOutputUnitStart(unit);
++    if(sc != noErr){
++        WARN("Unit failed to start: %x\n", (int)sc);
++        return osstatus_to_hresult(sc);
++    }
++    return S_OK;
++}
++
+ static AudioDeviceID dev_id_from_device(const char *device)
+ {
+     AudioDeviceID id;
+@@ -745,8 +811,7 @@
+ {
+     struct create_stream_params *params = args;
+     struct coreaudio_stream *stream;
+-    AURenderCallbackStruct input;
+-    OSStatus sc;
++    HRESULT hr;
+     SIZE_T size;
+ 
+     params->result = S_OK;
+@@ -763,40 +828,30 @@
+     }
+ 
+     stream->period = params->period;
++    stream->duration = params->duration;
+     stream->period_frames = muldiv(params->period, stream->fmt->nSamplesPerSec, 10000000);
+-    stream->dev_id = dev_id_from_device(params->device);
+     stream->flow = params->flow;
+     stream->flags = params->flags;
+     stream->share = params->share;
++    stream->session_volumes = calloc(stream->fmt->nChannels, sizeof(*stream->session_volumes));
++    stream->channel_volumes = calloc(stream->fmt->nChannels, sizeof(*stream->channel_volumes));
++    if(!stream->session_volumes || !stream->channel_volumes){
++        params->result = E_OUTOFMEMORY;
++        goto end;
++    }
++    if(FAILED(get_default_device(stream->flow, &stream->dev_id))){
++        params->result = AUDCLNT_E_DEVICE_INVALIDATED;
++        goto end;
++    }
+ 
+     stream->bufsize_frames = muldiv(params->duration, stream->fmt->nSamplesPerSec, 10000000);
+     if(params->share == AUDCLNT_SHAREMODE_EXCLUSIVE)
+         stream->bufsize_frames -= stream->bufsize_frames % stream->period_frames;
+ 
+-    if(!(stream->unit = get_audiounit(stream->flow, stream->dev_id))){
+-        params->result = AUDCLNT_E_DEVICE_INVALIDATED;
+-        goto end;
+-    }
+-
+-    params->result = ca_setup_audiounit(stream->flow, stream->unit, stream->fmt, &stream->dev_desc, &stream->converter);
++    params->result = create_stream_audio_unit(stream, stream->dev_id, &stream->unit,
++                                              &stream->dev_desc, &stream->converter);
+     if(FAILED(params->result)) goto end;
+ 
+-    input.inputProcRefCon = stream;
+-    if(stream->flow == eCapture){
+-        input.inputProc = ca_capture_cb;
+-        sc = AudioUnitSetProperty(stream->unit, kAudioOutputUnitProperty_SetInputCallback,
+-                                  kAudioUnitScope_Output, 1, &input, sizeof(input));
+-    }else{
+-        input.inputProc = ca_render_cb;
+-        sc = AudioUnitSetProperty(stream->unit, kAudioUnitProperty_SetRenderCallback,
+-                                  kAudioUnitScope_Input, 0, &input, sizeof(input));
+-    }
+-    if(sc != noErr){
+-        WARN("Couldn't set callback: %x\n", (int)sc);
+-        params->result = osstatus_to_hresult(sc);
+-        goto end;
+-    }
+-
+     if (stream->flow == eCapture) {
+         /* On 10.14 and later:
+          * Check the audio capture/microphone authorization status, and explicitly
+@@ -813,22 +868,6 @@
+                            "This can be enabled under Security & Privacy in System Preferences.\n");
+     }
+ 
+-    sc = AudioUnitInitialize(stream->unit);
+-    if(sc != noErr){
+-        WARN("Couldn't initialize: %x\n", (int)sc);
+-        params->result = osstatus_to_hresult(sc);
+-        goto end;
+-    }
+-
+-    /* we play audio continuously because AudioOutputUnitStart sometimes takes
+-     * a while to return */
+-    sc = AudioOutputUnitStart(stream->unit);
+-    if(sc != noErr){
+-        WARN("Unit failed to start: %x\n", (int)sc);
+-        params->result = osstatus_to_hresult(sc);
+-        goto end;
+-    }
+-
+     size = stream->bufsize_frames * stream->fmt->nBlockAlign;
+     if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer, zero_bits,
+                                &size, MEM_COMMIT, PAGE_READWRITE)){
+@@ -839,15 +878,48 @@
+ 
+     if(stream->flow == eCapture){
+         stream->cap_bufsize_frames = muldiv(params->duration, stream->dev_desc.mSampleRate, 10000000);
++        if(!idv_audio_capture_buffer_size_valid(stream->cap_bufsize_frames,
++                                                stream->fmt->nBlockAlign, (SIZE_T)-1)){
++            params->result = E_OUTOFMEMORY;
++            goto end;
++        }
+         stream->cap_buffer = malloc(stream->cap_bufsize_frames * stream->fmt->nBlockAlign);
++        if(!stream->cap_buffer){
++            params->result = E_OUTOFMEMORY;
++            goto end;
++        }
+     }
++
++    /* Prepare all callback-visible buffers before starting the unit: the
++     * callback may run as soon as AudioOutputUnitStart succeeds. */
++    params->result = start_stream_audio_unit(stream->unit);
++    if(FAILED(params->result)) goto end;
++    stream->audio_available = TRUE;
+     params->result = S_OK;
+ 
+ end:
+     if(FAILED(params->result)){
+         if(stream->converter) AudioConverterDispose(stream->converter);
+-        if(stream->unit) AudioComponentInstanceDispose(stream->unit);
++        if(stream->unit){
++            AudioOutputUnitStop(stream->unit);
++            AudioComponentInstanceDispose(stream->unit);
++        }
++        free(stream->cap_buffer);
++        free(stream->wrap_buffer);
++        free(stream->resamp_buffer);
++        if(stream->local_buffer){
++            size = 0;
++            NtFreeVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer,
++                                &size, MEM_RELEASE);
++        }
++        if(stream->tmp_buffer){
++            size = 0;
++            NtFreeVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer,
++                                &size, MEM_RELEASE);
++        }
+         free(stream->fmt);
++        free(stream->session_volumes);
++        free(stream->channel_volumes);
+         free(stream);
+     } else {
+         *params->channel_count = params->fmt->nChannels;
+@@ -864,7 +936,7 @@
+     SIZE_T size;
+ 
+     if(params->timer_thread){
+-        stream->please_quit = TRUE;
++        __atomic_store_n(&stream->please_quit, TRUE, __ATOMIC_RELEASE);
+         NtWaitForSingleObject(params->timer_thread, FALSE, NULL);
+         NtClose(params->timer_thread);
+     }
+@@ -889,6 +961,8 @@
+                             &size, MEM_RELEASE);
+     }
+     free(stream->fmt);
++    free(stream->session_volumes);
++    free(stream->channel_volumes);
+     free(stream);
+     params->result = S_OK;
+     return STATUS_SUCCESS;
+@@ -1048,7 +1122,10 @@
+     UInt32 size;
+     OSStatus sc;
+     int i;
+-    const AudioDeviceID dev_id = dev_id_from_device(params->device);
++    AudioDeviceID dev_id;
++
++    params->result = get_default_device(params->flow, &dev_id);
++    if(FAILED(params->result)) return STATUS_SUCCESS;
+ 
+     params->fmt->Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+ 
+@@ -1147,9 +1224,16 @@
+     AudioStreamBasicDescription dev_desc;
+     AudioConverterRef converter;
+     AudioComponentInstance unit;
+-    const AudioDeviceID dev_id = dev_id_from_device(params->device);
++    AudioDeviceID dev_id;
+ 
++    params->result = get_default_device(params->flow, &dev_id);
++    if(FAILED(params->result)) return STATUS_SUCCESS;
++
+     unit = get_audiounit(params->flow, dev_id);
++    if(!unit){
++        params->result = AUDCLNT_E_DEVICE_INVALIDATED;
++        return STATUS_SUCCESS;
++    }
+ 
+     converter = NULL;
+     params->result = ca_setup_audiounit(params->flow, unit, params->fmt_in, &dev_desc, &converter);
+@@ -1231,6 +1315,8 @@
+                                          stream->fmt->nSamplesPerSec);
+     OSStatus sc;
+ 
++    if(!stream->audio_available || !stream->converter) return;
++
+     /* the resampling process often needs more source frames than we'd
+      * guess from a straight conversion using the sample rate ratio. so
+      * only convert if we have extra source data. */
+@@ -1355,6 +1441,13 @@
+ 
+     os_unfair_lock_lock(&stream->lock);
+ 
++    if(!stream->audio_available){
++        *params->latency = stream->period * 2;
++        os_unfair_lock_unlock(&stream->lock);
++        params->result = S_OK;
++        return STATUS_SUCCESS;
++    }
++
+     addr.mScope = get_scope(stream->flow);
+     addr.mSelector = kAudioDevicePropertyLatency;
+     addr.mElement = 0;
+@@ -1386,6 +1479,7 @@
+ 
+ static UINT32 get_current_padding_nolock(struct coreaudio_stream *stream)
+ {
++    if(!stream->audio_available) return 0;
+     if(stream->flow == eCapture) capture_resample(stream);
+     return stream->held_frames;
+ }
+@@ -1440,8 +1534,133 @@
+     os_unfair_lock_unlock(&stream->lock);
+ 
+     return STATUS_SUCCESS;
++}
++
++static void clear_stream_audio_backlog(struct coreaudio_stream *stream)
++{
++    stream->held_frames = 0;
++    stream->lcl_offs_frames = 0;
++    stream->wri_offs_frames = 0;
++    stream->cap_offs_frames = 0;
++    stream->cap_held_frames = 0;
++    stream->getbuf_last = 0;
++    stream->getbuf_drop = FALSE;
++    if(stream->local_buffer)
++        silence_buffer(stream, stream->local_buffer, stream->bufsize_frames);
++    if(stream->cap_buffer)
++        memset(stream->cap_buffer, 0, stream->cap_bufsize_frames * stream->fmt->nBlockAlign);
++    free(stream->wrap_buffer);
++    stream->wrap_buffer = NULL;
++    stream->wrap_bufsize_frames = 0;
+ }
+ 
++/* Called only by unix_timer_loop, never by the CoreAudio render/capture callback. */
++static HRESULT follow_default_device(struct coreaudio_stream *stream, AudioDeviceID device)
++{
++    AudioComponentInstance old_unit, new_unit = NULL;
++    AudioConverterRef old_converter, new_converter = NULL;
++    AudioStreamBasicDescription new_desc;
++    BYTE *new_cap_buffer = NULL;
++    UINT32 new_cap_frames = 0;
++    HRESULT hr = S_OK;
++    AudioDeviceID confirmed_device = kAudioObjectUnknown;
++
++    os_unfair_lock_lock(&stream->lock);
++    if(stream->reconfiguring){
++        os_unfair_lock_unlock(&stream->lock);
++        return E_PENDING;
++    }
++    if(!idv_audio_route_needs_rebuild(stream->dev_id, device,
++                                     stream->audio_available, stream->reconfiguring)){
++        os_unfair_lock_unlock(&stream->lock);
++        return S_OK;
++    }
++    stream->audio_available = FALSE;
++    if(stream->getbuf_last){
++        os_unfair_lock_unlock(&stream->lock);
++        return E_PENDING;
++    }
++    stream->reconfiguring = TRUE;
++    clear_stream_audio_backlog(stream);
++    old_unit = stream->unit;
++    old_converter = stream->converter;
++    os_unfair_lock_unlock(&stream->lock);
++
++    /* The callback sees audio_available=false and returns quickly. Stop and
++     * dispose outside the stream lock so AudioOutputUnitStop can drain it. */
++    if(old_unit){
++        AudioOutputUnitStop(old_unit);
++        AudioComponentInstanceDispose(old_unit);
++    }
++    if(old_converter) AudioConverterDispose(old_converter);
++
++    if(device == kAudioObjectUnknown)
++        hr = AUDCLNT_E_DEVICE_INVALIDATED;
++    else
++        hr = create_stream_audio_unit(stream, device, &new_unit, &new_desc, &new_converter);
++    if(SUCCEEDED(hr)) hr = start_stream_audio_unit(new_unit);
++    if(SUCCEEDED(hr) && stream->flow == eCapture){
++        new_cap_frames = muldiv(stream->duration, new_desc.mSampleRate, 10000000);
++        if(!idv_audio_capture_buffer_size_valid(new_cap_frames, stream->fmt->nBlockAlign, (SIZE_T)-1))
++            hr = E_OUTOFMEMORY;
++        else if(!(new_cap_buffer = calloc(new_cap_frames, stream->fmt->nBlockAlign)))
++            hr = E_OUTOFMEMORY;
++    }
++    /* A second switch may happen while AudioUnitInitialize/Start is running.
++     * Publish only if the device is still the macOS default now. */
++    {
++        HRESULT route_status = get_default_device(stream->flow, &confirmed_device);
++        if(!idv_audio_route_candidate_matches(device, confirmed_device,
++                                              SUCCEEDED(route_status), SUCCEEDED(hr),
++                                              stream->flow != eCapture || new_cap_buffer != NULL,
++                                              stream_is_quitting(stream)) && SUCCEEDED(hr))
++            hr = AUDCLNT_E_DEVICE_INVALIDATED;
++    }
++
++    if(FAILED(hr)){
++        if(new_unit){ AudioOutputUnitStop(new_unit); AudioComponentInstanceDispose(new_unit); }
++        if(new_converter) AudioConverterDispose(new_converter);
++        free(new_cap_buffer);
++        new_unit = NULL;
++        new_converter = NULL;
++        new_cap_buffer = NULL;
++    }
++
++    os_unfair_lock_lock(&stream->lock);
++    stream->unit = new_unit;
++    stream->converter = new_converter;
++    stream->dev_id = SUCCEEDED(hr) ? device : kAudioObjectUnknown;
++    if(SUCCEEDED(hr)) stream->dev_desc = new_desc;
++    if(stream->flow == eCapture){
++        free(stream->cap_buffer);
++        stream->cap_buffer = new_cap_buffer;
++        stream->cap_bufsize_frames = SUCCEEDED(hr) ? new_cap_frames : 0;
++    }
++    if(SUCCEEDED(hr) && stream->have_volumes){
++        Float32 level = stream->master_volume;
++        AudioObjectPropertyAddress prop_addr = {
++            kAudioDevicePropertyVolumeScalar,
++            kAudioObjectPropertyScopeGlobal,
++            kAudioObjectPropertyElementMain
++        };
++        OSStatus sc = AudioObjectSetPropertyData(stream->dev_id, &prop_addr, 0, NULL, sizeof(level), &level);
++        if(sc == noErr) level = 1.0f;
++        for(UINT32 i = 1; i <= stream->fmt->nChannels; ++i){
++            Float32 volume = level * stream->session_volumes[i - 1] * stream->channel_volumes[i - 1];
++            prop_addr.mElement = i;
++            AudioObjectSetPropertyData(stream->dev_id, &prop_addr, 0, NULL, sizeof(volume), &volume);
++        }
++    }
++    stream->audio_available = SUCCEEDED(hr);
++    stream->reconfiguring = FALSE;
++    os_unfair_lock_unlock(&stream->lock);
++
++    if(FAILED(hr))
++        WARN("Couldn't follow default %s device; retrying: %x\n",
++             stream->flow == eRender ? "output" : "input", (int)hr);
++    return hr;
++}
++
+ static NTSTATUS unix_reset(void *args)
+ {
+     struct reset_params *params = args;
+@@ -1475,16 +1694,29 @@
+     struct timer_loop_params *params = args;
+     struct coreaudio_stream *stream = handle_get_stream(params->stream);
+     LARGE_INTEGER delay, next, last;
+-    int adjust;
++    int adjust, default_poll = 0;
++    unsigned int retry_poll = 0;
+ 
+     delay.QuadPart = -stream->period;
+     NtQueryPerformanceCounter(&last, NULL);
+     next.QuadPart = last.QuadPart + stream->period;
+ 
+-    while(!stream->please_quit){
++    while(!stream_is_quitting(stream)){
+         NtSetEvent(stream->event, NULL);
+         NtDelayExecution(FALSE, &delay);
+         NtQueryPerformanceCounter(&last, NULL);
++
++        /* This is Wine's per-Start control thread, not the CoreAudio callback.
++         * Poll only the one current-default property; never scan device lists. */
++        if((default_poll += stream->period) >= 1000000){ /* 100 ms */
++            AudioDeviceID device = kAudioObjectUnknown;
++            default_poll = 0;
++            get_default_device(stream->flow, &device);
++            if(idv_audio_route_retry_due(&retry_poll)){
++                HRESULT hr = follow_default_device(stream, device);
++                if(FAILED(hr)) idv_audio_route_schedule_retry(&retry_poll);
++            }
++        }
+ 
+         adjust = next.QuadPart - last.QuadPart;
+         if(adjust > stream->period / 2)
+@@ -1515,6 +1747,7 @@
+         goto end;
+     }
+     if(!params->frames){
++        stream->getbuf_drop = FALSE;
+         params->result = S_OK;
+         goto end;
+     }
+@@ -1546,6 +1779,7 @@
+         *params->data = stream->local_buffer + stream->wri_offs_frames * stream->fmt->nBlockAlign;
+         stream->getbuf_last = params->frames;
+     }
++    stream->getbuf_drop = !stream->audio_available;
+ 
+     silence_buffer(stream, *params->data, params->frames);
+     params->result = S_OK;
+@@ -1566,11 +1800,19 @@
+ 
+     if(!params->written_frames){
+         stream->getbuf_last = 0;
++        stream->getbuf_drop = FALSE;
+         params->result = S_OK;
+     }else if(!stream->getbuf_last)
+         params->result = AUDCLNT_E_OUT_OF_ORDER;
+     else if(params->written_frames > (stream->getbuf_last >= 0 ? stream->getbuf_last : -stream->getbuf_last))
+         params->result = AUDCLNT_E_INVALID_SIZE;
++    else if(!stream->audio_available || stream->getbuf_drop){
++        /* Discard transition-time samples so recovery cannot burst old audio. */
++        stream->written_frames += params->written_frames;
++        stream->getbuf_last = 0;
++        stream->getbuf_drop = FALSE;
++        params->result = S_OK;
++    }
+     else{
+         if(stream->getbuf_last >= 0)
+             buffer = stream->local_buffer + stream->wri_offs_frames * stream->fmt->nBlockAlign;
+@@ -1591,6 +1833,7 @@
+         stream->held_frames += params->written_frames;
+         stream->written_frames += params->written_frames;
+         stream->getbuf_last = 0;
++        stream->getbuf_drop = FALSE;
+ 
+         params->result = S_OK;
+     }
+@@ -1615,10 +1858,14 @@
+         goto end;
+     }
+ 
+-    capture_resample(stream);
+-
+     *params->frames = 0;
++    if(!stream->audio_available){
++        params->result = AUDCLNT_S_BUFFER_EMPTY;
++        goto end;
++    }
+ 
++    capture_resample(stream);
++
+     if(stream->held_frames < stream->period_frames){
+         params->result = AUDCLNT_S_BUFFER_EMPTY;
+         goto end;
+@@ -1691,9 +1938,9 @@
+ 
+     os_unfair_lock_lock(&stream->lock);
+ 
+-    capture_resample(stream);
++    if(stream->audio_available) capture_resample(stream);
+ 
+-    if(stream->held_frames >= stream->period_frames)
++    if(stream->audio_available && stream->held_frames >= stream->period_frames)
+         *params->frames = stream->period_frames;
+     else
+         *params->frames = 0;
+@@ -1783,22 +2030,28 @@
+         kAudioObjectPropertyElementMain
+     };
+ 
+-    sc = AudioObjectSetPropertyData(stream->dev_id, &prop_addr, 0, NULL, sizeof(float), &level);
+-    if (sc == noErr)
+-        level = 1.0f;
+-    else
+-        WARN("Couldn't set master volume, applying it directly to the channels: %x\n", (int)sc);
+-
+-    for (i = 1; i <= stream->fmt->nChannels; ++i) {
+-        const float vol = level * params->session_volumes[i - 1] * params->volumes[i - 1];
+-
+-        prop_addr.mElement = i;
++    os_unfair_lock_lock(&stream->lock);
++    stream->master_volume = params->master_volume;
++    for(i = 0; i < stream->fmt->nChannels; ++i){
++        stream->session_volumes[i] = params->session_volumes[i];
++        stream->channel_volumes[i] = params->volumes[i];
++    }
++    stream->have_volumes = TRUE;
++    if(stream->audio_available){
++        sc = AudioObjectSetPropertyData(stream->dev_id, &prop_addr, 0, NULL, sizeof(float), &level);
++        if (sc == noErr)
++            level = 1.0f;
++        else
++            WARN("Couldn't set master volume, applying it directly to the channels: %x\n", (int)sc);
+ 
+-        sc = AudioObjectSetPropertyData(stream->dev_id, &prop_addr, 0, NULL, sizeof(float), &vol);
+-        if (sc != noErr) {
+-            WARN("Couldn't set channel #%u volume: %x\n", i, (int)sc);
++        for (i = 1; i <= stream->fmt->nChannels; ++i) {
++            const float vol = level * params->session_volumes[i - 1] * params->volumes[i - 1];
++            prop_addr.mElement = i;
++            sc = AudioObjectSetPropertyData(stream->dev_id, &prop_addr, 0, NULL, sizeof(float), &vol);
++            if (sc != noErr) WARN("Couldn't set channel #%u volume: %x\n", (unsigned int)i, (int)sc);
+         }
+     }
++    os_unfair_lock_unlock(&stream->lock);
+ 
+     return STATUS_SUCCESS;
+ }

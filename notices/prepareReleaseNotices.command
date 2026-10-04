@@ -204,13 +204,12 @@ IdentityVDownloadSupervisor (gameDownloader):
   golang.org/x/text v0.15.0 — BSD-3-Clause
 IdentityVManifestPlanner (manifestPlanner):
   github.com/cespare/xxhash/v2 v2.3.0 — MIT
-IdentityVGlobalAdapter (globalAdapter):
-  github.com/cespare/xxhash/v2 v2.3.0 — MIT
 IdentityVRuntimeBootstrap (runtimeBootstrap): standard library only
 IdentityVDownloaderCoreBootstrap (downloaderCoreBootstrap): standard library only
 
-This list was checked with `go list -deps` for all five helper modules.  The indirect
-goczmq/v4 module is not in the compiled dependency graph and is therefore not listed.
+This list was checked with `go list -deps` for all five helper modules.  The global
+adapter now only resolves and validates metadata, so it has no non-standard Go modules.
+The indirect goczmq/v4 module is not in the compiled dependency graph and is therefore not listed.
 EOF
 
 find "$stage" -type l -print -quit | /usr/bin/grep -q . && { print -u2 -- "refusing symlink in release materials"; exit 65; }

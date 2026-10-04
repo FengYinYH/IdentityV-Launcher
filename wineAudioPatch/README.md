@@ -1,12 +1,17 @@
-# Wine CoreAudio：仅暴露 macOS 默认输入设备
+# Wine CoreAudio：默认设备端点与切换候选
 
 ## 目的与范围
 
 第五人格在 macOS 上启动时不应把内建麦克风、连续互通 iPhone 麦克风、耳机等每一个输入设备都呈现为独立的 Windows Capture endpoint。本提案让 Wine 只向 Windows 暴露 **当前 macOS 默认输入设备**；用户仍在“系统设置 → 声音 → 输入”里选择麦克风，下一次启动游戏时 Wine 随之读取新的默认设备。
 
-输出设备枚举保持原样：游戏仍可看到 Wine 原先提供的全部播放设备。
+**历史补丁边界：**下面关于“输出设备枚举保持原样”的描述仅适用于
+`default-input-only.patch` 单独使用的阶段。当前双向跟随候选也将播放 endpoint 收窄为
+macOS 默认输出，存活中的播放流随后跟随默认输出变化；见下文“双向默认设备跟随候选”。
 
-这正好匹配产品意图：游戏不承担设备选择器，macOS 承担唯一的全局默认输入选择器。
+`default-input-only.patch` 对应本节的旧输入枚举修复；新的
+`default-device-following.patch` 在此基础上让输入、输出流分别跟随 macOS 当前默认设备。
+两者都让设备选择留在“系统设置 → 声音”，不增加游戏内设备选择器。新候选与验证条件
+见 [`docs/audioDefaultDeviceFollowing.md`](../docs/audioDefaultDeviceFollowing.md)。
 
 ## 已核对的 CodeWeavers 26.1 依据
 
@@ -84,6 +89,20 @@ CoreAudio、AudioUnit、AudioToolbox、CoreMIDI、AppKit 与 AVFoundation，说�
 2. 在 Windows 声音 Capture 端点与游戏语音设置中确认仅存在一个输入设备，且语音录入正常。
 3. 完全退出 Wine/游戏；在 macOS 系统设置切换默认输入，重新启动后确认唯一端点随之变更。
 4. 输出端点数量、游戏声音和设备切换按未改 runtime 的基线回归。
+
+## 双向默认设备跟随候选
+
+`default-device-following.patch` 基于上面的默认输入枚举修复和
+`capture-resample-produced-frames.patch`，把 endpoint 查询以及存活流的恢复统一到
+CoreAudio driver：只读取当前默认输入/输出属性，每个已启动的 Wine stream 通过已有
+控制 timer 每 100ms 检查一次；不会枚举全部设备，也没有全局 listener 或新增常驻线程。
+切换和失败处理、纯模拟测试、隔离 x86_64 构建结果与未验证边界记录在
+[`docs/audioDefaultDeviceFollowing.md`](../docs/audioDefaultDeviceFollowing.md)。
+
+候选仍是未签名的隔离模块。它不是已安装或可公开发布的 runtime；发版前还须在副本上
+移除/审计调试信息中的本机路径、按既定身份签名并更新产物哈希，再完成隔离 runtime 与
+真实游戏语音回归。`buildDefaultDeviceFollowingX64.command` 需要显式的源码、工具链、
+基线模块、外部卷挂载点/UUID 和新的构建目录；它不会回落到内置磁盘，也不访问音频设备。
 
 ## TCC 是独立问题
 

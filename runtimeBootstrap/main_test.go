@@ -440,7 +440,20 @@ func offlineRuntimeFixture(t *testing.T) (manifest, string, string) {
 
 func TestOfflinePayloadImageInstallsWithoutNetwork(t *testing.T) {
 	m, patchRoot, dmg := offlineRuntimeFixture(t)
-	destination := realTempDir(t)
+	// macOS rejects an APFS image mount point nested inside another removable
+	// volume. Keep source/image and compiler caches on the configured external
+	// storage, but use a small auto-cleaned system temp destination for this
+	// actual mount test. Both locations were compared on macOS 27.2; see the
+	// developer guide. This does not change production install destinations.
+	destination, err := os.MkdirTemp("/private/tmp", "idv-runtime-offline-mount-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(destination); err != nil {
+			t.Errorf("cannot clean the image mount fixture: %v", err)
+		}
+	})
 	var progress bytes.Buffer
 	if err := installWithPayload(context.Background(), m, destination, patchRoot, dmg, &progress); err != nil {
 		t.Fatalf("offline install failed: %v", err)

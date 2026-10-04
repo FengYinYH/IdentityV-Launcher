@@ -33,7 +33,7 @@ struct ProductLauncherView: View {
             }
             Button("好", role: .cancel, action: model.dismissRuntimePrerequisiteIssue)
         } message: {
-            Text(model.runtimePrerequisiteIssue ?? "")
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(model.runtimePrerequisiteIssue ?? "")))
         }
         .sheet(isPresented: Binding(
             get: { model.showsInitialInstallDownloadNotice },
@@ -76,7 +76,7 @@ struct ProductLauncherView: View {
             Button("取消", role: .cancel) { }
         }
         .alert(
-            model.lastLaunchFailure?.title ?? "启动失败",
+            LocalizedStringKey(LauncherLanguage.current.localizedMessage(model.lastLaunchFailure?.title ?? "启动失败")),
             isPresented: Binding(
                 get: { model.showsLaunchFailureAlert },
                 set: { if !$0 { model.dismissLaunchFailureAlert() } }
@@ -86,12 +86,12 @@ struct ProductLauncherView: View {
             Button("打开日志", action: model.openLaunchLogs)
             Button("好", role: .cancel, action: model.dismissLaunchFailureAlert)
         } message: {
-            Text(model.lastLaunchFailure?.alertMessage ?? "游戏没有进入运行状态，请稍后重试。")
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(model.lastLaunchFailure?.alertMessage ?? "游戏没有进入运行状态，请稍后重试。")))
         }
         .sheet(isPresented: $showsFeedback) { FeedbackView().environmentObject(model) }
         .overlay(alignment: .bottom) {
             if let operationToast {
-                Label(operationToast.message, systemImage: operationToast.systemImage)
+                Label(LocalizedStringKey(LauncherLanguage.current.localizedMessage(operationToast.message)), systemImage: operationToast.systemImage)
                     .font(.callout)
                     .foregroundStyle(operationToast.isError ? Color.orange : Color.primary)
                     .padding(.horizontal, 14)
@@ -190,7 +190,7 @@ struct ProductLauncherView: View {
     private var serverSelectorButtons: some View {
         HStack(spacing: 3) {
             ForEach(model.products) { product in
-                Button(product.productId.localizedName) {
+                Button(LocalizedStringKey(LauncherLanguage.current.localizedMessage(product.productId.localizedName))) {
                     withAnimation(.easeInOut(duration: 0.18)) {
                         selectedProductID.wrappedValue = product.productId
                     }
@@ -270,8 +270,8 @@ struct ProductLauncherView: View {
                 .controlSize(.regular)
                 .disabled(model.loginComponentIsInstalled && model.loginMutationIsBusy)
                 .help(model.loginComponentIsInstalled
-                    ? "启动或重启游戏时先准备 idv-login"
-                    : (model.loginComponentNeedsUpdate ? "更新 idv-login 后恢复跟随启动" : "安装 idv-login 后即可启用"))
+                    ? LauncherLanguage.current.localized("启动或重启游戏时先准备 idv-login")
+                    : (model.loginComponentNeedsUpdate ? LauncherLanguage.current.localized("更新 idv-login 后恢复跟随启动") : LauncherLanguage.current.localized("安装 idv-login 后即可启用")))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
@@ -285,7 +285,7 @@ struct ProductLauncherView: View {
     }
     private var loginStatus: some View {
         let state = loginStatusPresentation
-        return Label(state.title, systemImage: state.symbol)
+        return Label(LocalizedStringKey(LauncherLanguage.current.localizedMessage(state.title)), systemImage: state.symbol)
             .font(.headline.weight(.semibold))
             .foregroundStyle(state.color)
             .padding(.horizontal, 13)
@@ -417,7 +417,7 @@ private struct ProductPanel: View {
             HStack(spacing: 14) {
                 actionGrid
                 Spacer(minLength: 0)
-                Label(installationStatusTitle, systemImage: installationStatusSymbol)
+                Label(LocalizedStringKey(LauncherLanguage.current.localized(installationStatusTitle)), systemImage: installationStatusSymbol)
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(installationStatusColor)
                     .padding(.horizontal, 13)
@@ -425,7 +425,7 @@ private struct ProductPanel: View {
                     .background(installationStatusColor.opacity(0.13), in: Capsule())
                     .overlay { Capsule().stroke(installationStatusColor.opacity(0.32), lineWidth: 1) }
             }
-            Text("默认安装位置：\(defaultInstallPath)")
+            Text(String(format: LauncherLanguage.current.localized("默认安装位置：%@"), locale: LauncherLanguage.current.locale, defaultInstallPath))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
@@ -479,7 +479,7 @@ private struct ProductPanel: View {
     private func actionLabel(_ item: GameProductAction) -> some View {
         HStack(spacing: 6) {
             if isBusy(item) { ProgressView().controlSize(.small) }
-            Text(item.localizedTitle)
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(item.localizedTitle)))
         }
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -537,7 +537,7 @@ private struct LauncherStatusWindow: View {
     }
 
     private func installCompletedStatus(_ productID: GameProductID) -> some View {
-        Label("\(productID.localizedName)安装完成", systemImage: "checkmark.circle.fill")
+        Label(LocalizedStringKey(LauncherLanguage.current.localizedMessage("\(productID.localizedName)安装完成")), systemImage: "checkmark.circle.fill")
             .font(.title3.weight(.semibold))
             .foregroundStyle(Color.green)
             .multilineTextAlignment(.center)
@@ -550,7 +550,7 @@ private struct LauncherStatusWindow: View {
                 .font(.title3.weight(.semibold))
             Text(failure.code)
                 .font(.caption.monospaced().weight(.medium))
-            Text(failure.summary)
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(failure.summary)))
                 .font(.caption)
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
@@ -562,8 +562,8 @@ private struct LauncherStatusWindow: View {
     private func activeTask(title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             ProgressView().controlSize(.small)
-            Text(title).font(.headline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-            Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(title))).font(.headline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(detail))).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -572,21 +572,21 @@ private struct LauncherStatusWindow: View {
     private func downloadStatus(_ progress: ProductDownloadProgress) -> some View {
         let presentation = ProductInstallProgressPresentation(progress: progress)
         return VStack(alignment: .leading, spacing: 5) {
-            Text(progress.phase == "completed" ? "\(progress.productID.localizedName)安装完成" : "正在安装\(progress.productID.localizedName)")
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(progress.phase == "completed" ? "\(progress.productID.localizedName)安装完成" : "正在安装\(progress.productID.localizedName)")))
                 .font(.headline.weight(.semibold))
             ForEach(ProductInstallProgressPresentation.stages) { stage in
                 let state = presentation.stageState(stage)
-                Label(stage.title, systemImage: state == .complete ? "checkmark.circle.fill" : (state == .current ? "circle.inset.filled" : "circle"))
+                Label(LocalizedStringKey(LauncherLanguage.current.localized(stage.title)), systemImage: state == .complete ? "checkmark.circle.fill" : (state == .current ? "circle.inset.filled" : "circle"))
                     .font(.caption)
                     .foregroundStyle(stageColor(for: state))
             }
             Spacer(minLength: 2)
-            Text("\(presentation.currentTitle) · \(progress.byteDescription)")
+            Text(verbatim: "\(LauncherLanguage.current.localizedMessage(presentation.currentTitle)) · \(progress.byteDescription)")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
             if let phase = model.loginInstallPhase {
-                Text("同时：\(phase)")
+                Text(verbatim: "\(LauncherLanguage.current.localized("同时："))\(LauncherLanguage.current.localizedMessage(phase))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

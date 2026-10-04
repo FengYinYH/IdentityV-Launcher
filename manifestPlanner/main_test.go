@@ -104,6 +104,30 @@ func TestSchemaAndDangerousPaths(t *testing.T) {
 		t.Fatal("case-insensitive duplicate")
 	}
 }
+
+func TestGlobalLoadingBayManifestIdentity(t *testing.T) {
+	m := testManifest("dwrg.exe", []byte("x"))
+	m.ProductID = "global"
+	m.Adapter = "netease-loadingbay-global-v1"
+	m.DistributionID = 40
+	m.GameID = "h55naxx2gb"
+	m.StartupPath = "dwrg.exe"
+	if err := validateManifest(m); err != nil {
+		t.Fatalf("valid global manifest rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*Manifest){
+		"adapter": func(m *Manifest) { m.Adapter = "netease-loadingbay-v1" },
+		"distribution": func(m *Manifest) { m.DistributionID = 41 },
+		"game identity": func(m *Manifest) { m.GameID = "h123" },
+		"startup path": func(m *Manifest) { m.StartupPath = "bin/game.exe" },
+	} {
+		bad := m
+		mutate(&bad)
+		if validateManifest(bad) == nil {
+			t.Errorf("invalid global %s accepted", name)
+		}
+	}
+}
 func TestMissingAncestorsAndSymlinkRejection(t *testing.T) {
 	root := t.TempDir()
 	m := testManifest("new/deep/file", []byte("x"))

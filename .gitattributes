@@ -1,0 +1,3 @@
+# Unified diffs need a single-space marker on empty context lines. Preserve
+# that patch syntax while keeping other whitespace checks and source checks.
+*.patch whitespace=-blank-at-eol

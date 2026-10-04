@@ -91,7 +91,7 @@ struct ToolboxView: View {
 
             if let message = model.operationMessage {
                 Label(
-                    message,
+                    LocalizedStringKey(LauncherLanguage.current.localizedMessage(message)),
                     systemImage: model.operationIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
                 )
                 .font(.callout)
@@ -131,7 +131,7 @@ struct ToolboxView: View {
             if model.probePhase.isActive || model.probePhase == .completed || model.probePhase == .failed {
                 VStack(alignment: .leading, spacing: 7) {
                     HStack {
-                        Text(model.probeStatusText)
+                        Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(model.probeStatusText)))
                             .font(.callout.weight(.medium))
                         Spacer()
                         if model.probePhase == .measuring {

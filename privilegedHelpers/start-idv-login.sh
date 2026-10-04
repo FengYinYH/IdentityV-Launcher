@@ -8,7 +8,7 @@ GAME_BRIDGE="$HELPER_DIR/launch-game-as-console-user"
 STATE_TOOL="$HELPER_DIR/identityv-state-tool"
 readonly READINESS_TIMEOUT_SECONDS=300
 readonly RESTART_GRACE_SECONDS=10
-readonly IDV_LOGIN_STATUS_CONTRACT="7"
+readonly IDV_LOGIN_STATUS_CONTRACT="8"
 readonly MANAGED_DOMAINS=(
   "service.mkey.163.com"
   "sdk-os.mpsdk.easebar.com"

@@ -1,7 +1,9 @@
-// IdentityVGlobalAdapter resolves both the official global-PC bootstrap installer
-// and the separately validated direct game-content manifest. The latter uses
-// LoadingBay's international product identity and must never be replaced with
-// the mainland distribution/download-core protocol.
+// IdentityVGlobalAdapter resolves the official global-PC bootstrap installer
+// and the international LoadingBay game-content manifest. Installation and repair map
+// this validated manifest into the shared downloadIPC contract with the
+// explicit overseas route; game-content bytes are transferred only through
+// the shared downloader core, while product-specific publish transactions
+// remain in the manager.
 package main
 
 import (
@@ -116,18 +118,11 @@ type contentDir struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: IdentityVGlobalAdapter resolve-installer | resolve-manifest | smoke-file | download | verify-tree | repair")
+		fmt.Fprintln(os.Stderr, "usage: IdentityVGlobalAdapter resolve-installer | resolve-manifest")
 		os.Exit(64)
 	}
-	if os.Args[1] == "smoke-file" || os.Args[1] == "download" || os.Args[1] == "verify-tree" || os.Args[1] == "repair" {
-		if err := runDownloadCommand(os.Args[1], os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "global downloader:", err)
-			os.Exit(1)
-		}
-		return
-	}
 	if len(os.Args) != 2 || (os.Args[1] != "resolve-installer" && os.Args[1] != "resolve-manifest") {
-		fmt.Fprintln(os.Stderr, "usage: IdentityVGlobalAdapter resolve-installer | resolve-manifest | smoke-file | download | verify-tree | repair")
+		fmt.Fprintln(os.Stderr, "usage: IdentityVGlobalAdapter resolve-installer | resolve-manifest")
 		os.Exit(64)
 	}
 	var value any

@@ -34,16 +34,16 @@ flowchart LR
 | `runtimeManifest/` | Wine 运行环境目录、哈希和部署目标审计。 |
 | `runtimeBootstrap/` | 取得、校验和安装共享运行环境；`releasePayloads/` 是四枚按哈希锁定的**已签补丁构建输入**，不是自动生成缓存。 |
 | `idvLoginComponent/` | 可选登录组件的来源、下载与安装接入；`downloader/` 是相应源码和测试。 |
-| `globalAdapter/` | 系统与游戏运行环境衔接的适配代码，`fixtures/` 用于测试。 |
+| `globalAdapter/` | 解析国际服官方清单与安装器地址；游戏文件传输由共享网易下载核心处理，`fixtures/` 用于测试。 |
 | `gameActivator/` | 将焦点交给游戏的辅助程序源码。 |
 | `functionKeyController/` | F 键控制辅助程序源码。 |
 | `mouseAccelerationController/` | 鼠标加速度控制辅助程序源码。 |
 | `inputLatencyProbe/` | 开发者输入延迟探针源码，不是玩家功能。 |
-| `privilegedHelpers/` | 需要管理员授权的辅助程序及测试；运行/安装时可能改系统状态。 |
+| `privilegedHelpers/` | 需要管理员授权的辅助程序及测试；运行/安装时可能改系统状态。原生状态工具在受管启动前维护登录配置及固定版本更新策略（见 `docs/idvLoginSourceAudit.md`），构建不执行真实状态更改。 |
 | `uninstaller/` | 产品卸载逻辑；执行时会改变用户安装数据，先读脚本。 |
 | `denseMetrics/` | 高密度性能采样器源码；真实采样结果存于仓外私人目录。 |
 | `wineAudioInterposer/` | Wine 音频接口补丁/插桩源码与测试。 |
-| `wineAudioPatch/` | 默认输入设备相关补丁与来源核验。 |
+| `wineAudioPatch/` | 默认设备相关源码补丁、精确来源/模块核验与隔离候选构建；`stageDefaultDeviceRuntime.command` 从已核验audio1克隆新的本地运行包，不改当前选择或启动游戏。 |
 | `wineEmojiPatch/` | 表情与文字兼容补丁；`repro/` 是复现源码和测试材料，`licenses/` 是所用数据许可。 |
 | `wineKeyboardPatch/` | 键盘映射兼容补丁源码。 |
 | `wineMousePatch/` | 鼠标输入兼容补丁源码。 |

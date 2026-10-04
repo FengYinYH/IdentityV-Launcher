@@ -12,7 +12,7 @@
 | DXMT 0.80 | 本机源码 tag `v0.80` = commit `589adb780…` | MIT | **源码/自行构建物可；当前 bundle 中的二进制不能单独证明** | 仅作为可追溯的 v0.80 自建物才可入包，并保留 MIT notice。 |
 | MoltenVK 1.4.1 | runtime 库字符串报告 1.4.1，catalog 有 hash | Apache-2.0 | **源码/自行构建物可；当前 bundle 来源不足** | 需保留 Apache-2.0、版权和上游 `NOTICE`（如该发行含有）。 |
 | GStreamer native closure | runtime 含 GStreamer/GLib/GnuTLS 等，未附逐包 source/BOM/notice | 多许可证 | **不可以（当前形态）** | 先补精确 BOM、源码/offer、插件列表和全部 notice。 |
-| 自建 Go helpers | 下载监督器的编译依赖为 `zmq4 v0.17.0`、`x/sync v0.7.0`、`x/text v0.15.0`；planner/global 为 `xxhash/v2 v2.3.0` | BSD-3-Clause / MIT | **可以，条件式** | 以最终二进制的 `go list -deps` 复核实际编入模块并汇总 notice。 |
+| 自建 Go helpers | 下载监督器的编译依赖为 `zmq4 v0.17.0`、`x/sync v0.7.0`、`x/text v0.15.0`；planner 为 `xxhash/v2 v2.3.0`。2026-10-04 候选的 global adapter 只解析清单，移除重复下载器后不再编入 xxhash | BSD-3-Clause / MIT | **可以，条件式** | 以最终二进制的 `go list -deps` 复核实际编入模块并汇总 notice。 |
 | 网易下载核心 | 首次使用时按固定 commit+hash 获取，不放入安装包 | 未审计 | **不可以** | 保持不随包分发；首次下载不等于取得网易再分发授权。 |
 
 ## runtime 的 RC1 获取路线

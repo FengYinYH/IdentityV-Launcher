@@ -15,6 +15,7 @@ enum ToolboxLaunchLocationGuard {
 struct IdentityVToolboxApp: App {
     @NSApplicationDelegateAdaptor(ToolboxAppDelegate.self) private var appDelegate
     @StateObject private var model: ToolboxViewModel
+    @AppStorage(LauncherLanguage.preferenceKey) private var languageRawValue = LauncherLanguage.system.rawValue
 
     init() {
         // This executes before ToolboxViewModel can start status, download, or
@@ -26,8 +27,9 @@ struct IdentityVToolboxApp: App {
         // before we have told the user to install the app.
         if ToolboxLaunchLocationGuard.blocksLaunch(executablePath: CommandLine.arguments[0]) {
             let alert = NSAlert()
-            alert.messageText = "请先把第五人格启动器拖到应用程序文件夹"
-            alert.informativeText = "请从磁盘映像中拖到“应用程序”后，再打开启动器。"
+            let language = LauncherLanguage.current
+            alert.messageText = language.launchLocationCopy.title
+            alert.informativeText = language.launchLocationCopy.message
             alert.alertStyle = .warning
             NSApplication.shared.activate(ignoringOtherApps: true)
             alert.runModal()
@@ -38,12 +40,13 @@ struct IdentityVToolboxApp: App {
     }
 
     var body: some Scene {
-        Window("第五人格启动器", id: "identityv-toolbox-main") {
+        Window(LocalizedStringKey(selectedLanguage.localized("第五人格启动器")), id: "identityv-toolbox-main") {
             ZStack {
                 Color(nsColor: .windowBackgroundColor)
                     .ignoresSafeArea()
                 ProductLauncherView()
                     .environmentObject(model)
+                    .environment(\.locale, selectedLanguage.locale)
             }
                 .frame(minWidth: 680, minHeight: 420)
         }
@@ -52,38 +55,51 @@ struct IdentityVToolboxApp: App {
         .commands {
             CommandGroup(replacing: .newItem) { }
             CommandGroup(replacing: .appInfo) {
-                Button("关于") { appDelegate.showAbout() }
+                Button(LocalizedStringKey(selectedLanguage.localized("关于"))) {
+                    appDelegate.showAbout(applicationName: selectedLanguage.localized("第五人格启动器"))
+                }
             }
             CommandGroup(replacing: .appVisibility) {
-                Button("隐藏") { NSApplication.shared.hide(nil) }
+                Button(LocalizedStringKey(selectedLanguage.localized("隐藏"))) { NSApplication.shared.hide(nil) }
                     .keyboardShortcut("h", modifiers: .command)
-                Button("隐藏其他") { NSApplication.shared.hideOtherApplications(nil) }
+                Button(LocalizedStringKey(selectedLanguage.localized("隐藏其他"))) { NSApplication.shared.hideOtherApplications(nil) }
                     .keyboardShortcut("h", modifiers: [.command, .option])
-                Button("显示全部") { NSApplication.shared.unhideAllApplications(nil) }
+                Button(LocalizedStringKey(selectedLanguage.localized("显示全部"))) { NSApplication.shared.unhideAllApplications(nil) }
             }
-            CommandMenu("第五人格") {
+            CommandMenu(LocalizedStringKey(selectedLanguage.localized("第五人格"))) {
                 Toggle(
-                    "疑似卡死时提醒",
+                    LocalizedStringKey(selectedLanguage.localized("疑似卡死时提醒")),
                     isOn: Binding(
                         get: { model.hangWarningsEnabled },
                         set: { model.setHangWarningsEnabled($0) }
                     )
                 )
             }
+            CommandMenu(LocalizedStringKey(selectedLanguage.localized("语言"))) {
+                Picker(LocalizedStringKey(selectedLanguage.localized("语言")), selection: $languageRawValue) {
+                    ForEach(LauncherLanguage.allCases) { language in
+                        Text(language.menuTitle).tag(language.rawValue)
+                    }
+                }
+            }
             CommandGroup(replacing: .appTermination) {
-                Button("退出") { NSApplication.shared.terminate(nil) }
+                Button(LocalizedStringKey(selectedLanguage.localized("退出"))) { NSApplication.shared.terminate(nil) }
                     .keyboardShortcut("q", modifiers: .command)
             }
         }
     }
+
+    private var selectedLanguage: LauncherLanguage {
+        LauncherLanguage(rawValue: languageRawValue) ?? .system
+    }
 }
 
 final class ToolboxAppDelegate: NSObject, NSApplicationDelegate {
-    func showAbout() {
+    func showAbout(applicationName: String) {
         // Use the system layout and typography, as in Apple's own apps.
         // Suppress the internal build suffix; the full release label includes RC.
         NSApplication.shared.orderFrontStandardAboutPanel(options: [
-            .applicationName: "第五人格启动器",
+            .applicationName: applicationName,
             .applicationVersion: LauncherRelease.displayVersion,
             .version: ""
         ])
@@ -93,7 +109,8 @@ final class ToolboxAppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             guard let window = NSApplication.shared.windows.first(where: {
                 !$0.isSheet && $0.sheetParent == nil &&
-                ($0.identifier?.rawValue == "identityv-toolbox-main" || $0.title == "第五人格启动器")
+                ($0.identifier?.rawValue == "identityv-toolbox-main" ||
+                 $0.title == LauncherLanguage.current.localized("第五人格启动器"))
             }) else { return }
             // Starts from the smallest fixed layout that accommodates the
             // header, game card, dual lower cards and footer without scrolling.

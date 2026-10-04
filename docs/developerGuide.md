@@ -4,9 +4,11 @@
 
 ## 运行与构建关系
 
+本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper 合约为 8；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。
+
 IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精确字节锁和许可来源；当前 6.3.1 上游标签是 beta，不能推断有 stable 资产。通常先退出游戏再运行安装器。已明确安排保留活动游戏的维护更新，可先停止登录代理，再使用安装器的 `--allow-running-game-with-stopped-proxy`；此参数仍要求代理进程和托管 hosts 均已消失，不提供活动代理绕过。具体证据与回退见[组件说明](../idvLoginComponent/README.md)。
 
-玩家 App 的界面和调度位于 `playerLauncherApp/Sources/`。下载与校验依次由 `productCatalog/`、`productManager/`、`manifestPlanner/`、`gameDownloader/` 等模块负责；共享 Wine/DXMT 输入由 `runtimeManifest/` 与 `runtimeBootstrap/` 锁定、取得和核验。玩家点启动游戏后，内嵌的 `gameRunnerApp/IdentityV-Mac.app` 承接启动命令，调用 Wine，再进入游戏。`gameRunnerApp/IdentityV-AGTK.app` 是历史/开发模板，不在当前玩家 App 内出货。
+玩家 App 的界面和调度位于 `playerLauncherApp/Sources/`。下载与校验依次由 `productCatalog/`、`productManager/`、`manifestPlanner/`、`gameDownloader/` 等模块负责；国服和国际服首装及完整性修复共用 manifest planner 与网易 `downloadIPC.exe` supervisor，国际服通过显式 `oversea` 路由保持 LoadingBay 产品身份。国际服 adapter 仍独立解析并校验官方清单及安装器地址；两服的发布事务和游戏路径绑定保持分开。共链证据及边界见[网易下载核心共链说明](downloadCoreUnification.md)。共享 Wine/DXMT 输入由 `runtimeManifest/` 与 `runtimeBootstrap/` 锁定、取得和核验。玩家点启动游戏后，内嵌的 `gameRunnerApp/IdentityV-Mac.app` 承接启动命令，调用 Wine，再进入游戏。`gameRunnerApp/IdentityV-AGTK.app` 是历史/开发模板，不在当前玩家 App 内出货。
 
 维护者工具箱的 UI、浮窗和采集在 `maintenanceToolboxApp/Sources/`，独立构建与安装。两款 App 显式编译 `sharedDiagnostics/` 的健康、采样、采集状态和受限旧偏好迁移源码；工具箱不调用玩家 App 的私有源码目录。游戏运行数据、账号、prefix 与基础 runtime 在用户环境，仓库中保存来源、版本与哈希契约，并非真实用户数据。模块的逐项归属和源码入口见[地图](../projectMap.md)。
 
@@ -21,6 +23,10 @@ IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精�
 4. 若更改 App/runner 内容或签名输入，发行候选需从干净的确切源码提交重建、签名、公证并重算对应源码与材料哈希。构建把提交、构建前干净状态、发行号与实际默认 runtime 写入 App 的 `build-provenance.json`；封包器逐项核对并拒绝已公开的同名版本。纯文档整理不回写已签 App。版本及对用户的变化同步[变更记录](../CHANGELOG.md)，原因、失败路径和适用边界留在相关测试、代码注释或工程说明。结构、入口或脚本效果改变时，同步[项目地图](../projectMap.md)；普通函数细节不必改地图。
 
 ### 更新与首装测试的空间收尾
+
+大型构建/缓存可以用独立外盘目录；运行环境的真实APFS映像测试会单独使用系统临时挂载目录，并由Go测试清理。2026-10-04在macOS27.2上，将TMPDIR设在外盘导致只读attach“权限被拒绝”，相同测试改回系统临时目录通过；因此测试仅把小型挂载目标放回系统临时区，映像来源和编译缓存仍可在外盘。这个环境差异不修改产品安装目的地，不用跳过映像校验或申请系统权限来掩盖失败。
+
+音频模块隔离构建归属`wineAudioPatch/`。`stageDefaultDeviceRuntime.command`要求显式给出已核验audio1来源、模块、bootstrap及不存在的新目标目录；只克隆运行包、对新模块做本地ad-hoc签名、生成候选manifest/catalog并完整复验。不触碰prefix/current链接，也不启动Wine；派生catalog候选不成为产品默认。它不是公开封包器，发行签名、许可闭包与实机输入输出切换仍须独立完成。
 
 普通 App 更新只替换 `/Applications` 中的 App；现有游戏目录、Wine runtime、prefix 和账号状态各在 App 外，构建或安装新版 App 时不复制游戏。安装脚本为失败回滚保留旧 App，待新版完成本轮实际验收后，在同一任务中核对当前 App、所需回退版本与备份目录，移除过期 App 备份及构建/封包中间目录。未验收的候选保持隔离并注明归属，不把每日巡检当作正常收尾步骤。
 

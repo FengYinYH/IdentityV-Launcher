@@ -7,7 +7,7 @@ HELPER="$ROOT/start-idv-login.sh"
 FIXTURE="$(/usr/bin/mktemp -d)"
 trap '/bin/rm -rf "$FIXTURE"' EXIT
 
-[[ "$(/bin/zsh "$HELPER" --contract)" == "IDV_LOGIN_STATUS_CONTRACT=7" ]] || {
+[[ "$(/bin/zsh "$HELPER" --contract)" == "IDV_LOGIN_STATUS_CONTRACT=8" ]] || {
   print -u2 -- "start helper 未声明预期 status contract。"
   exit 1
 }

@@ -2640,7 +2640,7 @@ final class ToolboxViewModel: ObservableObject {
               values.isRegularFile == true, values.isSymbolicLink != true,
               let size = values.fileSize, size > 0, size <= 256 * 1_024,
               let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
-        return text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"7\"")
+        return text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"8\"")
     }
 
     nonisolated private static func gamePID(in snapshot: String) -> Int32? {
@@ -2684,9 +2684,9 @@ struct ToolboxProcessMatcherSelfTest {
     static func main() throws {
         let helperFixture = FileManager.default.temporaryDirectory.appendingPathComponent("idv-helper-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: helperFixture) }
-        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"7\"\n".utf8).write(to: helperFixture)
+        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"8\"\n".utf8).write(to: helperFixture)
         let compatibleHelper = ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
-        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"6\"\n".utf8).write(to: helperFixture)
+        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"7\"\n".utf8).write(to: helperFixture)
         let rejectedV3Helper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
         try Data("#!/bin/zsh\n# legacy helper\n".utf8).write(to: helperFixture)
         let rejectedLegacyHelper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)

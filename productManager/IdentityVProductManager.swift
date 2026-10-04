@@ -52,16 +52,44 @@ private struct DirectManifestDocument: Codable, Equatable {
     let fetchedAt: String
 }
 
-/// The global adapter has its own independently validated protocol.  Keep the
-/// wire type here deliberately separate from the mainland LoadingBay shape.
+/// The global adapter preserves the international LoadingBay response shape.
+/// Installation and repair translate its validated identity and XXH64 entries into the shared
+/// manifest contract consumed by the planner and downloadIPC supervisor.
 private struct GlobalManifestDocument: Codable, Equatable {
     let schemaVersion: Int; let productId: ProductID; let adapter: String
-    let displayName: String; let startupPath: String; let versionCode: String
-    let totalByteCount: Int64; let files: [GlobalManifestFile]
+    let appId: Int; let gameId: String; let displayName: String; let startupPath: String
+    let versionCode: String; let contentId: Int; let totalByteCount: Int64
+    let oversea: Bool; let files: [GlobalManifestFile]; let directories: [GlobalManifestDirectory]
+    let fetchedAt: String
 }
 private struct GlobalManifestFile: Codable, Equatable { let path: String; let byteCount: Int64; let md5: String; let xxh64: String; let url: String; let operation: Int }
+private struct GlobalManifestDirectory: Codable, Equatable { let path: String; let operation: Int }
 private struct GlobalTransactionMarker: Codable, Equatable { let schemaVersion: Int; let product: String; let phase: String; let prefix: String; let version: String }
 private enum GlobalPublishRecovery: Equatable { case restoreLink, stateOnly }
+
+/// Global LoadingBay provides the same content ID / distribution ID / XXH64
+/// contract as the mainland downloader core, but with a distinct product ID
+/// and explicit overseas route. Keep the API-specific MD5 and CDN URL in the
+/// resolver model; downloadIPC resolves the selected distribution itself.
+private func sharedDownloadManifest(from global: GlobalManifestDocument) throws -> DirectManifestDocument {
+    guard global.schemaVersion == 1, global.productId == .global,
+          global.adapter == "netease-loadingbay-global-v1", global.appId == 40,
+          global.gameId == "h55naxx2gb", global.displayName == "Identity V",
+          global.startupPath == "dwrg.exe", global.contentId > 0,
+          global.oversea, global.totalByteCount > 0, !global.files.isEmpty else {
+        throw ManagerError.message("国际服官方清单的产品身份或基础字段无效。")
+    }
+    return DirectManifestDocument(
+        schemaVersion: 1, productId: .global, adapter: global.adapter,
+        distributionId: global.appId, gameId: global.gameId,
+        displayName: global.displayName, startupPath: global.startupPath,
+        startupArguments: "", versionCode: global.versionCode,
+        contentId: global.contentId, totalByteCount: global.totalByteCount,
+        files: global.files.map { DirectManifestFile(path: $0.path, byteCount: $0.byteCount, xxh64: $0.xxh64, operation: $0.operation) },
+        directories: global.directories.map { DirectManifestDirectory(path: $0.path, operation: $0.operation) },
+        fetchedAt: global.fetchedAt
+    )
+}
 
 /// Pure transaction-evidence gate used by recovery and its deterministic
 /// self-test.  Filesystem reads happen outside this function; it only accepts
@@ -255,6 +283,7 @@ private struct DownloadTask: Encodable {
     let repairListWindows: String
     let targetVersion: String
     let originVersion: String
+    let oversea: Bool
     let controlFile: String
 }
 private struct InstallerVerificationDocument: Codable {
@@ -951,8 +980,9 @@ private func windowsPath(_ url: URL) throws -> String {
     return "Z:" + path.replacingOccurrences(of: "/", with: "\\")
 }
 
-private func repairGameWindowsPath(gameRoot: URL, prefix: URL) throws -> String {
-    let managedLink = prefix.appendingPathComponent("drive_c/Games/IdentityV")
+private func repairGameWindowsPath(gameRoot: URL, prefix: URL, product: ProductID) throws -> String {
+    let windowsProductRoot = product == .mainland ? "IdentityV" : "IdentityVGlobal"
+    let managedLink = prefix.appendingPathComponent("drive_c/Games/\(windowsProductRoot)")
     if let target = try? fileManager.destinationOfSymbolicLink(atPath: managedLink.path) {
         let resolvedTarget = URL(fileURLWithPath: target, relativeTo: managedLink.deletingLastPathComponent())
             .resolvingSymlinksInPath().standardizedFileURL
@@ -1496,13 +1526,83 @@ private func runSupervisorStreaming(
     }
 }
 
+/// Both products feed the same validated manifest and explicit service route
+/// into downloadIPC. Transaction markers and product-specific Wine links stay
+/// with their callers because they govern publication, not transfer protocol.
+private func runSharedDownloadCore(
+    product: ProductID,
+    manifest: DirectManifestDocument,
+    prefix: URL,
+    work: URL,
+    runtime: (runtime: URL, wine: URL, environment: [String: String]),
+    downloadRootWindows: String,
+    originVersion: String,
+    repairPaths: [String],
+    reporter: DownloadProgressReporter?
+) throws {
+    try fileManager.createDirectory(at: work, withIntermediateDirectories: true)
+    try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: work.path)
+    let manifestURL = work.appendingPathComponent("official-manifest.json")
+    let listURL = work.appendingPathComponent("repair-list.txt")
+    let taskURL = work.appendingPathComponent("download-task.json")
+    let controlURL = work.appendingPathComponent("download-control.json")
+    try clearStaleDownloadControl(controlURL)
+    try JSONEncoder.pretty.encode(manifest).write(to: manifestURL, options: [.atomic])
+    try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
+    try repairPaths.joined(separator: "\n").appending("\n").write(to: listURL, atomically: true, encoding: .utf8)
+    try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: listURL.path)
+
+    let bootstrap = executableDirectory().appendingPathComponent("IdentityVDownloaderCoreBootstrap")
+    let componentManifest = executableDirectory().appendingPathComponent("downloaderCoreComponent.json")
+    let componentRoot = supportDirectory.appendingPathComponent("Components/netease-download-core", isDirectory: true)
+    var bootstrapArguments = ["install", "--manifest", componentManifest.path, "--destination-root", componentRoot.path]
+    if let payloadDirectory = bundledOfflinePayload("netease-download-core", expectsDirectory: true) {
+        bootstrapArguments += ["--payload-dir", payloadDirectory.path]
+    }
+    _ = try runTool(bootstrap, arguments: bootstrapArguments)
+    let coreDirectory = componentRoot.appendingPathComponent("current").resolvingSymlinksInPath().standardizedFileURL
+    let managedCoreDirectory = try prepareManagedDownloaderCore(
+        componentDirectory: coreDirectory, prefix: prefix, repairList: listURL
+    )
+    var removeManagedCoreOnExit = true
+    defer {
+        if removeManagedCoreOnExit { try? removeManagedDownloaderCore(from: prefix) }
+    }
+    let task = DownloadTask(
+        schemaVersion: 1, contentId: String(manifest.contentId), distributionId: String(manifest.distributionId),
+        coreExecutable: managedCoreDirectory.appendingPathComponent("downloadIPC.exe").path,
+        coreWorkingDirectory: managedCoreDirectory.path,
+        wineExecutable: runtime.wine.path, winePrefix: prefix.path,
+        downloadRootWindows: downloadRootWindows,
+        repairListWindows: managedDownloaderRepairListWindowsPath,
+        targetVersion: manifest.versionCode, originVersion: originVersion,
+        oversea: product == .global, controlFile: controlURL.path
+    )
+    try JSONEncoder.pretty.encode(task).write(to: taskURL, options: [.atomic])
+    try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: taskURL.path)
+    let supervisor = executableDirectory().appendingPathComponent("IdentityVDownloadSupervisor")
+    let stopRuntime = (runtime: runtime.runtime, wine: runtime.wine, environment: runtime.environment)
+    do {
+        try runSupervisorStreaming(
+            supervisor, task: taskURL, environment: runtime.environment,
+            manifestBytes: manifest.totalByteCount, reporter: reporter
+        )
+        try stopPrefixWineServer(runtime: stopRuntime, prefix: prefix)
+    } catch {
+        try? stopPrefixWineServer(runtime: stopRuntime, prefix: prefix)
+        throw error
+    }
+    try removeManagedDownloaderCore(from: prefix)
+    removeManagedCoreOnExit = false
+}
+
 private func installDirectMainland(
     _ item: CatalogProduct,
     state: inout ProductState,
     destinationParent: String,
     reporter: DownloadProgressReporter
 ) throws {
-    guard item.id == .mainland else { throw ManagerError.message("国际服完整下载 adapter 尚未完成验证。") }
+    guard item.id == .mainland else { throw ManagerError.message("国服安装入口不接受其他产品身份。") }
     reporter.emit(event: "progress", phase: "resolving", bytesWritten: 0, totalBytesExpected: nil, force: true)
     let manifest = try resolveDirectManifest(for: item)
     let workspace = try directInstallWorkspace(product: .mainland, destinationParent: destinationParent)
@@ -1533,44 +1633,11 @@ private func installDirectMainland(
     )
     let gameLink = workspace.prefix.appendingPathComponent("drive_c/Games/IdentityV")
     let manifestURL = workspace.work.appendingPathComponent("official-manifest.json")
-    let listURL = workspace.work.appendingPathComponent("repair-list.txt")
-    let taskURL = workspace.work.appendingPathComponent("download-task.json")
-    let controlURL = workspace.work.appendingPathComponent("download-control.json")
-    try clearStaleDownloadControl(controlURL)
-    try JSONEncoder.pretty.encode(manifest).write(to: manifestURL, options: [.atomic])
-    try manifest.files.map(\.path).joined(separator: "\n").appending("\n").write(to: listURL, atomically: true, encoding: .utf8)
-    let bootstrap = executableDirectory().appendingPathComponent("IdentityVDownloaderCoreBootstrap")
-    let componentManifest = executableDirectory().appendingPathComponent("downloaderCoreComponent.json")
-    let componentRoot = supportDirectory.appendingPathComponent("Components/netease-download-core", isDirectory: true)
-    // 离线包（可选）自带 netease-download-core 目录：存在时让 bootstrap 直接使用包内副本，
-    // 首装不访问 GitHub。普通发行包没有该目录，参数与今天完全一致。
-    var coreBootstrapArguments = ["install", "--manifest", componentManifest.path, "--destination-root", componentRoot.path]
-    if let payloadDirectory = bundledOfflinePayload("netease-download-core", expectsDirectory: true) {
-        coreBootstrapArguments += ["--payload-dir", payloadDirectory.path]
-    }
-    _ = try runTool(bootstrap, arguments: coreBootstrapArguments)
-    let coreDirectory = componentRoot.appendingPathComponent("current").resolvingSymlinksInPath().standardizedFileURL
-    let managedCoreDirectory = try prepareManagedDownloaderCore(
-        componentDirectory: coreDirectory,
-        prefix: workspace.prefix,
-        repairList: listURL
+    try runSharedDownloadCore(
+        product: .mainland, manifest: manifest, prefix: workspace.prefix, work: workspace.work, runtime: runtime,
+        downloadRootWindows: try relativeWindowsPath(workspace.stagingRoot, under: workspace.installRoot),
+        originVersion: "", repairPaths: manifest.files.map(\.path), reporter: reporter
     )
-    var removeManagedCoreOnExit = true
-    defer {
-        if removeManagedCoreOnExit { try? removeManagedDownloaderCore(from: workspace.prefix) }
-    }
-    let downloadTask = DownloadTask(schemaVersion: 1, contentId: String(manifest.contentId), distributionId: String(manifest.distributionId), coreExecutable: managedCoreDirectory.appendingPathComponent("downloadIPC.exe").path, coreWorkingDirectory: managedCoreDirectory.path, wineExecutable: runtime.wine.path, winePrefix: workspace.prefix.path, downloadRootWindows: try relativeWindowsPath(workspace.stagingRoot, under: workspace.installRoot), repairListWindows: managedDownloaderRepairListWindowsPath, targetVersion: manifest.versionCode, originVersion: "", controlFile: controlURL.path)
-    try JSONEncoder.pretty.encode(downloadTask).write(to: taskURL, options: [.atomic])
-    let supervisor = executableDirectory().appendingPathComponent("IdentityVDownloadSupervisor")
-    do {
-        try runSupervisorStreaming(supervisor, task: taskURL, environment: runtime.environment, manifestBytes: manifest.totalByteCount, reporter: reporter)
-        try stopPrefixWineServer(runtime: runtime, prefix: workspace.prefix)
-    } catch {
-        try? stopPrefixWineServer(runtime: runtime, prefix: workspace.prefix)
-        throw error
-    }
-    try removeManagedDownloaderCore(from: workspace.prefix)
-    removeManagedCoreOnExit = false
     reporter.emit(event: "progress", phase: "verifying", bytesWritten: manifest.totalByteCount, totalBytesExpected: manifest.totalByteCount, force: true)
     let planner = executableDirectory().appendingPathComponent("IdentityVManifestPlanner")
     _ = try runTool(planner, arguments: ["verify", "--manifest", manifestURL.path, "--root", workspace.stagingRoot.path])
@@ -1589,10 +1656,8 @@ private func installDirectMainland(
     reporter.emit(event: "completed", phase: "completed", bytesWritten: manifest.totalByteCount, totalBytesExpected: manifest.totalByteCount, force: true)
 }
 
-/// Resolve and download the global client through the separately bundled Go
-/// adapter.  It validates API identity, every CDN URL and every MD5/XXH64
-/// before atomically publishing the final tree; this manager never repurposes
-/// the mainland downloader protocol for the international service.
+/// Resolve the global metadata independently, then use the shared planner and
+/// downloadIPC transfer path while preserving global publish recovery rules.
 private func installDirectGlobal(
     _ item: CatalogProduct,
     state: inout ProductState,
@@ -1609,6 +1674,7 @@ private func installDirectGlobal(
           manifest.totalByteCount > 0, !manifest.files.isEmpty else {
         throw ManagerError.message("国际服官方清单格式或身份未通过校验。")
     }
+    let sharedManifest = try sharedDownloadManifest(from: manifest)
     let workspace = try directInstallWorkspace(product: .global, destinationParent: destinationParent)
     let needed = manifest.totalByteCount + 2 * 1_024 * 1_024 * 1_024
     guard try availableCapacity(at: workspace.finalRoot.deletingLastPathComponent()) >= needed else {
@@ -1633,7 +1699,7 @@ private func installDirectGlobal(
         if phase == "downloading", fileManager.fileExists(atPath: workspace.finalRoot.path) {
             throw ManagerError.message("国际服下载事务状态矛盾：下载阶段已有正式目录；已拒绝覆盖。")
         }
-        if try reconcileGlobalPublish(workspace: workspace, manifest: manifest, marker: marker, state: &state) {
+        if try reconcileGlobalPublish(workspace: workspace, manifest: manifest, sharedManifest: sharedManifest, marker: marker, state: &state) {
             reporter.emit(event: "completed", phase: "completed", bytesWritten: manifest.totalByteCount, totalBytesExpected: manifest.totalByteCount, force: true)
             return
         }
@@ -1642,6 +1708,7 @@ private func installDirectGlobal(
     try Data("{\"schemaVersion\":1,\"product\":\"global\",\"phase\":\"downloading\",\"prefix\":\"\(workspace.prefix.path)\",\"version\":\"\(manifest.versionCode)\"}\n".utf8).write(to: marker, options: [.atomic])
     try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
     let runtime = try ensureRuntime(reporter: reporter)
+    try ensureRealDirectory(workspace.stagingRoot, failure: "国际服下载暂存目录不是受管真实目录；已拒绝复用。")
     try prepareDirectInstallPrefix(
         workspace.prefix,
         runtime: runtime,
@@ -1651,17 +1718,17 @@ private func installDirectGlobal(
         allowExistingPrefix: resumesExistingTransaction
     )
     reporter.emit(event: "progress", phase: "downloading", bytesWritten: 0, totalBytesExpected: manifest.totalByteCount, force: true)
-    // The adapter deliberately retains a failed/cancelled private stage and
-    // never overwrites a final directory.  Its SIGTERM handler cancels its own
-    // HTTP work; the manager is the only launched child, so UI cancellation
-    // cannot reach either service's running Wine game.
-    let control = workspace.work.appendingPathComponent("download-control.json")
-    try clearStaleDownloadControl(control)
-    try runGlobalAdapterStreaming(adapter, manifest: workspace.work.appendingPathComponent("official-global-manifest.json"), destination: workspace.stagingRoot, control: control, total: manifest.totalByteCount, reporter: reporter)
+    try runSharedDownloadCore(
+        product: .global, manifest: sharedManifest, prefix: workspace.prefix, work: workspace.work, runtime: runtime,
+        downloadRootWindows: try relativeWindowsPath(workspace.stagingRoot, under: workspace.installRoot),
+        originVersion: "", repairPaths: sharedManifest.files.map(\.path), reporter: reporter
+    )
     guard gameExecutable(in: workspace.stagingRoot, validateHeader: true) != nil else {
         throw ManagerError.message("国际服下载完成后未找到有效 dwrg.exe；未发布游戏目录。")
     }
     reporter.emit(event: "progress", phase: "verifying", bytesWritten: manifest.totalByteCount, totalBytesExpected: manifest.totalByteCount, force: true)
+    let planner = executableDirectory().appendingPathComponent("IdentityVManifestPlanner")
+    _ = try runTool(planner, arguments: ["verify", "--manifest", workspace.work.appendingPathComponent("official-manifest.json").path, "--root", workspace.stagingRoot.path])
     try Data("{\"schemaVersion\":1,\"product\":\"global\",\"phase\":\"publishing\",\"prefix\":\"\(workspace.prefix.path)\",\"version\":\"\(manifest.versionCode)\"}\n".utf8).write(to: marker, options: [.atomic])
     try fileManager.moveItem(at: workspace.stagingRoot, to: workspace.finalRoot)
     try directInstallFault("global-after-move")
@@ -1675,7 +1742,7 @@ private func installDirectGlobal(
     reporter.emit(event: "completed", phase: "completed", bytesWritten: manifest.totalByteCount, totalBytesExpected: manifest.totalByteCount, force: true)
 }
 
-private func reconcileGlobalPublish(workspace: DirectInstallWorkspace, manifest: GlobalManifestDocument, marker: URL, state: inout ProductState) throws -> Bool {
+private func reconcileGlobalPublish(workspace: DirectInstallWorkspace, manifest: GlobalManifestDocument, sharedManifest: DirectManifestDocument, marker: URL, state: inout ProductState) throws -> Bool {
     guard let raw = try? Data(contentsOf: marker),
           let transaction = try? JSONDecoder().decode(GlobalTransactionMarker.self, from: raw),
           fileManager.fileExists(atPath: workspace.finalRoot.path), !fileManager.fileExists(atPath: workspace.stagingRoot.path) else { return false }
@@ -1691,60 +1758,15 @@ private func reconcileGlobalPublish(workspace: DirectInstallWorkspace, manifest:
         throw ManagerError.message("国际服发布事务证据不完整；未覆盖现有目录。")
     }
     let recovery = try validateGlobalPublishEvidence(marker: transaction, workspace: workspace, version: manifest.versionCode, finalExists: true, stagingExists: false, cTarget: currentTarget, managedDriveTarget: managedDriveTarget, zTarget: zTarget)
-    let adapter = executableDirectory().appendingPathComponent("IdentityVGlobalAdapter")
-    _ = try runTool(adapter, arguments: ["verify-tree", "--manifest", persisted.path, "--destination", workspace.finalRoot.path])
+    let sharedManifestURL = workspace.work.appendingPathComponent("official-manifest.json")
+    try JSONEncoder.pretty.encode(sharedManifest).write(to: sharedManifestURL, options: [.atomic])
+    try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sharedManifestURL.path)
+    let planner = executableDirectory().appendingPathComponent("IdentityVManifestPlanner")
+    _ = try runTool(planner, arguments: ["verify", "--manifest", sharedManifestURL.path, "--root", workspace.finalRoot.path])
     if recovery == .restoreLink { try replaceLink(at: gameLink, destination: workspace.finalRoot.path) }
     state.installations[.global] = Installation(gameRoot: try makeLocation(workspace.finalRoot), prefix: try makeLocation(workspace.prefix), installer: nil, installedVersion: manifest.versionCode)
     try save(state); try fileManager.removeItem(at: marker)
     return true
-}
-
-/// Global downloads are a single manager-owned child.  SIGTERM/SIGINT is
-/// forwarded to that exact PID, whose Go signal context cancels outstanding
-/// HTTP requests before it exits.  This is intentionally not a broad Wine or
-/// `dwrg.exe` kill path.
-private func runGlobalAdapterStreaming(_ adapter: URL, manifest: URL, destination: URL, control: URL, total: Int64, reporter: DownloadProgressReporter) throws {
-    let process = Process(); let stderr = Pipe(); let stdout = Pipe()
-    process.executableURL = adapter
-    process.arguments = ["download", "--manifest", manifest.path, "--destination", destination.path, "--control", control.path]
-    process.standardError = stderr; process.standardOutput = stdout
-    var buffer = Data(); let lock = NSLock()
-    stderr.fileHandleForReading.readabilityHandler = { handle in
-        let data = handle.availableData; guard !data.isEmpty else { return }
-        lock.lock(); defer { lock.unlock() }; appendBounded(data, to: &buffer, limit: 256 * 1_024)
-        while let end = buffer.firstIndex(of: 10) {
-            let line = Data(buffer[..<end]); buffer.removeSubrange(...end)
-            guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                  let value = object["bytesWritten"] as? NSNumber else { continue }
-            reporter.emit(event: "progress", phase: "downloading", bytesWritten: min(total, value.int64Value), totalBytesExpected: total)
-        }
-    }
-    // The adapter currently writes progress to stderr, but stdout is still a
-    // child-controlled pipe and has to be drained live as well.
-    stdout.fileHandleForReading.readabilityHandler = { handle in _ = handle.availableData }
-    let interruptLock = NSLock()
-    var interrupted = false
-    let previousTerm = signal(SIGTERM, SIG_IGN); let previousInt = signal(SIGINT, SIG_IGN)
-    let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
-    let intr = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
-    let cancel = {
-        interruptLock.lock(); interrupted = true; interruptLock.unlock()
-        if process.isRunning { process.terminate() }
-    }
-    term.setEventHandler(handler: cancel); intr.setEventHandler(handler: cancel); term.resume(); intr.resume()
-    defer { stderr.fileHandleForReading.readabilityHandler = nil; stdout.fileHandleForReading.readabilityHandler = nil; term.cancel(); intr.cancel(); signal(SIGTERM, previousTerm); signal(SIGINT, previousInt) }
-    try process.run()
-    // Do not lose a cancellation delivered immediately before the child was
-    // spawned; only this adapter PID is ever targeted.
-    interruptLock.lock(); let interruptedBeforeWait = interrupted; interruptLock.unlock()
-    if interruptedBeforeWait, process.isRunning { process.terminate() }
-    process.waitUntilExit()
-    stderr.fileHandleForReading.readabilityHandler = nil
-    _ = stderr.fileHandleForReading.readDataToEndOfFile()
-    stdout.fileHandleForReading.readabilityHandler = nil
-    _ = stdout.fileHandleForReading.readDataToEndOfFile()
-    interruptLock.lock(); let wasInterrupted = interrupted; interruptLock.unlock()
-    guard !wasInterrupted, process.terminationStatus == 0 else { throw ManagerError.message("国际服下载已取消或未完成；未发布游戏目录，可在同一位置继续。") }
 }
 
 /// The official LoadingBay manifest describes the base client.  Identity V can
@@ -1771,11 +1793,11 @@ private func hasValidGameHotUpdateMarker(gameRoot: URL, repairPaths: [String]) -
     return range == text.startIndex..<text.endIndex
 }
 
-private func repairExecutionDecision(summary: RepairPlanSummary, repairList: URL, gameRoot: URL) throws -> RepairExecutionDecision {
+private func repairExecutionDecision(summary: RepairPlanSummary, repairList: URL, gameRoot: URL, product: ProductID = .mainland) throws -> RepairExecutionDecision {
     if summary.repairs == 0, summary.valid { return .noDownload }
     let text = try String(contentsOf: repairList, encoding: .utf8)
     let paths = text.split(whereSeparator: \.isNewline).map(String.init)
-    if hasValidGameHotUpdateMarker(gameRoot: gameRoot, repairPaths: paths) {
+    if product == .mainland, hasValidGameHotUpdateMarker(gameRoot: gameRoot, repairPaths: paths) {
         return .blockForGameHotUpdate
     }
     return .download
@@ -2012,10 +2034,11 @@ private func repairManagedProduct(_ item: CatalogProduct, product: ProductID, st
           let gameRoot = resolve(gameRootLocation), gameExecutable(in: gameRoot) != nil else {
         throw ManagerError.message("未找到可验证的\(item.displayName)游戏目录；请重新连接原磁盘或导入客户端。")
     }
+    let runtime: (runtime: URL, prefix: URL, wine: URL, environment: [String: String])
+    let manifest: DirectManifestDocument
     if product == .global {
-        // A global repair is entirely adapter-owned: it re-resolves LoadingBay
-        // metadata, stages every replacement with MD5+XXH64, then atomically
-        // publishes.  It never invokes the mainland downloadIPC protocol.
+        // Keep the independent global prefix and process gate, then translate
+        // validated LoadingBay metadata into the shared planner/core contract.
         guard mayControlRunningGame(for: .global, state: state) else {
             throw ManagerError.message("国际服记录与独立 prefix 绑定不一致；为避免写入正在运行或不属于此产品的目录，已拒绝扫描修复。")
         }
@@ -2024,44 +2047,30 @@ private func repairManagedProduct(_ item: CatalogProduct, product: ProductID, st
         } else if anyGlobalGameProcessIsRunning() {
             throw ManagerError.message("检测到未由启动器创建的国际服 Wine 会话；为避免写入运行中的客户端，未扫描修复。请先手动结束该会话后重试。")
         }
+        guard let prefixLocation = installation.prefix, let prefix = resolve(prefixLocation) else {
+            throw ManagerError.message("国际服没有可验证的独立 Wine prefix；已拒绝修复。")
+        }
+        let selected = try selectedRuntimeForDirectInstall()
+        runtime = (selected.runtime, prefix, selected.wine, selected.environment)
         let adapter = executableDirectory().appendingPathComponent("IdentityVGlobalAdapter")
         let raw = try runTool(adapter, arguments: ["resolve-manifest"])
-        guard let manifest = try? JSONDecoder().decode(GlobalManifestDocument.self, from: Data(raw.utf8)),
-              manifest.schemaVersion == 1, manifest.productId == .global,
-              manifest.adapter == "netease-loadingbay-global-v1", manifest.startupPath == "dwrg.exe",
-              manifest.totalByteCount > 0, !manifest.files.isEmpty else {
+        guard let globalManifest = try? JSONDecoder().decode(GlobalManifestDocument.self, from: Data(raw.utf8)) else {
             throw ManagerError.message("国际服官方清单格式或身份未通过校验。")
         }
-        let work = try repairWorkDirectory(for: .global)
-        let manifestURL = work.appendingPathComponent("official-global-manifest.json")
-        try JSONEncoder.pretty.encode(manifest).write(to: manifestURL, options: [.atomic])
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
-        let result = try runTool(adapter, arguments: ["repair", "--manifest", manifestURL.path, "--destination", gameRoot.path])
-        guard let summaryLine = result.split(whereSeparator: \.isNewline).last,
-              let summary = try? JSONDecoder().decode(RepairPlanSummary.self, from: Data(summaryLine.utf8)),
-              summary.valid else {
-            throw ManagerError.message("国际服完整性修复没有返回可验证的结果。")
+        manifest = try sharedDownloadManifest(from: globalManifest)
+    } else {
+        if gameIsRunning() {
+            guard mayControlRunningGame(for: product, state: state) else {
+                throw ManagerError.message("该服游戏仍在运行，但当前记录无法安全确认其进程归属；请先结束游戏后再扫描修复。")
+            }
+            _ = try stopManagedGame(for: product, state: state)
         }
-        var updated = installation; updated.installedVersion = manifest.versionCode
-        state.installations[.global] = updated; try save(state)
-        return summary.repairs == 0
-            ? "\(item.displayName)完整性扫描完成：\(manifest.files.count) 个文件均通过校验，无需下载。"
-            : "\(item.displayName)已修复 \(summary.repairs) 个文件，并已通过完整性复验。"
+        runtime = try activeLegacyRuntime(for: installation)
+        manifest = try resolveDirectManifest(for: item)
     }
-    if gameIsRunning() {
-        guard mayControlRunningGame(for: product, state: state) else {
-            throw ManagerError.message("该服游戏仍在运行，但当前记录无法安全确认其进程归属；请先结束游戏后再扫描修复。")
-        }
-        _ = try stopManagedGame(for: product, state: state)
-    }
-    let runtime = try activeLegacyRuntime(for: installation)
-    let manifest = try resolveDirectManifest(for: item)
     let work = try repairWorkDirectory(for: product)
     let manifestURL = work.appendingPathComponent("official-manifest.json")
     let repairURL = work.appendingPathComponent("repair-list.txt")
-    let taskURL = work.appendingPathComponent("download-task.json")
-    let controlURL = work.appendingPathComponent("download-control.json")
-    try clearStaleDownloadControl(controlURL)
     try JSONEncoder.pretty.encode(manifest).write(to: manifestURL, options: [.atomic])
     try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
     let planner = executableDirectory().appendingPathComponent("IdentityVManifestPlanner")
@@ -2072,7 +2081,7 @@ private func repairManagedProduct(_ item: CatalogProduct, product: ProductID, st
           let summary = try? JSONDecoder().decode(RepairPlanSummary.self, from: Data(summaryLine.utf8)) else {
         throw ManagerError.message("完整性扫描没有返回可验证的结果。")
     }
-    switch try repairExecutionDecision(summary: summary, repairList: repairURL, gameRoot: gameRoot) {
+    switch try repairExecutionDecision(summary: summary, repairList: repairURL, gameRoot: gameRoot, product: product) {
     case .noDownload:
         var updated = installation
         updated.installedVersion = manifest.versionCode
@@ -2084,55 +2093,15 @@ private func repairManagedProduct(_ item: CatalogProduct, product: ProductID, st
     case .download:
         break
     }
-    let bootstrap = executableDirectory().appendingPathComponent("IdentityVDownloaderCoreBootstrap")
-    let componentManifest = executableDirectory().appendingPathComponent("downloaderCoreComponent.json")
-    let componentRoot = supportDirectory.appendingPathComponent("Components/netease-download-core", isDirectory: true)
-    // 修复流程复用同一份离线载荷：存在时同样直接从包内取 netease-download-core，
-    // 缺失时参数保持原样（联网获取）。
-    var coreBootstrapArguments = ["install", "--manifest", componentManifest.path, "--destination-root", componentRoot.path]
-    if let payloadDirectory = bundledOfflinePayload("netease-download-core", expectsDirectory: true) {
-        coreBootstrapArguments += ["--payload-dir", payloadDirectory.path]
-    }
-    _ = try runTool(bootstrap, arguments: coreBootstrapArguments)
-    let coreDirectory = componentRoot.appendingPathComponent("current").resolvingSymlinksInPath().standardizedFileURL
-    let managedCoreDirectory = try prepareManagedDownloaderCore(
-        componentDirectory: coreDirectory,
-        prefix: runtime.prefix,
-        repairList: repairURL
-    )
-    var removeManagedCoreOnExit = true
-    defer {
-        if removeManagedCoreOnExit { try? removeManagedDownloaderCore(from: runtime.prefix) }
-    }
-    let gameRootWindows = try repairGameWindowsPath(gameRoot: gameRoot, prefix: runtime.prefix)
-    let downloadTask = DownloadTask(
-        schemaVersion: 1, contentId: String(manifest.contentId), distributionId: String(manifest.distributionId),
-        coreExecutable: managedCoreDirectory.appendingPathComponent("downloadIPC.exe").path,
-        coreWorkingDirectory: managedCoreDirectory.path,
-        wineExecutable: runtime.wine.path, winePrefix: runtime.prefix.path,
+    let gameRootWindows = try repairGameWindowsPath(gameRoot: gameRoot, prefix: runtime.prefix, product: product)
+    let repairPaths = try String(contentsOf: repairURL, encoding: .utf8).split(whereSeparator: \.isNewline).map(String.init)
+    try runSharedDownloadCore(
+        product: product, manifest: manifest, prefix: runtime.prefix, work: work,
+        runtime: (runtime.runtime, runtime.wine, runtime.environment),
         downloadRootWindows: gameRootWindows,
-        repairListWindows: managedDownloaderRepairListWindowsPath,
-        targetVersion: manifest.versionCode, originVersion: installation.installedVersion ?? "", controlFile: controlURL.path
+        originVersion: installation.installedVersion ?? "",
+        repairPaths: repairPaths, reporter: nil
     )
-    try JSONEncoder.pretty.encode(downloadTask).write(to: taskURL, options: [.atomic])
-    try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: taskURL.path)
-    let supervisor = executableDirectory().appendingPathComponent("IdentityVDownloadSupervisor")
-    let stopRuntime = (runtime: runtime.runtime, wine: runtime.wine, environment: runtime.environment)
-    do {
-        try runSupervisorStreaming(
-            supervisor,
-            task: taskURL,
-            environment: runtime.environment,
-            manifestBytes: manifest.totalByteCount,
-            reporter: nil
-        )
-        try stopPrefixWineServer(runtime: stopRuntime, prefix: runtime.prefix)
-    } catch {
-        try? stopPrefixWineServer(runtime: stopRuntime, prefix: runtime.prefix)
-        throw error
-    }
-    try removeManagedDownloaderCore(from: runtime.prefix)
-    removeManagedCoreOnExit = false
     _ = try runTool(planner, arguments: ["verify", "--manifest", manifestURL.path, "--root", gameRoot.path])
     var updated = installation
     updated.installedVersion = manifest.versionCode
@@ -2917,6 +2886,37 @@ private func runSelfTest() throws {
           directManifest.files.map(\.xxh64) == ["0123456789abcdef", "fedcba9876543210"] else {
         throw ManagerError.message("direct manifest validation self-test failed")
     }
+    let globalManifest = GlobalManifestDocument(
+        schemaVersion: 1, productId: .global, adapter: "netease-loadingbay-global-v1",
+        appId: 40, gameId: "h55naxx2gb", displayName: "Identity V", startupPath: "dwrg.exe",
+        versionCode: "v3_1278_3c43b662809efa2461d0bf3f51d56cb7", contentId: 122,
+        totalByteCount: 1_024, oversea: true,
+        files: [GlobalManifestFile(path: "dwrg.exe", byteCount: 1_024, md5: String(repeating: "a", count: 32), xxh64: "0123456789abcdef", url: "https://h55na-h.gdl.easebar.com/unit/dwrg.exe", operation: 1)],
+        directories: [], fetchedAt: "2026-08-28T00:00:00Z"
+    )
+    let globalRepairManifest = try sharedDownloadManifest(from: globalManifest)
+    guard globalRepairManifest.productId == .global,
+          globalRepairManifest.distributionId == 40,
+          globalRepairManifest.gameId == "h55naxx2gb",
+          globalRepairManifest.contentId == 122,
+          globalRepairManifest.files.first?.xxh64 == "0123456789abcdef" else {
+        throw ManagerError.message("global repair manifest translation self-test failed")
+    }
+    let globalTask = DownloadTask(
+        schemaVersion: 1, contentId: "122", distributionId: "40",
+        coreExecutable: "/core/downloadIPC.exe", coreWorkingDirectory: "/core",
+        wineExecutable: "/wine", winePrefix: "/prefix", downloadRootWindows: "C:\\Games\\IdentityV",
+        repairListWindows: managedDownloaderRepairListWindowsPath,
+        targetVersion: globalRepairManifest.versionCode, originVersion: "",
+        oversea: true, controlFile: "/work/control.json"
+    )
+    guard let taskData = try? JSONEncoder().encode(globalTask),
+          let taskObject = try? JSONSerialization.jsonObject(with: taskData) as? [String: Any],
+          taskObject["oversea"] as? Bool == true,
+          taskObject["distributionId"] as? String == "40",
+          taskObject["contentId"] as? String == "122" else {
+        throw ManagerError.message("global shared download task routing self-test failed")
+    }
     let unsafeContent = LoadingBayMainContent(
         versionCode: directContent.versionCode,
         appContentId: directContent.appContentId,
@@ -2994,15 +2994,6 @@ private func runSelfTest() throws {
         manifestBytes: 1,
         reporter: nil
     )
-    try runGlobalAdapterStreaming(
-        pipeFlood,
-        manifest: testRoot.appendingPathComponent("unused-manifest.json"),
-        destination: testRoot.appendingPathComponent("unused-destination"),
-        control: testRoot.appendingPathComponent("unused-control.json"),
-        total: 1,
-        reporter: DownloadProgressReporter(product: .global)
-    )
-
     let realDirectoryFixture = testRoot.appendingPathComponent("real-directory", isDirectory: true)
     try ensureRealDirectory(realDirectoryFixture, failure: "real directory fixture rejected")
     var realMetadata = stat()
@@ -3287,6 +3278,9 @@ private func runSelfTest() throws {
     try "neox_engine.dll\nengine_version\n".data(using: .utf8)!.write(to: hotUpdateRepairList)
     guard try repairExecutionDecision(summary: RepairPlanSummary(repairs: 2, valid: false), repairList: hotUpdateRepairList, gameRoot: testRoot) == .blockForGameHotUpdate else {
         throw ManagerError.message("game hot-update marker must block downloader execution")
+    }
+    guard try repairExecutionDecision(summary: RepairPlanSummary(repairs: 2, valid: false), repairList: hotUpdateRepairList, gameRoot: testRoot, product: .global) == .download else {
+        throw ManagerError.message("global repair must preserve its existing hot-update behavior")
     }
 
     var signedPE = Data(repeating: 0, count: 1_024)

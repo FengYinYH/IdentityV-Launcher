@@ -140,6 +140,7 @@ for runner_source in "$PROJECT_ROOT/gameRunnerApp/IdentityV-Mac.app" "$PROJECT_R
   /usr/bin/codesign --force --deep --sign - "$runner_source"
 done
 "$PROJECT_ROOT/privilegedHelpers/buildIdentityVPrivilegedStateTool.command"
+/usr/bin/python3 "$PROJECT_ROOT/idvLoginComponent/updatePolicy.test.py"
 /bin/zsh "$PROJECT_ROOT/privilegedHelpers/idvLoginReadiness.test.command"
 /bin/zsh "$PROJECT_ROOT/privilegedHelpers/idvLoginJob.test.command"
 
@@ -179,6 +180,16 @@ fi
 
 /bin/rm -rf "$APP_PATH" "$BUILD_ROOT/第五人格 Mac.app" "$BUILD_ROOT/第五人格工具箱.app"
 /bin/mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$HELPERS_DIR" "$THIRD_PARTY_DIR" "$IDV_LOGIN_PAYLOAD_DESTINATION/privilegedHelpers"
+
+/usr/bin/python3 "$SOURCE_ROOT/Tests/launcherLocalizationResourcesSelfTest.py" "$SOURCE_ROOT"
+LANGUAGE_SELF_CHECK="$BUILD_ROOT/launcher-language-self-test"
+/usr/bin/xcrun swiftc -swift-version 5 -warnings-as-errors -O -parse-as-library \
+  -target arm64-apple-macos14.0 -sdk "$SDK_PATH" \
+  "$SOURCE_ROOT/Sources/LauncherLanguage.swift" \
+  "$SOURCE_ROOT/Tests/LauncherLanguageSelfTest.swift" \
+  -o "$LANGUAGE_SELF_CHECK"
+"$LANGUAGE_SELF_CHECK" "$SOURCE_ROOT/Resources/Localization"
+/bin/rm -f "$LANGUAGE_SELF_CHECK"
 
 /usr/bin/xcrun swiftc -swift-version 5 -warnings-as-errors -O -parse-as-library \
   -target arm64-apple-macos14.0 -sdk "$SDK_PATH" \
@@ -242,6 +253,11 @@ fi
 
 /bin/cp "$SOURCE_ROOT/Info.plist" "$CONTENTS/Info.plist"
 /bin/cp "$SOURCE_ROOT/IdentityVLauncher.icns" "$RESOURCES_DIR/IdentityVLauncher.icns"
+for localization in zh-Hans zh-Hant en; do
+  /bin/mkdir -p "$RESOURCES_DIR/$localization.lproj"
+  /bin/cp "$SOURCE_ROOT/Resources/Localization/$localization.lproj/Localizable.strings" "$RESOURCES_DIR/$localization.lproj/Localizable.strings"
+  /bin/cp "$SOURCE_ROOT/Resources/Localization/$localization.lproj/InfoPlist.strings" "$RESOURCES_DIR/$localization.lproj/InfoPlist.strings"
+done
 /bin/cp "$RESTART_SOURCE" "$RESTART_DESTINATION"
 /bin/cp "$STOP_LOGIN_SOURCE" "$STOP_LOGIN_DESTINATION"
 /bin/cp "$ROUTE_SOURCE" "$ROUTE_DESTINATION"

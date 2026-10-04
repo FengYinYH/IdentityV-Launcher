@@ -176,10 +176,15 @@ func validateManifest(m Manifest) error {
 			return errors.New("missing manifest identity field")
 		}
 	}
-	if m.ProductID != "mainland" || m.Adapter != "netease-loadingbay-v1" || m.DistributionID <= 0 || m.ContentID <= 0 {
+	mainland := m.ProductID == "mainland" && m.Adapter == "netease-loadingbay-v1" && regexp.MustCompile(`^h[0-9]+$`).MatchString(m.GameID)
+	// LoadingBay international metadata is structurally compatible, but must
+	// remain bound to its exact app/game identity before the shared planner can
+	// authorize writes using its repair list.
+	global := m.ProductID == "global" && m.Adapter == "netease-loadingbay-global-v1" && m.DistributionID == 40 && m.GameID == "h55naxx2gb" && m.StartupPath == "dwrg.exe"
+	if (!mainland && !global) || m.DistributionID <= 0 || m.ContentID <= 0 {
 		return errors.New("manifest identity values are invalid")
 	}
-	if !regexp.MustCompile(`^h[0-9]+$`).MatchString(m.GameID) {
+	if !regexp.MustCompile(`^h[a-z0-9]+$`).MatchString(m.GameID) {
 		return errors.New("invalid gameId")
 	}
 	if !regexp.MustCompile(`^v[0-9]+_[0-9]+_[0-9a-fA-F]{32}$`).MatchString(m.VersionCode) {

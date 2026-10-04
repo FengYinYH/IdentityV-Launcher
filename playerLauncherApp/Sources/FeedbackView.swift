@@ -69,7 +69,8 @@ struct FeedbackView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
             if let message {
-                Text(message).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(message)))
+                    .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             }
 
             HStack(spacing: 12) {
