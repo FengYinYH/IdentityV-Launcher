@@ -78,7 +78,7 @@ struct IdentityVToolboxApp: App {
             CommandMenu(LocalizedStringKey(selectedLanguage.localized("语言"))) {
                 Picker(LocalizedStringKey(selectedLanguage.localized("语言")), selection: $languageRawValue) {
                     ForEach(LauncherLanguage.allCases) { language in
-                        Text(language.menuTitle).tag(language.rawValue)
+                        Text(language.menuTitle(in: selectedLanguage)).tag(language.rawValue)
                     }
                 }
             }

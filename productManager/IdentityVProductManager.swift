@@ -636,7 +636,7 @@ private func gameExecutable(in root: URL, validateHeader: Bool = false) -> URL? 
 
 private func status(for product: CatalogProduct, state: ProductState) -> StatusProduct {
     guard let installation = state.installations[product.id] else {
-        return StatusProduct(productId: product.id, state: "not-installed", installedVersion: nil, detail: "未安装；可下载官方安装器或导入已有客户端。", canRemove: false)
+        return StatusProduct(productId: product.id, state: "not-installed", installedVersion: nil, detail: "未安装；可下载官方游戏内容。", canRemove: false)
     }
     // A downloaded installer has no managed game/prefix location yet. Do not
     // inspect runtime volumes merely to render this intermediate status.

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "component": "wine-runtime",
-  "version": "wine11-codeweavers-26.1-dxmt-0.80-macos15-alpha1-r1-emoji2-audio-default-following-20261004",
+  "version": "wine11-codeweavers-26.1-dxmt-0.80-macos15-alpha1-r1-emoji2-audio1",
   "minimumMacOS": "15.0",
   "source": {
     "url": "https://github.com/novak037/yanyun-on-mac/releases/download/v0.1.2/DWRG.dmg",
@@ -81,8 +81,8 @@
     {
       "patchRelativePath": "winecoreaudio.so",
       "targetRelativePath": "lib/wine/x86_64-unix/winecoreaudio.so",
-      "sourceSha256": "996c8223a3d3b2b6b371062b9f8c121362556cb0222215dbf7ac1fdaa8455160",
-      "sha256": "9588fcdd5b262e85e9255c647b6a5a43b077553b6d8531d5c7ab8d6eb27186d8",
+      "sourceSha256": "64c2ff993e7e2341ef28a4b2fcc0bb23b0fa207ab3bcd89fa2963e8f3d319881",
+      "sha256": "90419c1a4009407b28b353614b883ef3d1531e8b852416fe0eaf704c90b6fce0",
       "machOMinOSAtMost": "10.15"
     }
   ],
@@ -124,7 +124,7 @@
     },
     {
       "relativePath": "lib/wine/x86_64-unix/winecoreaudio.so",
-      "sha256": "9588fcdd5b262e85e9255c647b6a5a43b077553b6d8531d5c7ab8d6eb27186d8"
+      "sha256": "90419c1a4009407b28b353614b883ef3d1531e8b852416fe0eaf704c90b6fce0"
     }
   ]
 }

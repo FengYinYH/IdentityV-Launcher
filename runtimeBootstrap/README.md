@@ -52,7 +52,7 @@ prefix，也不会启动游戏。它拒绝符号链接、路径逃逸、损坏/�
 IdentityVRuntimeBootstrap verify-tree --manifest /absolute/runtime-manifest.json --tree /absolute/runtime
 ```
 
-当前 manifest 是 macOS 15 的本地 emoji 与音频测试候选；公开 RC1 的 manifest 仍固定在其 Git tag 中。四枚既有 Mach-O patch 与关键运行时哈希来自
+当前 manifest 是 macOS 15 的本机默认设备跟随 runtime；audio1 保留在独立 immutable 版本中供回退，公开 RC1 的 manifest 仍固定在其 Git tag 中。四枚既有 Mach-O patch 与关键运行时哈希来自
 [`../runtimeManifest/macosCompatibilityAudit.md`](../runtimeManifest/macosCompatibilityAudit.md)。
 
 ## 补丁载荷的签名与哈希契约（2026-09-21）
@@ -70,7 +70,7 @@ IdentityVRuntimeBootstrap verify-tree --manifest /absolute/runtime-manifest.json
 `verifyRuntimePatchPayloads.command` 与 `main.go` 继续使用 `sha256`（分发契约）。任何
 改动补丁字节的步骤都必须让 staging 脚本刷新这两处哈希，否则 runner 会在启动时以
 `integrity check failed` 中止。已签名补丁的功能尚未在真实游戏中单独回归，替换已装
-runtime 里的补丁时应先保留原版本以便回退。当前本机测试 payload 还包含从 CodeWeavers 26.1 源码构建并以本项目 Developer ID 签名的 x86_64 `winecoreaudio.so`；它只在新版本候选中验证，不覆盖 r1。
+runtime 里的补丁时应先保留原版本以便回退。当前 payload 还包含从 CodeWeavers 26.1 源码构建并以本项目 Developer ID 签名的 x86_64 `winecoreaudio.so`；默认设备跟随模块 SHA-256 为 `9588fcdd5b262e85e9255c647b6a5a43b077553b6d8531d5c7ab8d6eb27186d8`，audio1 回退模块保留在对应历史 runtime 中。它不改写公开 RC1。
 
 2026-09-23 从空运行环境首装时发现一个先前被已有缓存遮住的失败路径：bootstrap
 以 `DisallowUnknownFields` 解析**同一份** manifest，但原先的 `patchSpec` 漏掉仅供 staging

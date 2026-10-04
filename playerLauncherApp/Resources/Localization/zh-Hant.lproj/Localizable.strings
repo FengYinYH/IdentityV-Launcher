@@ -130,6 +130,8 @@
 "Start with Game is enabled. The launcher will explain local certificate trust before first use." = "已啟用「隨遊戲啟動」；首次使用前會說明本機憑證信任授權。";
 "Start with Game is disabled. You can still start IDV Login manually when available." = "已關閉「隨遊戲啟動」；元件可用時仍可手動啟動 IDV Login。";
 "Current version %@. Automatic updates are not available yet; %@" = "目前版本 %@。此版本尚未提供自動更新；%@";
+"下载新版安装镜像后，退出启动器并替换应用即可。" = "下載新版安裝映像檔後，結束啟動器並替換應用程式即可。";
+"版本 %@" = "版本 %@";
 "Identity V is not running. Launching…" = "第五人格尚未執行，正在啟動…";
 "Requesting microphone access for in-game voice. Select Allow in the system prompt." = "正在要求麥克風權限（遊戲語音必需），請在系統提示中選擇「允許」。";
 "The game did not start. Please try again." = "遊戲尚未啟動，請稍後再試。";

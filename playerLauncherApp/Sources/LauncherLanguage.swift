@@ -45,6 +45,14 @@ enum LauncherLanguage: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Picker labels describe the launcher UI choice, so the system-following
+    /// option must use the selected UI language rather than the host OS locale.
+    func menuTitle(in interfaceLanguage: LauncherLanguage, lookup: ((String) -> String)? = nil) -> String {
+        guard self == .system else { return menuTitle }
+        let lookup = lookup ?? { interfaceLanguage.localized($0) }
+        return lookup("跟随系统")
+    }
+
     func localized(_ key: String) -> String {
         let languageCode: String
         switch self {

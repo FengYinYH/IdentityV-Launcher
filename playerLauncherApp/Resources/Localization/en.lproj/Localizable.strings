@@ -130,6 +130,8 @@
 "Start with Game is enabled. The launcher will explain local certificate trust before first use." = "Start with Game is enabled. The launcher will explain local certificate trust before first use.";
 "Start with Game is disabled. You can still start IDV Login manually when available." = "Start with Game is disabled. You can still start IDV Login manually when available.";
 "Current version %@. Automatic updates are not available yet; %@" = "Current version %@. Automatic updates are not available yet; %@";
+"下载新版安装镜像后，退出启动器并替换应用即可。" = "download the updated installer image, then quit the launcher and replace the app.";
+"版本 %@" = "Version %@";
 "Identity V is not running. Launching…" = "Identity V is not running. Launching…";
 "Requesting microphone access for in-game voice. Select Allow in the system prompt." = "Requesting microphone access for in-game voice. Select Allow in the system prompt.";
 "The game did not start. Please try again." = "The game did not start. Please try again.";

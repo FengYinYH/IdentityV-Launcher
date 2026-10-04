@@ -2,7 +2,7 @@
 
 ## 目标和证据范围
 
-第五人格使用 Wine CoreAudio 时，播放和采集流分别跟随 macOS 当前默认输出、默认输入。设备选择继续由 macOS “系统设置 → 声音”负责；Wine 不向游戏枚举所有硬件，也不增加设备选择界面。本说明记录一个可重建的隔离工程候选，不表示它已经安装或经过真实游戏验收。
+第五人格使用 Wine CoreAudio 时，播放和采集流分别跟随 macOS 当前默认输出、默认输入。设备选择继续由 macOS “系统设置 → 声音”负责；Wine 不向游戏枚举所有硬件，也不增加设备选择界面。此版本已作为本机产品默认 runtime 安装并绑定；audio1 保留为显式回退。真实设备切换和游戏语音验收尚未进行，本机默认状态不代表公开发行。
 
 代码以 CodeWeavers 26.1 源码包为基线：归档 SHA-256 `e4ec87d5821a009dd1f1d2e36ffe2e24b8fcbae9516375ea42f95a16928ab8fa`，未修改 `coreaudio.c` SHA-256 `635347dcfc86800ed64737c6487a808836240e7846c6af699493e7a683d3f42c`。补丁顺序是 `default-input-only.patch`、`capture-resample-produced-frames.patch`、`default-device-following.patch`；最终 C 文件 SHA-256 `ccd1db550dd16471e1f6df203e880928d1474aa82a42a9bc994d083f0baa3153`。新补丁复用既有输入枚举修复和录音转换帧数修复，没有替换它们。
 
@@ -33,14 +33,17 @@
 ```sh
 wineAudioPatch/stageDefaultDeviceRuntime.command \
   --source-tree /absolute/path/to/verified-audio1-runtime \
-  --module /absolute/path/to/winecoreaudio.so \
+  --source-module /absolute/path/to/unsigned-stripped-winecoreaudio.so \
+  --module /absolute/path/to/developer-id-signed-winecoreaudio.so \
   --bootstrap /absolute/path/to/runtime-bootstrap \
-  --destination /absolute/path/to/new-isolated-candidate
+  --destination /absolute/path/to/external-volume/new-isolated-candidate \
+  --volume-mount /absolute/path/to/external-volume \
+  --volume-uuid EXPECTED_DISK_UUID
 ```
 
-已知工具路径问题：随工具链归档的 Bison 是 GNU 3.8.2，版本足够；它的资源目录需通过 `BISON_PKGDATADIR` 指向随附的 `share/bison`。此外 Wine configure 将 `$BISON` 未加引号展开，含空格的工具路径会被拆开；失败日志显示 shell 把可执行路径截断到挂载目录第一段。构建脚本在外部构建目录内为该二进制创建无空格链接并设置数据目录。前两次 configure 失败明确证实了路径拆词原因，随后完整 x86_64 构建成功。
+Stage 工具用 audio1 快照 manifest 验证源树、用当前产品 manifest 校验已剥除 DWARF 的 unsigned source SHA 与 Developer ID signed module SHA，再把新 manifest/catalog 放入新目录并重跑全树校验。目的地必须位于调用者给定且 UUID 匹配的外部卷；目录已存在时拒绝覆盖。历史 Bison 工具路径故障：随工具链归档的 Bison 是 GNU 3.8.2，版本足够；资源目录需通过 `BISON_PKGDATADIR` 指向随附的 `share/bison`。Wine configure 将 `$BISON` 未加引号展开，含空格路径会被拆开；失败日志显示可执行路径截断到挂载目录第一段。构建脚本在外部构建目录内为其创建无空格链接并设置数据目录。前两次 configure 失败证实了路径拆词原因，随后完整 x86_64 构建成功。
 
-对照的 audio1 隔离候选 SHA-256 为 `90419c1a4009407b28b353614b883ef3d1531e8b852416fe0eaf704c90b6fce0`。最终未签名 x86_64 模块 SHA-256 为 `9591a575e73dd2c1df2b7f6a1937d3a472c9b160455d7f43406f61d28f089c34`，install name `@rpath/winecoreaudio.so`，minimum OS `10.15`；导出符号表、install name 和 11 个实际动态依赖与该 audio1 候选逐项相同。原未签名模块保留为复现件。最终 SPDX 标注源码已完成独立 runtime clone、ad-hoc 本地签名、manifest/catalog 派生和全树校验；staged module SHA-256 为 `7da0e02f391e25234d7a4a5ebb62aaca00d6aa220d9c1b843f6f20a2fdabd57b`。此候选没有启动 Wine 或安装到活动 runtime。公开发布前仍须在副本上清理或审计调试符号里的本机路径，再按发行身份签名并重算哈希。静态 ABI/minOS 比较不能证明音频表现、路由切换时延或语音服务兼容。
+对照的 audio1 模块 SHA-256 为 `90419c1a4009407b28b353614b883ef3d1531e8b852416fe0eaf704c90b6fce0`。原始新构建为 x86_64，SHA-256 `9591a575e73dd2c1df2b7f6a1937d3a472c9b160455d7f43406f61d28f089c34`。其副本用 `strip -S` 移除 DWARF 后，unsigned source SHA-256 为 `996c8223a3d3b2b6b371062b9f8c121362556cb0222215dbf7ac1fdaa8455160`；审计确认本机用户名、工作区和构建卷路径标记及 DWARF 路径均已清除，导出符号、install name 和 11 个实际动态依赖仍与 audio1 完全相同。随后以 `Developer ID Application: Qingxiong Yang (VNTCB2984V)` hardened runtime + timestamp 签名，最终 SHA-256 `9588fcdd5b262e85e9255c647b6a5a43b077553b6d8531d5c7ab8d6eb27186d8`。本机新 immutable runtime clone 与正式部署树均通过 `verify-tree`；新 engine 已设为本机默认，audio1 是明确回退。未运行游戏/Wine，也没有真实设备切换、录音、播放或语音服务回归。静态 ABI/minOS 比较不能证明音频表现、路由切换时延或语音服务兼容。
 
 ## 尚未证实
 
@@ -50,4 +53,4 @@ wineAudioPatch/stageDefaultDeviceRuntime.command \
 
 ## 回退
 
-新候选独立构建和 staging，不覆盖已安装 runtime。验收不通过时继续选择之前的 immutable runtime/audio1 模块即可；不要把该候选直接复制进已签名 runtime。最终 runtime 目录和激活/回滚由 launcher runtime 管理逻辑维护。
+不通过后续实机验收时，将 runtime binding 切回 immutable audio1 版本即可；两版本分别保留，不能原地覆盖已签名 runtime。新版本源文件、manifest、catalog 和签名产物摘要彼此锁定；修改音频模块需创建新版本并重做签名与完整验证。

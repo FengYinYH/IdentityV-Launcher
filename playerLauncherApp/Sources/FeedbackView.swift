@@ -28,8 +28,10 @@ struct FeedbackView: View {
     private var canSend: Bool { !trimmedTitle.isEmpty || !trimmedDescription.isEmpty }
     /// Wording kept in one place: the fields are self-labelling, so there are no
     /// captions outside the boxes.
-    private let titlePlaceholder = "这里是标题栏，请简要概括你遇到的问题或想提出的建议"
-    private let descriptionPlaceholder = "这里是正文栏，尽可能展开详细说说"
+    // Keep placeholders as localization keys: runtime String values bypass the
+    // selected locale when this view is presented in its own macOS sheet.
+    private let titlePlaceholder: LocalizedStringKey = "这里是标题栏，请简要概括你遇到的问题或想提出的建议"
+    private let descriptionPlaceholder: LocalizedStringKey = "这里是正文栏，尽可能展开详细说说"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {

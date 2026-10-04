@@ -164,7 +164,7 @@ esac
 CORE_AUDIO_CAPTURE_POLICY="$(plist_raw "$CATALOG_FILE" "engines.$SELECTED_ENGINE_ID.capabilities.coreAudioCapturePolicy" || true)"
 case "$CORE_AUDIO_CAPTURE_POLICY" in
   rebinder-filter-required) DEFAULT_AUDIO_INTERPOSER_STAGE="rebinder-filter" ;;
-  runtime-default-input-only|unmanaged) DEFAULT_AUDIO_INTERPOSER_STAGE="off" ;;
+  runtime-default-input-only|runtime-default-device-following|unmanaged) DEFAULT_AUDIO_INTERPOSER_STAGE="off" ;;
   '') abort_launcher "selected engine lacks a CoreAudio capture policy" ;;
   *) abort_launcher "selected engine uses an unsupported CoreAudio capture policy" ;;
 esac
@@ -305,7 +305,7 @@ case "$CORE_AUDIO_CAPTURE_POLICY" in
   rebinder-filter-required)
     IDENTITYV_AUDIO_INTERPOSER_STAGE="rebinder-filter"
     ;;
-  runtime-default-input-only)
+  runtime-default-input-only|runtime-default-device-following)
     IDENTITYV_AUDIO_INTERPOSER_STAGE="off"
     ;;
   unmanaged)

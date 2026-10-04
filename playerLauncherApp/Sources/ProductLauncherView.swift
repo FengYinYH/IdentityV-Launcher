@@ -50,6 +50,8 @@ struct ProductLauncherView: View {
             .padding(22)
             .frame(width: 300)
             .fixedSize(horizontal: false, vertical: true)
+            // macOS sheet presentations can have a separate window environment.
+            .environment(\.locale, LauncherLanguage.current.locale)
         }
         .alert("卸载\(removalTarget?.productId.localizedName ?? "此版本")？", isPresented: Binding(get: { removalTarget != nil }, set: { if !$0 { removalTarget = nil } }), presenting: removalTarget) { product in
             Button("卸载", role: .destructive) { removalTarget = nil; model.performProductAction(.remove, for: product.productId) }
@@ -88,7 +90,11 @@ struct ProductLauncherView: View {
         } message: {
             Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(model.lastLaunchFailure?.alertMessage ?? "游戏没有进入运行状态，请稍后重试。")))
         }
-        .sheet(isPresented: $showsFeedback) { FeedbackView().environmentObject(model) }
+        .sheet(isPresented: $showsFeedback) {
+            FeedbackView()
+                .environmentObject(model)
+                .environment(\.locale, LauncherLanguage.current.locale)
+        }
         .overlay(alignment: .bottom) {
             if let operationToast {
                 Label(LocalizedStringKey(LauncherLanguage.current.localizedMessage(operationToast.message)), systemImage: operationToast.systemImage)

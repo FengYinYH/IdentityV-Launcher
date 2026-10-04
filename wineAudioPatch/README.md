@@ -36,7 +36,9 @@ Wine 11 + DXMT 0.80 runtime 的来源记录；它不是用上游 Wine 11.0 替�
 补丁在 `eCapture` 分支成功获得 `default_id` 后，直接分配一个只含该 ID 的本地
 数组。于是 Capture 路径不会调用 `kAudioHardwarePropertyDevices` 的 DataSize 或
 Data 查询，连全局设备列表本身都不读取；这才避免由 Wine 设备枚举唤起连续互通
-等输入设备。`eRender` 仍完整保留原有的全局设备枚举与默认索引逻辑。
+等输入设备。这段关于 `eRender` 全局枚举的描述仅适用于
+`default-input-only.patch` 单独使用时的历史阶段。叠加
+`default-device-following.patch` 后，Render endpoint 也只暴露当前 macOS 默认输出。
 
 若默认输入查询失败，或返回 `kAudioObjectUnknown`，Capture 以 `S_OK` 返回零个
 endpoint，不退回到全局设备枚举。这是有意的 fail-closed 行为：此时游戏暂时没有
@@ -99,10 +101,16 @@ CoreAudio driver：只读取当前默认输入/输出属性，每个已启动的
 切换和失败处理、纯模拟测试、隔离 x86_64 构建结果与未验证边界记录在
 [`docs/audioDefaultDeviceFollowing.md`](../docs/audioDefaultDeviceFollowing.md)。
 
-候选仍是未签名的隔离模块。它不是已安装或可公开发布的 runtime；发版前还须在副本上
-移除/审计调试信息中的本机路径、按既定身份签名并更新产物哈希，再完成隔离 runtime 与
-真实游戏语音回归。`buildDefaultDeviceFollowingX64.command` 需要显式的源码、工具链、
-基线模块、外部卷挂载点/UUID 和新的构建目录；它不会回落到内置磁盘，也不访问音频设备。
+当前本机产品默认使用 `audio-default-following-20261004` immutable runtime；
+`audio1` 保留为显式回退版本。新的 `winecoreaudio.so` 已去除调试信息中的本机路径，
+并以 Developer ID Application 身份及 hardened runtime 签名。签名后模块 SHA-256 为
+`9588fcdd5b262e85e9255c647b6a5a43b077553b6d8531d5c7ab8d6eb27186d8`；manifest 的
+`sourceSha256` 锁定剥除 DWARF 后、签名之前的字节 `996c8223a3d3b2b6b371062b9f8c121362556cb0222215dbf7ac1fdaa8455160`。
+原始构建 `9591a575e73dd2c1df2b7f6a1937d3a472c9b160455d7f43406f61d28f089c34` 仍保留作复现证据。
+隔离构建、签名和全树校验均通过，且新 runtime 已进入本机默认绑定；未运行游戏/Wine，
+没有真实设备热切换、录音或播放回归，也未验证约 1–2 秒静音目标。此本机改动不是公开发行。
+`buildDefaultDeviceFollowingX64.command` 需要显式的源码、工具链、基线模块、外部卷挂载点/UUID
+和新的构建目录；它不会回落到内置磁盘，也不访问音频设备。
 
 ## TCC 是独立问题
 

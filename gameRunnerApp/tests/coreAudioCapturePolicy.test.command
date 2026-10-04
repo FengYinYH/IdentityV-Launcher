@@ -5,9 +5,13 @@ PROJECT_ROOT="${0:A:h:h:h}"
 RUNNER="$PROJECT_ROOT/gameRunnerApp/IdentityV-Mac.app/Contents/MacOS/launchIdentityVRunner"
 AGTK_RUNNER="$PROJECT_ROOT/gameRunnerApp/IdentityV-AGTK.app/Contents/MacOS/launchIdentityVRunner"
 CATALOG="$PROJECT_ROOT/runtimeManifest/runtime-catalog.json"
+MAC_CATALOG="$PROJECT_ROOT/gameRunnerApp/IdentityV-Mac.app/Contents/Resources/runtime-catalog.json"
+AGTK_CATALOG="$PROJECT_ROOT/gameRunnerApp/IdentityV-AGTK.app/Contents/Resources/runtime-catalog.json"
 
 [[ -x "$RUNNER" && -x "$AGTK_RUNNER" && -r "$CATALOG" ]]
 /usr/bin/cmp -s "$RUNNER" "$AGTK_RUNNER"
+/usr/bin/cmp -s "$CATALOG" "$MAC_CATALOG"
+/usr/bin/cmp -s "$CATALOG" "$AGTK_CATALOG"
 
 # The first case establishes a default before user settings load; the second
 # one is the authoritative, post-settings policy gate.  Execute that exact
@@ -45,6 +49,12 @@ resolve_stage() {
 # rebinder/filter dylib in addition, even if either legacy setting persisted.
 [[ "$(resolve_stage runtime-default-input-only rebinder-filter 0)" == off ]]
 [[ "$(resolve_stage runtime-default-input-only filter 1)" == off ]]
+[[ "$(resolve_stage runtime-default-device-following rebinder-filter 0)" == off ]]
+[[ "$(resolve_stage runtime-default-device-following filter 1)" == off ]]
+/usr/bin/plutil -extract 'engines.wine11-codeweavers-26_1-dxmt-0_80-macos15-alpha1-r1-emoji2-audio-default-following-20261004.capabilities.coreAudioCapturePolicy' raw -o - "$CATALOG" | /usr/bin/grep -qx 'runtime-default-device-following'
+/usr/bin/plutil -extract 'engines.wine11-codeweavers-26_1-dxmt-0_80-macos15-alpha1-r1-emoji2-audio-default-following-20261004.candidateSelection.fallbackEngineId' raw -o - "$CATALOG" | /usr/bin/grep -qx 'wine11-codeweavers-26_1-dxmt-0_80-macos15-alpha1-r1-emoji2-audio1'
+/usr/bin/plutil -extract 'engines.wine11-codeweavers-26_1-dxmt-0_80-macos15-alpha1-r1-emoji2-audio1.candidateSelection.productDefault' raw -o - "$CATALOG" | /usr/bin/grep -qx false
+/usr/bin/plutil -extract 'engines.wine11-codeweavers-26_1-dxmt-0_80-macos15-alpha1-r1-emoji2-audio-default-following-20261004.candidateSelection.productDefault' raw -o - "$CATALOG" | /usr/bin/grep -qx true
 
 # The fallback policy intentionally preserves maintenance overrides, including
 # the old flag's off -> filter translation.

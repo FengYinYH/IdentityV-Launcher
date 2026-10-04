@@ -14,6 +14,8 @@
 
 ## 验证与剩余边界
 
-`launcherLocalizationResourcesSelfTest.py` 检查三份表的210个键一致、启动器/反馈页/保留工具视图的静态中文字串均有资源、必需动态模板及麦克风授权提示存在、支持语言列表与文件夹一致。`LauncherLanguageSelfTest.swift` 验证简繁解析（含TW/HK/MO）、其他语言回退、空/非法偏好回退、持久选择、动态进度/动作、错误码提示和邮件客户端fallback。完整构建在编译App前运行两项检查。
+`launcherLocalizationResourcesSelfTest.py` 检查三份表的212个键一致、启动器/反馈页/保留工具视图的静态中文字串均有资源、必需动态模板及麦克风授权提示存在、支持语言列表与文件夹一致。`LauncherLanguageSelfTest.swift` 验证简繁解析（含TW/HK/MO）、其他语言回退、空/非法偏好回退、持久选择、动态进度/动作、错误码提示和邮件客户端fallback。完整构建在编译App前运行两项检查。
+
+实际macOS界面检查补充了纯查表测试的边界：sheet可拥有独立窗口环境，因此安装提示与反馈sheet显式接收当前locale；运行时String占位符须保留为`LocalizedStringKey`，插值版本标签须用完整格式键。更新提示也必须翻译完整消息，不能只匹配前半句。回归检查纳入这些契约；最终安装仍核对实际菜单、弹窗与布局，不能仅凭资源键集合推定SwiftUI呈现正确。
 
 这些检查不替代英文长标签的视觉适配或每个少见运行提示的实际验收；后续增加文案时应按上述统一入口维护。未启动已安装App、代理或游戏。

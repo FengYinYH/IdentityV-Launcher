@@ -53,6 +53,8 @@ def main() -> int:
         "%@ installation complete",
         "Game installation failed: %@",
         "The installed IDV Login helper is outdated; %@",
+        "版本 %@",
+        "下载新版安装镜像后，退出启动器并替换应用即可。",
     }
     missing = required - reference
     if missing:
@@ -82,6 +84,18 @@ def main() -> int:
     for source_key in ("第五人格启动器", "关于", "疑似卡死时提醒", "启动失败", "卸载游戏"):
         if english[source_key] == source_key:
             raise AssertionError(f"English translation is missing for {source_key!r}")
+    for source_key in ("版本 %@", "下载新版安装镜像后，退出启动器并替换应用即可。"):
+        if english[source_key] == source_key:
+            raise AssertionError(f"English translation is missing for {source_key!r}")
+
+    product_view = (source_root / "Sources/ProductLauncherView.swift").read_text(encoding="utf-8")
+    feedback_view = (source_root / "Sources/FeedbackView.swift").read_text(encoding="utf-8")
+    if 'Text("版本 \\(version)")' not in product_view:
+        raise AssertionError("Expected the IDV Login version label to use its localized format key.")
+    if product_view.count(".environment(\\.locale, LauncherLanguage.current.locale)") < 2:
+        raise AssertionError("Launcher sheet content must explicitly inherit the selected locale.")
+    if "titlePlaceholder: LocalizedStringKey" not in feedback_view or "descriptionPlaceholder: LocalizedStringKey" not in feedback_view:
+        raise AssertionError("Feedback placeholders must remain localized keys, not runtime String values.")
 
     for language in languages:
         info_strings = read_strings(localization_root / f"{language}.lproj/InfoPlist.strings")

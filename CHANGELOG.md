@@ -16,9 +16,9 @@ IDV Login 继续锁定官方 6.3.1 beta 原始资产，通过受管启动策略�
 
 国际服首装和完整性修复现接入与国服相同的网易 `downloadIPC.exe`、manifest planner 和下载后校验流程，并明确传入海外服务标志。国际服 adapter 继续解析、校验其官方清单与安装器地址，国服和国际服的发布事务仍分别管理。上游源码依据、取舍和未验证边界见[共链说明](docs/downloadCoreUnification.md)。
 
-## Wine CoreAudio 默认输入/输出跟随（2026-10-04，本机候选，未安装/发布）
+## Wine CoreAudio 默认输入/输出跟随（2026-10-04，本机默认，未公开发布）
 
-Wine 播放和采集流现分别跟随 macOS 默认输出和默认输入；只读单个默认设备属性，每 100ms 轮询，失败后保留 Windows stream 并重试，切换恢复时清除旧音频积压。隔离 x86_64 产物为 macOS 10.15 minimum；导出符号、install name 和动态依赖与 audio1 候选一致，新的 runtime clone 已通过树校验。没有真实麦克风、设备切换或游戏内语音测试；100ms 是检测间隔，不代表实测恢复时长。保持选择旧 immutable runtime 即可回退。设计、源补丁和验证边界见[默认设备跟随说明](docs/audioDefaultDeviceFollowing.md)。
+Wine 播放和采集流现分别跟随 macOS 默认输出和默认输入；只读单个默认设备属性，每 100ms 轮询，失败后保留 Windows stream 并重试，切换恢复时清除旧音频积压。已部署为本机默认 immutable runtime，audio1 保留为回退版本。x86_64 模块 minimum OS 为 macOS 10.15；导出符号、install name 和动态依赖与 audio1 候选一致。没有真实设备切换或游戏内语音测试；100ms 是检测间隔，不代表实测恢复时长，也未验证约 1–2 秒静音目标。该版本尚未公开发布。设计、源补丁和验证边界见[默认设备跟随说明](docs/audioDefaultDeviceFollowing.md)。
 
 ## IDV Login 6.3.1 beta（2026-10-03，已本机安装，未公开发布）
 
@@ -54,7 +54,7 @@ Wine 播放和采集流现分别跟随 macOS 默认输出和默认输入；只�
   staple；DMG 里另附一份给普通用户的使用说明。公开封包器的载荷审计**未改动**，
   公开发行物依旧不包含这三组字节。
 - **已知残留**：包内 `RuntimePatches/gdi32.dll`（emoji2 自建候选）保留了 DWARF 调试段，含 85 处
-  构建机源码路径 `/Users/xunfeng/codexDaily/…`。不含账号、凭据或用户状态；本次一次性私人交付
+  构建机源码路径。不含账号、凭据或用户状态；本次一次性私人交付
   决定不改，但公开封包器的审计会拒绝这些字符串，**下一次公开发行前必须去除调试段并同步
   runtime 哈希/版本**，见[已知问题](docs/knownIssues.md)。
 - **这一条是私有交付，不是新候选**：随包的基础 runtime 与网易组件不由本项目持有再分发授权，

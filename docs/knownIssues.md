@@ -6,8 +6,8 @@
 
 2026-09-26 为私有离线整包做隐私复核时发现：`runtimeBootstrap/releasePayloads/gdi32.dll`（也就是随 App 分发的
 `Contents/Resources/RuntimePatches/gdi32.dll`，`1.0.0-rc.1-test.2` 的 emoji2 候选）里有 **85 处**
-`/Users/xunfeng/codexDaily/local/diagnostics/identityV/20260910-emoji-ime/emoji-probe/source-build-ligature/dlls/gdi32/*.c`
-形式的绝对路径，来自它保留的 DWARF 调试段（`.debug_info`/`.debug_line`/`.debug_str`/`.debug_loc`/`.debug_ranges`）。
+构建机用户目录下 `.../source-build-ligature/dlls/gdi32/*.c`
+形式的绝对路径，主要来自它保留的 DWARF 调试段（`.debug_info`/`.debug_line`/`.debug_str`/`.debug_loc`/`.debug_ranges`）；完整路径只保存在私人现场记录。
 这是本项目自建候选的构建残留，不是上游 `DWRG.dmg` 或网易组件带来的。
 
 - **影响面**：`/Applications` 当前那份 `1.0.0-rc.1-test.2` 与本次私有离线整包都带着它；公开 RC1
@@ -21,11 +21,13 @@
   `runtimeBootstrap/verifyRuntimePatchPayloads.command`，再按流程提升 runtime 版本并重建验证。
   2026-09-26 风吟判断这份私有整包只交给一个人、泄漏内容仅为构建机路径而非账号或凭据，
   因此决定本轮不改，**留到做下一次公开发行前处理**。
-- **修复方向**：在构建时去掉调试信息（或构建后 strip 掉 `.debug_*` 段），重新签名并走上述哈希/版本同步；
+- **修复方向**：在构建时去掉调试信息并用编译器路径映射去掉运行态诊断字符串里的构建根目录，走上述哈希/版本同步；
   改完必须重跑 emoji 的 `compositeRegression` 与实机聊天复测，确认去调试段没有改变行为。
 - **同类残留（不是我们的，不能改）**：随包的网易 `downloadIPC.exe` 里有 `C:/Users/weiyufeng/go/pkg/mod/...`，
   那是网易构建机路径，来自被哈希锁定的上游原件；`com.xunfeng.identityv.*` 是历史 bundle identifier，
   属升级兼容契约，公开 RC1 同样存在。
+
+2026-10-04实际尝试用 LLVM `--strip-debug` 处理独立副本：移除调试段后，七个非调试section的内容、虚拟地址、长度与flags逐字节保持；但仍有7个用户目录标记及14个私人工作区标记，落在运行态只读数据里。因而“只strip就能清除全部路径”的判断被反证，不能把此副本作为公开修复，也不能沿用旧候选SHA给新字节。本轮保留原GDI载荷及其哈希锁定；下一次公开发行仍需按源码路径映射重建并完成相应验收。该边界独立于新的CoreAudio设备跟随补丁。
 
 ## 国服启动延迟时误报 IDV-LAUNCH-203
 

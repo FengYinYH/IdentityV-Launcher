@@ -13,12 +13,14 @@ contract. `rebinder-filter-required` means the runtime still enumerates every
 macOS capture device and the runner must load the verified local
 `rebinder-filter`; `runtime-default-input-only` means the runtime contains the
 source-level default-input patch and must not receive the interposer a second
-time. `unmanaged` keeps legacy fallback behavior unchanged. For the first two
-values the catalog policy wins over stale `launcher.env` values in both
-directions: an LKG user cannot silently turn the required filter off, and a
-later self-built runtime cannot inherit an old interposer and double-inject it.
-This also makes a clean user installation behave like the tested development
-configuration.
+time. `runtime-default-device-following` means the runtime exposes only the
+current macOS default input/output endpoints and live streams follow changes;
+the runner also disables the legacy interposer for this policy.
+`unmanaged` keeps legacy fallback behavior unchanged. For the three explicit
+policies the catalog wins over stale `launcher.env` values: required filtering
+cannot silently be turned off, and source-level filtering/following cannot get
+an old interposer double-injected. This makes clean installations obey the
+same audio contract as the selected runtime.
 
 `candidateSelection.productDefault` identifies exactly one runtime used by the
 player product manager; that engine's `runtimeVersion` must equal the bundled
@@ -26,7 +28,8 @@ bootstrap manifest version. The manager no longer keeps a separate hardcoded
 engine ID. `releasePackaging/releaseIdentity.py` checks uniqueness and matches
 the manifest's final file hashes to the selected catalog engine before
 packaging. RC1 publicly selected r1 even though emoji candidates appeared in
-the catalog; the explicit selection makes that difference visible.
+the catalog. The local default-following version now selects its own immutable
+runtime ID and retains audio1 as an explicitly nondefault rollback engine.
 
 `wine11-codeweavers-26_1-dxmt-0_80-selfbuilt-gnutls-macos15-r4` is a distinct
 maintainer candidate, not a replacement for
