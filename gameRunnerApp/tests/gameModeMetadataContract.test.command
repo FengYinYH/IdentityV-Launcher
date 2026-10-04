@@ -22,4 +22,31 @@ runner_plist="$root/IdentityV-Mac.app/Contents/Info.plist"
 [[ "$(/usr/bin/plutil -extract LSUIElement raw -o - "$runner_plist")" == "true" ]]
 ! /usr/libexec/PlistBuddy -c 'Print :GCSupportsGameMode' "$runner_plist" >/dev/null 2>&1
 
+# Exercise only the exact final child fragment with a harmless shell stub.
+# No Wine, GUI, game, prefix or audio is started. The parent must retain no
+# app-name override, and both products must keep their Windows argv intact.
+/usr/bin/python3 - "$root" <<'PY'
+import os, subprocess, sys, tempfile
+from pathlib import Path
+root = Path(sys.argv[1])
+mac = (root / 'IdentityV-Mac.app/Contents/MacOS/launchIdentityVRunner').read_text()
+agtk = (root / 'IdentityV-AGTK.app/Contents/MacOS/launchIdentityVRunner').read_text()
+assert mac == agtk
+assert mac.count('export WINEPRELOADERAPPNAME=') == 2
+fragment = mac.split('    (\n      # CodeWeavers', 1)[1]
+fragment = '      # CodeWeavers' + fragment.split('    ) >>"$LOG_FILE"', 1)[0]
+assert '/usr/bin/env' not in fragment
+with tempfile.TemporaryDirectory(prefix='wine-menu-child-contract-') as directory:
+    stub = Path(directory) / 'wine-stub'
+    stub.write_text('#!/bin/zsh\nprint -r -- "$WINEPRELOADERAPPNAME"\nprint -r -- "$1"\n')
+    stub.chmod(0o700)
+    for product, windows_root, expected in [('mainland', 'IdentityV', '第五人格'), ('global', 'IdentityVGlobal', 'Identity V')]:
+        environment = os.environ.copy()
+        environment.update(PRODUCT=product, WINDOWS_GAME_ROOT=windows_root, WINE_BIN=str(stub))
+        code = 'unset WINEPRELOADERAPPNAME\ntypeset -a hud_environment GAME_LAUNCH_ARGUMENTS\n(\n' + fragment + '\n)\nprint -r -- "parent=${WINEPRELOADERAPPNAME-unset}"\n'
+        result = subprocess.run(['/bin/zsh', '-c', code], env=environment, text=True, capture_output=True, check=True)
+        assert result.stdout.splitlines() == [expected, 'C:\\Games\\' + windows_root + '\\dwrg.exe', 'parent=unset'], result.stdout
+print('Game child menu-name scope and Windows argv contract passed')
+PY
+
 print -r -- "Game Mode metadata contract self-test passed"
