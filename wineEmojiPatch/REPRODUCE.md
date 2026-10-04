@@ -111,9 +111,9 @@ export IDV_GDI_MINGW_ROOT=/external/toolchains/llvm-mingw-20251216-ucrt-macos-un
 export IDV_GDI_BISON=/external/toolchains/bison/bin/bison
 export IDV_GDI_FREETYPE_ROOT=/external/toolchains/freetype-x86_64
 export IDV_GDI_GNUTLS_ROOT=/external/toolchains/gnutls-x86_64
-export IDV_GDI_VOLUME_MOUNT=/Volumes/Build
+export IDV_GDI_VOLUME_MOUNT='/Volumes/<build-volume>'
 export IDV_GDI_VOLUME_UUID=EXPECTED-UUID
-export IDV_GDI_BUILD_ROOT=/Volumes/Build/IdentityV-Launcher-builds/rc2-gdi
+export IDV_GDI_BUILD_ROOT='/Volumes/<build-volume>/IdentityV-Launcher-builds/rc2-gdi'
 export IDV_GDI_JOBS=6
 wineEmojiPatch/buildGdi32PathMapped.command
 ```

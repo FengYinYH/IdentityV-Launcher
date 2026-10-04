@@ -8,6 +8,10 @@ project_dir=${script_dir:h}
 manifest="$script_dir/releaseMaterialsManifest.tsv"
 output_root="${IDENTITYV_NOTICES_BUILD_ROOT:-$script_dir/.build}"
 [[ "$output_root" == /* ]] || { print -u2 -- 'IDENTITYV_NOTICES_BUILD_ROOT must be absolute'; exit 64; }
+cache_root="${IDENTITYV_NOTICES_CACHE_ROOT:-}"
+[[ -z "$cache_root" || ( "$cache_root" == /* && -d "$cache_root" && ! -L "$cache_root" ) ]] || {
+  print -u2 -- 'IDENTITYV_NOTICES_CACHE_ROOT must be an existing absolute directory'; exit 64
+}
 stage="$output_root/ReleaseMaterials.stage"
 final="$output_root/ReleaseMaterials"
 
@@ -75,6 +79,23 @@ download_locked() {
   [[ "$max_bytes" == <-> && "$max_bytes" -gt 0 && "$expected_sha" =~ '^[0-9A-Fa-f]{64}$' ]] || {
     print -u2 -- "invalid size/hash lock: $relative"; return 1
   }
+  # An explicit caller-owned cache may supply only the exact locked bytes.
+  # Reject corrupt entries instead of treating them as verified provenance
+  # or replacing them silently; source archives are large and immutable.
+  if [[ -n "$cache_root" && -e "$cache_root/$relative" ]]; then
+    local cached="$cache_root/$relative"
+    host_allowed "$url" "$allowed" || return 1
+    [[ -f "$cached" && ! -L "$cached" ]] || return 1
+    byte_count="$(/usr/bin/stat -f '%z' "$cached")"
+    (( byte_count > 0 && byte_count <= max_bytes )) || return 1
+    actual_sha="$(/usr/bin/shasum -a 256 "$cached" | /usr/bin/awk '{print $1}')"
+    [[ "${actual_sha:l}" == "${expected_sha:l}" ]] || {
+      print -u2 -- "cached source SHA-256 mismatch: $relative"; return 65
+    }
+    /bin/mkdir -p "${destination:h}"
+    /bin/cp "$cached" "$destination"
+    return 0
+  fi
   verify_redirect_chain "$url" "$allowed" || { print -u2 -- "unsafe redirect host: $url"; return 1; }
   /bin/mkdir -p "${destination:h}"
   effective_url="$(/usr/bin/curl --http1.1 --fail --silent --show-error --location --max-redirs 5 \
@@ -295,7 +316,11 @@ done < <(/usr/bin/find "$stage" -type f -print0)
 # Corresponding source includes privacy scanners themselves. Their generic
 # '/Users/' and '/Volumes/Data/' detector strings are not a private location;
 # reject concrete path segments rather than rejecting the scanner's source.
-if /usr/bin/grep -RInE "/Users/[^/<>\"'[:space:]]+/|/Volumes/[^/<>\"'[:space:]]+/[^/<>\"'[:space:]]+/|Authorization:|Bearer |token=|session=" "$stage"; then
+privacy_pattern="$(/bin/cat <<'PATTERN'
+/Users/[^/<>"'`[:space:]]+/|/Volumes/[^/<>"'`[:space:]]+/[^/<>"'`[:space:]]+/|Authorization:|Bearer |token=|session=
+PATTERN
+)"
+if /usr/bin/grep -RInE "$privacy_pattern" "$stage"; then
   print -u2 -- "refusing machine path or probable secret in release material"
   exit 65
 fi

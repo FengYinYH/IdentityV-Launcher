@@ -51,7 +51,7 @@ flowchart LR
 | `diagnostics/` | **只保留产品使用的诊断导出源码与合约测试**；个人日志、截图、按日期的实机记录不在本仓。 |
 | `runtimeAssembly/` | 运行环境补丁 `patches/` 与隔离候选的源码/合约测试；真实本机 runtime、prefix 和旧实验现场不在本仓。 |
 | `testFixtures/` | 无账号、无真实用户现场的合成测试样本。 |
-| `notices/` | 第三方许可、来源及对应源码材料生成入口；默认`.build/`是生成目录，`IDENTITYV_NOTICES_BUILD_ROOT`可将材料构建移到已核验的外部绝对路径。 |
+| `notices/` | 第三方许可、来源及对应源码材料生成入口；默认`.build/`是生成目录，`IDENTITYV_NOTICES_BUILD_ROOT`可将材料构建移到已核验的外部绝对路径，`IDENTITYV_NOTICES_CACHE_ROOT`可只读复用逐项验hash的原厂材料。 |
 | `signing/` | entitlements、签名/公证脚本及候选第一方 ID 的只读验证；证书私钥留在系统安全存储，不进入 Git。 |
 | `releasePackaging/` | 版本约定、DMG 封包、`releaseIdentity.py` 包内身份核对及发行说明；`build/`、`.venv/` 是本机生成目录。 |
 | `offlinePackaging/` | **私有离线整包**，不是公开发行路径：把基础 Wine runtime、idv-login 与网易下载核心预先打进 App，供只能访问网易的目标用户首装。`prepareOfflinePayloads.command` 取件校验、`stageOfflinePayloads.command` 注入 App、`verifyOfflinePayloads.command` 独立复核、`buildOfflinePackage.command` 全流程封包；再分发边界见 `payloadProvenance.md`；`build/` 是本机生成目录。 |

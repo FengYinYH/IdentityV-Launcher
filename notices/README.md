@@ -17,6 +17,8 @@
 
 运行 `./prepareReleaseNotices.command` 会从 [`releaseMaterialsManifest.tsv`](releaseMaterialsManifest.tsv) 的固定 HTTPS 来源重建忽略的 `.build/ReleaseMaterials/`。它校验重定向主机、文件上限、SHA-256、普通文件属性和可能泄露本机路径/会话字段，最后给出 `SHA256SUMS`。
 
+可选 `IDENTITYV_NOTICES_CACHE_ROOT` 指向调用者管理的绝对目录，按 manifest 的相对路径只读复用已获取的原厂材料。每次仍核对文件属性、大小和锁定 SHA；缓存损坏会失败，不静默替换。它不缓存首方源码归档，后者始终从当前 clean HEAD 重建。大缓存应和材料构建一起放已核验外部卷，调用者决定保留或清理。
+
 生成物包含发行物应带的 `ThirdPartyNotices/` 与 `CorrespondingSources/`：idv-login 的 GPL 原文及精确 commit/tag/source 获取说明、GMP/PCRE2/zstd 源码、Wine LGPL 文本、ClipCursor、GDI 字体回退与 CoreAudio 补丁及构建配方、CodeWeavers 精确源码归档与获取说明，以及实际编入五个 Go helper 的外部 module notice。GDI 路径映射重建与音频设备跟随改变了随包模块，RC2 必须重新生成这些材料，不能沿用 RC1 的四模块说明。
 
 生成器也把当前 [`THIRD_PARTY_STATUS.md`](THIRD_PARTY_STATUS.md) 复制入材料包。改这份说明或锁定清单后，旧 `ReleaseMaterials.zip` 的内容与哈希不会自动更新；最终候选必须重新生成并与实际 App 组件对照。
