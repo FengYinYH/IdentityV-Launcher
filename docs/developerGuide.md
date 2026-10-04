@@ -36,6 +36,8 @@ IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精�
 
 ## 入口和兼容边界
 
+许可材料生成器与封包器共同读取`IDENTITYV_NOTICES_BUILD_ROOT`（绝对路径）；未设置时沿用`notices/.build`。大源码归档、材料stage及最终`ReleaseMaterials`可放独立外部构建目录，避免在系统盘保留可再生缓存。调用者先核对外部卷身份和挂载，再同时向两个脚本传同一值；脚本只验证绝对路径，不替代卷UUID检查。RC2材料同时收纳实际GDI/音频补丁、构建配方与回归源码，不能仅沿用RC1 ClipCursor来源说明。生成器要求clean checkpoint并收纳该HEAD的首方源码归档/commit文本；最终App构建身份必须匹配，源码链接不能只指向移动的main。
+
 日常开发用 `devIterate.command`；独立构建用 `buildPlayerLauncher.command`、`buildMaintenanceToolbox.command` 和由玩家构建调用的 `buildGameRunner.command`。封包器 `releasePackaging/buildAlpha1Preview.command` **仍是现役脚本**，其中 `Alpha1` 只是保留的历史文件名，实际版本取 App 元数据，不应用文件名推断版本。旧独立 runner 安装器和退役浮窗入口已退出仓库根目录；缘由及恢复旧实现的方法见[历史命令](legacyCommands.md)。其余根脚本的读/写、安装、提权和服务影响以[地图的命令表](../projectMap.md#根目录文件构建与开发入口)为准，不要把 `*.command` 当作说明文档双击。
 
 第一方 bundle ID、Developer ID 签名、TCC、Keychain service/account 与用户运行数据目录分别是兼容契约。改源码目录名不自动迁移它们；需要改变身份时按[身份方案](firstPartyIdentity.md)核旧数据与恢复。已有本地候选不等于可公开发布：公开前还要审查拟推 Git refs、隐私、许可证、最终包和真实安装/游戏结果。

@@ -66,15 +66,6 @@ struct IdentityVToolboxApp: App {
                     .keyboardShortcut("h", modifiers: [.command, .option])
                 Button(LocalizedStringKey(selectedLanguage.localized("显示全部"))) { NSApplication.shared.unhideAllApplications(nil) }
             }
-            CommandMenu(LocalizedStringKey(selectedLanguage.localized("第五人格"))) {
-                Toggle(
-                    LocalizedStringKey(selectedLanguage.localized("疑似卡死时提醒")),
-                    isOn: Binding(
-                        get: { model.hangWarningsEnabled },
-                        set: { model.setHangWarningsEnabled($0) }
-                    )
-                )
-            }
             CommandMenu(LocalizedStringKey(selectedLanguage.localized("语言"))) {
                 Picker(LocalizedStringKey(selectedLanguage.localized("语言")), selection: $languageRawValue) {
                     ForEach(LauncherLanguage.allCases) { language in

@@ -6,7 +6,7 @@ struct LegacyPreferenceMigrationSelfTest {
         let old: [String: Any] = [
             "idvLoginFollowGameLaunchEnabled": true,
             "idvLoginPromptAnswered": true,
-            "identityVLauncherHangWarningsEnabled": "wrong type",
+            "identityVLauncherHangWarningsEnabled": false,
             "NSWindow Frame identityv-toolbox-main": "{{10, 20}, {680, 420}}",
             "privateUnrelatedKey": "must not copy"
         ]

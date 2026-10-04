@@ -36,7 +36,10 @@ runner_pids_for_games() {
       parent="$(/bin/ps -o ppid= -p "$parent" 2>/dev/null | /usr/bin/tr -d ' ')"
       [[ "$parent" == <-> && "$parent" != "1" ]] || break
       command="$(/bin/ps -o command= -p "$parent" 2>/dev/null || true)"
-      if [[ "$command" == *"/Applications/第五人格启动器.app/Contents/MacOS/launchIdentityVRunner --run"* ]]; then
+      # The player launcher embeds its runner in Helpers. Keep the former
+      # direct entry for older installed builds, but only match ancestors of
+      # the selected game's PID; never seize another Wine session by name.
+      if [[ "$command" == *"/Applications/第五人格启动器.app/Contents/Helpers/IdentityVGameRunner.app/Contents/MacOS/launchIdentityVRunner --run"* || "$command" == *"/Applications/第五人格启动器.app/Contents/MacOS/launchIdentityVRunner --run"* ]]; then
         if [[ -z "${seen[$parent]:-}" ]]; then
           seen[$parent]=1
           print -r -- "$parent"

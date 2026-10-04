@@ -154,6 +154,7 @@ struct ProductLauncherView: View {
         ProductPanel(
             product: product,
             isRunning: model.runtimeStatus.runningProductIDs.contains(product.productId),
+            isWindowReady: model.runtimeStatus.windowReadyProductIDs.contains(product.productId),
             defaultInstallPath: ToolboxViewModel.defaultInstallPath(for: product.productId),
             action: { model.performProductAction($0, for: product.productId) },
             requestRemoval: { removalTarget = product },
@@ -413,6 +414,7 @@ struct ProductLauncherView: View {
 private struct ProductPanel: View {
     let product: GameProductPresentation
     let isRunning: Bool
+    let isWindowReady: Bool
     let defaultInstallPath: String
     let action: (GameProductAction) -> Void
     let requestRemoval: () -> Void
@@ -489,10 +491,23 @@ private struct ProductPanel: View {
         }
         .fixedSize(horizontal: true, vertical: false)
     }
-    private var installationStatusTitle: String { isRunning ? "运行中" : (product.state == .notInstalled ? "未安装" : "已安装") }
-    private var installationStatusSymbol: String { product.state == .notInstalled ? "arrow.down.circle.fill" : "checkmark.circle.fill" }
+    private var installationStatusTitle: String {
+        LauncherLanguage.current.localized(ProductRuntimeStatusLabel.localizationKey(
+            isInstalled: product.state != .notInstalled,
+            processExists: isRunning,
+            windowReady: isWindowReady,
+            launchIsBusy: isBusy(.launch)
+        ))
+    }
+    private var installationStatusSymbol: String {
+        if isBusy(.launch) { return "hourglass" }
+        if isWindowReady { return "checkmark.circle.fill" }
+        if isRunning { return "hourglass" }
+        return product.state == .notInstalled ? "arrow.down.circle.fill" : "checkmark.circle.fill"
+    }
     private var installationStatusColor: Color {
-        if isRunning { return .green }
+        if isWindowReady { return .green }
+        if isRunning || isBusy(.launch) { return .orange }
         return product.state == .notInstalled ? .secondary : .blue
     }
 }

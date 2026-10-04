@@ -2,6 +2,28 @@
 
 本文记录启动器将国服、国际服首装与完整性修复接入同一下载链的依据与适用范围。结论基于上游 `KKeygen/idv-login` 的 `main` 提交 `6e5523e7933c0c28662b1af2a77e129b512423b6`；上游代码可从其公开仓库按该 SHA 复核。本仓 `downloaderCoreComponent.json` 锁定的核心来自提交 `9b1ff598da6cb9ae6a952a8978ccf88bc8b2ae5c`，其中 `downloadIPC.exe` 为 34,378,168 字节、SHA-256 `5c11d3188d271c1df88d36d98bb440437d29e8a41c88dfd38602ce3c60c56f82`。该摘要与本轮 main checkout 的 `binaries/downloadIPC.exe` 完全一致，因而本仓实际锁定的核心就是已审查 main 所带的二进制。对二进制只做了静态字符串检查，可见 `oversea`、`isOverSea`、`LoadingBayAppPath`、`getLoadingBayHost`、`GlobalIsOversea` 与 `overseaUpdateServerURL` 等海外路由相关标记；没有运行它。
 
+## 登录插件不是下载依赖
+
+`downloaderCoreComponent.json`标识`netease-download-core`，与可选的`idvLoginComponent.json`分别锁定、分别获取。`IdentityVProductManager.runSharedDownloadCore`直接调用`IdentityVDownloaderCoreBootstrap`，安装到用户状态目录的`Components/netease-download-core`，再将三个核心文件准备到本服私有Wine prefix并调用监督器；该路径不调用登录程序、登录安装器、受管helper或登录readiness。管理器的国服首装、国服修复及国际服共链入口均采用该路径。
+
+下载核心是网易提供的程序，不是IDV Login作者重新编写的下载引擎；当前获取位置是作者仓库中按提交与字节锁定的镜像。取用这个二进制不等于安装或运行IDV Login。独立bootstrap的本地HTTP/hash测试、管理器临时prefix核心复制/修复清单/清理测试都不准备登录插件；这些证明组件及准备链独立，不能代替真实服务和不透明核心的完整游戏下载实测。
+
+## 网易官方原始载荷核验（2026-10-05）
+
+实际请求[官方 Windows 下载 resolver](https://api.loadingbay.com/app/v1/download_client/windows/mkt-h55-official/url)，得到 302 到[网易 CDN 安装器](https://a50.gdl.easebar.com/7497956734284075008/Identity_V_setup.exe)。安装器为 147,731,528 字节，SHA-256 `508c96dd4320a40da830d3f75fca5c95eacf60e05e74794738c0f57c23bd368a`；其 Inno Setup 数据版本为 6.4.3，产品标识 LoadingBay 1.5.26.11。
+
+安装器没有执行。现成 innoextract 1.9 仅支持至 Inno 6.0.5，解析失败属于工具版本限制；随后从上游源码构建并审阅 [6.4.3 支持 PR197](https://github.com/dscharrer/innoextract/pull/197)（head `93ea8b13553797aab0103108ba0bf59b988d2dbc`）后，静态解包成功，官方 `app/1.5.26.11/` 中确有以下三枚文件：
+
+| 官方文件 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `downloadIPC.exe` | 34,523,272 | `aa091401023fc648fea3832586942e945447d84246ca5be7e3253d349a07ea03` |
+| `OrbitSDK.dll` | 8,128,504 | `efefce9a5e418956b2663b1788c28e778eff9e4be80d223c5a97881c9b28af36` |
+| `aria2c.exe` | 5,607,416 | `7b04ab13b290ec584d1f8eedc1c830d9f828d0668a2014065af90f38c241d2f5` |
+
+这提供了下载核心确实存在于网易官方产品中的直接证据；它不是对其内部源码的审计。当前官方文件与本项目既有锁定文件的 hash 和大小不同，不能宣称同字节，不能仅因来源更直接就把新版当成既有协议兼容输入。当前 bootstrap 仍按上面的固定 commit 获取；官方分文件直链尚未证实。改为安装器提取还需要锁定安装器字节、提供可复建且符合产品 macOS 支持范围的 Inno 解包闭包，以及重新验证新版核心的 IPC 和两服下载行为。用于本次静态取证的工具有构建机 Boost 动态依赖，不能直接夹进公开 App。
+
+取得或能解包网易安装器也不意味着获得重新分发其核心的许可；本项目不将这些网易二进制纳入 App、DMG 或“对应源码”归档。
+
 ## 已证实的协议
 
 上游 [`src/gamemgr.py`](https://github.com/KKeygen/idv-login/blob/6e5523e7933c0c28662b1af2a77e129b512423b6/src/gamemgr.py) 按分发来源区分国服和海外 LoadingBay 元数据接口。海外游戏清单仍提供分发 ID、`app_content_id`、版本号、文件路径、大小、XXH64 和操作类型；上游同时把 `oversea` 布尔值写入下载任务。[`src/main.py`](https://github.com/KKeygen/idv-login/blob/6e5523e7933c0c28662b1af2a77e129b512423b6/src/main.py) 的 `handle_download_task` 在内容 ID、分发 ID 和下载目录有效时调用 `downloadIPC.exe`，将 `--gameid`、`--contentid`、`--targetVersion`、`--repairListPath` 与 `--oversea:1` 一起传入。相同的 ZeroMQ 控制/进度协议定义在 [`src/download_binary.py`](https://github.com/KKeygen/idv-login/blob/6e5523e7933c0c28662b1af2a77e129b512423b6/src/download_binary.py)，不会因海外路由切换。

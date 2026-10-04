@@ -10,7 +10,8 @@ project_root=${script_dir:h}
 build_root="${IDENTITYV_BUILD_ROOT:-$project_root/playerLauncherApp/build}"
 [[ "$build_root" == /* ]] || { print -u2 -- "IDENTITYV_BUILD_ROOT 必须是绝对路径。"; exit 64; }
 source_app="$build_root/第五人格启动器.app"
-notice_root="$project_root/notices/.build/ReleaseMaterials"
+notice_root="${IDENTITYV_NOTICES_BUILD_ROOT:-$project_root/notices/.build}/ReleaseMaterials"
+[[ "$notice_root" == /* ]] || { print -u2 -- 'IDENTITYV_NOTICES_BUILD_ROOT must be absolute'; exit 64; }
 dmgbuild="$script_dir/.venv/bin/dmgbuild"
 dmg_settings="$script_dir/dmgSettings.py"
 dmg_background_source="$script_dir/dmgBackground.svg"

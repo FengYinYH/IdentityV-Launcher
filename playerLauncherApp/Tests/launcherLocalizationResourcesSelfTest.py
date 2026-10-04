@@ -42,7 +42,6 @@ def main() -> int:
         "跟随系统",
         "第五人格启动器",
         "关于",
-        "疑似卡死时提醒",
         "启动失败",
         "卸载%@？",
         "卸载游戏",
@@ -81,7 +80,7 @@ def main() -> int:
         raise AssertionError(f"Player UI source strings have no catalog key: {sorted(unlocalized)}")
 
     english = tables["en"]
-    for source_key in ("第五人格启动器", "关于", "疑似卡死时提醒", "启动失败", "卸载游戏"):
+    for source_key in ("第五人格启动器", "关于", "启动失败", "卸载游戏"):
         if english[source_key] == source_key:
             raise AssertionError(f"English translation is missing for {source_key!r}")
     for source_key in ("版本 %@", "下载新版安装镜像后，退出启动器并替换应用即可。"):

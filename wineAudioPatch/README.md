@@ -101,13 +101,14 @@ CoreAudio driver：只读取当前默认输入/输出属性，每个已启动的
 切换和失败处理、纯模拟测试、隔离 x86_64 构建结果与未验证边界记录在
 [`docs/audioDefaultDeviceFollowing.md`](../docs/audioDefaultDeviceFollowing.md)。
 
-当前本机产品默认使用 `audio-default-following-20261004` immutable runtime；
+10月4日本机产品默认绑定 `audio-default-following-20261004` immutable runtime；
 `audio1` 保留为显式回退版本。新的 `winecoreaudio.so` 已去除调试信息中的本机路径，
 并以 Developer ID Application 身份及 hardened runtime 签名。签名后模块 SHA-256 为
 `9588fcdd5b262e85e9255c647b6a5a43b077553b6d8531d5c7ab8d6eb27186d8`；manifest 的
 `sourceSha256` 锁定剥除 DWARF 后、签名之前的字节 `996c8223a3d3b2b6b371062b9f8c121362556cb0222215dbf7ac1fdaa8455160`。
 原始构建 `9591a575e73dd2c1df2b7f6a1937d3a472c9b160455d7f43406f61d28f089c34` 仍保留作复现证据。
-隔离构建、签名和全树校验均通过，且新 runtime 已进入本机默认绑定；未运行游戏/Wine，
+10月4日隔离构建、签名和全树校验通过并完成默认绑定；当时没有运行游戏/Wine。
+RC2的新不可变槽沿用这枚音频字节，更新路径映射后的GDI；旧audio1的游戏初始化对照不证明新的跟随逻辑。
 没有真实设备热切换、录音或播放回归，也未验证约 1–2 秒静音目标。此本机改动不是公开发行。
 `buildDefaultDeviceFollowingX64.command` 需要显式的源码、工具链、基线模块、外部卷挂载点/UUID
 和新的构建目录；它不会回落到内置磁盘，也不访问音频设备。

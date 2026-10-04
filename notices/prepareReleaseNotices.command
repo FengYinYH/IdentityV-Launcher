@@ -1,17 +1,25 @@
 #!/bin/zsh
-# Build Alpha 1's redistributable notice/source material from the locked TSV.
-# It writes only notices/.build, never stages the upstream base runtime or game.
+# Build redistributable notice/source material from the locked TSV.
+# It writes only the selected build root, never stages the upstream base runtime or game.
 set -euo pipefail
 
 script_dir=${0:A:h}
 project_dir=${script_dir:h}
 manifest="$script_dir/releaseMaterialsManifest.tsv"
-output_root="$script_dir/.build"
+output_root="${IDENTITYV_NOTICES_BUILD_ROOT:-$script_dir/.build}"
+[[ "$output_root" == /* ]] || { print -u2 -- 'IDENTITYV_NOTICES_BUILD_ROOT must be absolute'; exit 64; }
 stage="$output_root/ReleaseMaterials.stage"
 final="$output_root/ReleaseMaterials"
 
 [[ -r "$manifest" ]] || { print -u2 -- "missing manifest: $manifest"; exit 66; }
 [[ -r "$project_dir/LICENSE" ]] || { print -u2 -- "missing project license: $project_dir/LICENSE"; exit 66; }
+# The GPL-covered first-party helpers also need matching source, not merely a
+# link to a mutable branch. Refuse dirty inputs instead of offering HEAD's
+# source beside binaries built from uncommitted changes.
+[[ -z "$(/usr/bin/git -C "$project_dir" status --porcelain)" ]] || {
+  print -u2 -- "release source material requires a clean source checkpoint"; exit 65
+}
+source_commit="$(/usr/bin/git -C "$project_dir" rev-parse HEAD)"
 
 # The version in the App's component lock and the provenance in ReleaseMaterials
 # drifted apart once (6.3.0 runtime versus 6.2.3 license URL). Check the two
@@ -84,6 +92,10 @@ download_locked() {
 /bin/rm -rf "$stage"
 /bin/mkdir -p "$stage/ProjectLicense" "$stage/ThirdPartyNotices/licenses" "$stage/CorrespondingSources"
 /bin/chmod 700 "$stage"
+/usr/bin/git -C "$project_dir" archive --format=tar.gz \
+  --prefix="IdentityV-Launcher-$source_commit/" HEAD \
+  > "$stage/CorrespondingSources/IdentityV-Launcher-$source_commit.tar.gz"
+print -r -- "$source_commit" > "$stage/CorrespondingSources/IdentityV-Launcher-source-commit.txt"
 
 while IFS=$'\t' read -r group relative url allowed max_bytes sha purpose; do
   [[ -z "$group" || "$group" == \#* ]] && continue
@@ -105,6 +117,17 @@ tar -xOf "$stage/CorrespondingSources/zstd/zstd-1.5.7.tar.zst" 'zstd-1.5.7/LICEN
 /bin/cp "$project_dir/wineMousePatch/eefbbc07-ClipCursor-reset.patch" "$stage/CorrespondingSources/Wine-ClipCursor-patch-eefbbc07.patch"
 /bin/cp "$project_dir/runtimeBootstrap/stageRuntimePatchPayloads.command" "$stage/CorrespondingSources/stageRuntimePatchPayloads.command"
 /bin/cp "$project_dir/runtimeBootstrap/runtime-manifest.json" "$stage/CorrespondingSources/runtime-manifest.json"
+# RC2 distributes the matching GDI and CoreAudio modifications as well as the
+# original ClipCursor patch. Keep their rebuild inputs with the source offer;
+# copying only the old RC1 recipe would omit the actual new payload sources.
+for module in wineEmojiPatch wineAudioPatch; do
+  /bin/mkdir -p "$stage/CorrespondingSources/$module"
+  for input in "$project_dir/$module/"*.{patch,command,h,c,md}(N); do
+    [[ -f "$input" ]] && /bin/cp "$input" "$stage/CorrespondingSources/$module/"
+  done
+done
+/usr/bin/ditto "$project_dir/wineEmojiPatch/repro" "$stage/CorrespondingSources/wineEmojiPatch/repro"
+/usr/bin/ditto "$project_dir/wineEmojiPatch/licenses" "$stage/CorrespondingSources/wineEmojiPatch/licenses"
 
 cat > "$stage/ProjectLicense/README.md" <<'EOF'
 # 第五人格启动器项目许可证
@@ -122,10 +145,11 @@ Wine/yanyun 衍生补丁、第三方组件、游戏资源和 idv-login 不因本
 EOF
 
 cat > "$stage/CorrespondingSources/Wine-CodeWeavers-source-offer.txt" <<'EOF'
-Wine / CodeWeavers source offer for the four small RC1 runtime replacement payloads
+Wine / CodeWeavers corresponding sources for the RC2 runtime replacement payloads
 
 This release does NOT contain DWRG.dmg or the CodeWeavers base runtime.  It contains
-only a locally rebuilt winemac.so plus locally rebuilt GMP, PCRE2, and zstd dylibs.
+only locally rebuilt winemac.so, gdi32.dll and winecoreaudio.so plus locally rebuilt
+GMP, PCRE2, and zstd dylibs.
 
 The complete CodeWeavers source archive is included at
 CorrespondingSources/Wine/crossover-sources-26.1.0.tar.gz and is also available from:
@@ -137,6 +161,13 @@ Modification: Wine upstream commit eefbbc07a838ffc9e71a963fa3aec14c9cb5a1a2,
 included here as Wine-ClipCursor-patch-eefbbc07.patch.
 Build recipe: buildWine11ClipCursorRuntime-Alpha1.recipe, with
 MACOSX_DEPLOYMENT_TARGET=14.0 and CC="clang -arch x86_64".
+
+The GDI emoji/fallback changes and source-path mapping recipe are included in
+wineEmojiPatch/; the CoreAudio capture/resampling and default-device following
+changes and build recipe are included in wineAudioPatch/. These are matching
+modifications to the same locked CodeWeavers archive, not unmodified upstream
+binaries. The runtime manifest identifies the exact shipped bytes. GDI is a
+Windows x86_64 PE target; Wine host modules and libraries target macOS x86_64.
 
 For Wine/GMP/PCRE2/zstd, complete corresponding source archives are included in
 this CorrespondingSources directory. The intended build ABI is x86_64 macOS 14.0:
@@ -196,7 +227,7 @@ make dlls/winemac.drv/winemac.so
 EOF
 
 cat > "$stage/ThirdPartyNotices/GO_MODULES.txt" <<'EOF'
-Actual non-standard Go modules compiled into the RC1 native helpers
+Actual non-standard Go modules compiled into the RC2 native helpers
 
 IdentityVDownloadSupervisor (gameDownloader):
   github.com/go-zeromq/zmq4 v0.17.0 — BSD-3-Clause
@@ -206,6 +237,7 @@ IdentityVManifestPlanner (manifestPlanner):
   github.com/cespare/xxhash/v2 v2.3.0 — MIT
 IdentityVRuntimeBootstrap (runtimeBootstrap): standard library only
 IdentityVDownloaderCoreBootstrap (downloaderCoreBootstrap): standard library only
+IdentityVGlobalAdapter (globalAdapter): standard library only
 
 This list was checked with `go list -deps` for all five helper modules.  The global
 adapter now only resolves and validates metadata, so it has no non-standard Go modules.
@@ -260,7 +292,10 @@ while IFS= read -r -d '' candidate; do
   audit_archive_members "$candidate" "${candidate#$stage/}" || exit 65
 done < <(/usr/bin/find "$stage" -type f -print0)
 /bin/rm -rf "$stage/.archive-audit"
-if /usr/bin/grep -RInE '/Users/|/Volumes/|Authorization:|Bearer |token=|session=' "$stage"; then
+# Corresponding source includes privacy scanners themselves. Their generic
+# '/Users/' and '/Volumes/Data/' detector strings are not a private location;
+# reject concrete path segments rather than rejecting the scanner's source.
+if /usr/bin/grep -RInE "/Users/[^/<>\"'[:space:]]+/|/Volumes/[^/<>\"'[:space:]]+/[^/<>\"'[:space:]]+/|Authorization:|Bearer |token=|session=" "$stage"; then
   print -u2 -- "refusing machine path or probable secret in release material"
   exit 65
 fi

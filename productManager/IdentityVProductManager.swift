@@ -663,23 +663,32 @@ private func status(for product: CatalogProduct, state: ProductState) -> StatusP
 }
 
 private func gameIsRunning() -> Bool {
+    managedMainlandGamePID() != nil
+}
+
+private func managedMainlandGamePID() -> Int32? {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
     process.arguments = ["-u", String(getuid()), "-f", #"C:\\Games\\IdentityV\\dwrg[.]exe.*--start_from_launcher=1"#]
-    guard (try? process.run()) != nil else { return false }
+    let output = Pipe()
+    process.standardOutput = output
+    guard (try? process.run()) != nil else { return nil }
+    let data = output.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
-    return process.terminationStatus == 0
+    guard process.terminationStatus == 0 else { return nil }
+    let pids = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { Int32($0) }
+    return pids.count == 1 ? pids[0] : nil
 }
 
 private func waitForManagedGameStart(
     product: ProductID,
-    timeout: TimeInterval = 20
-) -> Bool {
+    timeout: TimeInterval = 90
+) -> Int32? {
     let deadline = Date().addingTimeInterval(max(0, timeout))
     repeat {
-        let running = product == .mainland ? gameIsRunning() : managedGlobalGamePID() != nil
-        if running { return true }
-        if Date() >= deadline { return false }
+        let pid = product == .mainland ? managedMainlandGamePID() : managedGlobalGamePID()
+        if let pid { return pid }
+        if Date() >= deadline { return nil }
         Thread.sleep(forTimeInterval: 0.1)
     } while true
 }
@@ -2223,8 +2232,28 @@ private func run(_ command: String, product: ProductID) throws {
         guard process.terminationStatus == 0 else {
             throw ManagerError.message("macOS 未能启动内嵌游戏运行器（退出码 \(process.terminationStatus)）。")
         }
-        guard waitForManagedGameStart(product: product) else {
-            throw ManagerError.message("游戏运行器已收到请求，但 20 秒内没有出现可验证的游戏进程；未报告为启动成功。")
+        // Preparation includes prefix cleanup, fonts and a registry import.
+        // A process appearing is a separate milestone from a usable window;
+        // keep the UI's existing launch operation active through both, so a
+        // slow preparation cannot become a false failure or invite a retry.
+        guard let pid = waitForManagedGameStart(product: product) else {
+            throw ManagerError.message("游戏运行器已收到请求，但启动准备超时，仍未出现可验证的游戏进程；没有再次启动游戏。")
+        }
+        guard let binding = legacyBinding(), let runtimeRoot = resolve(binding.runtime) else {
+            throw ManagerError.message("游戏运行环境绑定已变化，无法确认当前窗口。")
+        }
+        let runtime = try verifiedCatalogRuntime(engineID: binding.selectedEngineId, runtime: runtimeRoot)
+        let activator = app.appendingPathComponent("Contents/Resources/IdentityVGameActivator")
+        guard fileManager.isExecutableFile(atPath: activator.path) else {
+            throw ManagerError.message("启动器缺少维护组件 IdentityVGameActivator，请重新安装启动器。")
+        }
+        do {
+            _ = try runTool(activator, arguments: ["--check-target", "--pid", String(pid),
+                "--expected-executable", runtime.wine.path, "--timeout", "90"])
+        } catch {
+            // The helper also fails immediately when the process exits or
+            // changes identity. Do not falsely label every failure a 90s wait.
+            throw ManagerError.message("游戏进程已出现，但尚未进入可验证的游戏窗口；不会自动再次启动。请打开日志查看启动原因。")
         }
         print(command == "restart" ? "已重启\(item.displayName)；IDV Login 保持运行。" : "已启动\(item.displayName)。")
     case "stop":

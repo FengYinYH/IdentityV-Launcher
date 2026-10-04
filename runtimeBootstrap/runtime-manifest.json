@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "component": "wine-runtime",
-  "version": "wine11-codeweavers-26.1-dxmt-0.80-macos15-alpha1-r1-emoji2-audio-default-following-20261004",
+  "version": "wine11-codeweavers-26.1-dxmt-0.80-macos15-alpha1-r1-emoji2-audio-default-following-20261005-rc2",
   "minimumMacOS": "15.0",
   "source": {
     "url": "https://github.com/novak037/yanyun-on-mac/releases/download/v0.1.2/DWRG.dmg",
@@ -74,8 +74,8 @@
     {
       "patchRelativePath": "gdi32.dll",
       "targetRelativePath": "lib/wine/x86_64-windows/gdi32.dll",
-      "sourceSha256": "3aa45d33ab949a188f3249d0a6ecdb7793f141eefa10d631e404dfe78464de48",
-      "sha256": "3aa45d33ab949a188f3249d0a6ecdb7793f141eefa10d631e404dfe78464de48",
+      "sourceSha256": "0f608a883e86533cd6f79c007d40e43f017d13917d13a393f60b11a580e3051d",
+      "sha256": "0f608a883e86533cd6f79c007d40e43f017d13917d13a393f60b11a580e3051d",
       "peMachine": "amd64"
     },
     {

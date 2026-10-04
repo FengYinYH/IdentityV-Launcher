@@ -155,6 +155,8 @@ enum LaunchFailureClassifier {
     }
 
     static func gameLaunchCode(for output: String) -> String {
+        if output.contains("尚未进入可验证的游戏窗口") { return "IDV-LAUNCH-204" }
+        if output.contains("启动准备超时") { return "IDV-LAUNCH-203" }
         if output.contains("20 秒内没有出现可验证的游戏进程") { return "IDV-LAUNCH-203" }
         if output.contains("内嵌游戏运行器") { return "IDV-LAUNCH-202" }
         if output.contains("启动前检查") { return "IDV-LAUNCH-201" }
@@ -503,6 +505,10 @@ struct RuntimeStatus: Equatable {
     // The selected tab is not necessarily the running server. Use verified
     // launcher sessions so opening Global never labels it running for CN.
     var runningProductIDs: Set<GameProductID> = []
+    /// A verified game process is not yet proof that the player's game window
+    /// exists. Keep this separate so the stop action can still use the process
+    /// identity while the panel accurately reports launch readiness.
+    var windowReadyProductIDs: Set<GameProductID> = []
     /// The root component process exists but its local login proxy has not yet
     /// passed the ownership/hosts readiness gate.
     var loginProcessStarting = false
@@ -516,6 +522,86 @@ struct RuntimeStatus: Equatable {
 
     var loginIsRunning: Bool { loginProxyReady }
     var loginIsActive: Bool { loginProcessStarting || loginProxyReady || loginReadinessProblem }
+}
+
+struct LauncherGameWindowCandidate: Equatable {
+    let ownerPID: Int32
+    let layer: Int
+    let width: CGFloat
+    let height: CGFloat
+
+    var isUsable: Bool { layer == 0 && width >= 640 && height >= 360 }
+}
+
+enum LauncherGameWindowMatcher {
+    static func readyProductIDs(
+        sessions: [LauncherGameSession],
+        windows: [LauncherGameWindowCandidate]
+    ) -> Set<GameProductID> {
+        Set(sessions.compactMap { session in
+            windows.contains {
+                $0.ownerPID == session.identity.pid && $0.isUsable
+            } ? session.productID : nil
+        })
+    }
+
+    static func fixtureChecks() -> [Bool] {
+        let mainland = LauncherGameSession(
+            productID: .mainland,
+            identity: GameProcessIdentity(pid: 41001, startSeconds: 10, startMicros: 20)
+        )
+        let global = LauncherGameSession(
+            productID: .global,
+            identity: GameProcessIdentity(pid: 41002, startSeconds: 11, startMicros: 21)
+        )
+        let utilityWindow = LauncherGameWindowCandidate(ownerPID: 41001, layer: 0, width: 500, height: 500)
+        let otherProcessWindow = LauncherGameWindowCandidate(ownerPID: 41003, layer: 0, width: 1280, height: 720)
+        let realGameWindow = LauncherGameWindowCandidate(ownerPID: 41001, layer: 0, width: 640, height: 360)
+        let wrongLayerWindow = LauncherGameWindowCandidate(ownerPID: 41002, layer: 1, width: 1280, height: 720)
+        let utilityOnlyProducts = readyProductIDs(sessions: [mainland], windows: [utilityWindow])
+        let otherPIDProducts = readyProductIDs(sessions: [mainland], windows: [otherProcessWindow])
+        let waitingProducts = readyProductIDs(sessions: [mainland, global], windows: [wrongLayerWindow])
+        let noWindowProducts = readyProductIDs(sessions: [mainland, global], windows: [])
+        let readyProducts = readyProductIDs(
+            sessions: [mainland, global],
+            windows: [otherProcessWindow, wrongLayerWindow, realGameWindow]
+        )
+        return [
+            !utilityWindow.isUsable,
+            utilityOnlyProducts.isEmpty,
+            otherPIDProducts.isEmpty,
+            waitingProducts.isEmpty,
+            noWindowProducts.isEmpty,
+            readyProducts == [.mainland],
+            readyProducts.contains(.mainland) && !readyProducts.contains(.global),
+            ProductRuntimeStatusLabel.localizationKey(
+                isInstalled: true, processExists: true, windowReady: false, launchIsBusy: true
+            ) == "正在启动…",
+            ProductRuntimeStatusLabel.localizationKey(
+                isInstalled: true, processExists: true, windowReady: false, launchIsBusy: false
+            ) == "进程已启动，等待窗口",
+            ProductRuntimeStatusLabel.localizationKey(
+                isInstalled: true, processExists: true, windowReady: true, launchIsBusy: false
+            ) == "运行中",
+            ProductRuntimeStatusLabel.localizationKey(
+                isInstalled: true, processExists: false, windowReady: false, launchIsBusy: false
+            ) == "已安装"
+        ]
+    }
+}
+
+enum ProductRuntimeStatusLabel {
+    static func localizationKey(
+        isInstalled: Bool,
+        processExists: Bool,
+        windowReady: Bool,
+        launchIsBusy: Bool
+    ) -> String {
+        if launchIsBusy { return "正在启动…" }
+        if windowReady { return "运行中" }
+        if processExists { return "进程已启动，等待窗口" }
+        return isInstalled ? "已安装" : "未安装"
+    }
 }
 
 enum ProbePhase: Equatable {

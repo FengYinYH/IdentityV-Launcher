@@ -5,7 +5,6 @@
 "隐藏" = "Hide";
 "隐藏其他" = "Hide Others";
 "显示全部" = "Show All";
-"疑似卡死时提醒" = "Warn When the Game May Be Stuck";
 "退出" = "Quit";
 "尚未读取到游戏版本" = "No game version found";
 "需要准备游戏运行环境" = "Game Runtime Setup Required";
@@ -38,6 +37,8 @@
 "安装 idv-login 后即可启用" = "Install idv-login to enable this";
 "需要更新" = "Update Required";
 "运行中" = "Running";
+"进程已启动，等待窗口" = "Game process started; waiting for its window";
+"正在启动…" = "Starting…";
 "已安装" = "Installed";
 "未安装" = "Not Installed";
 "反馈与建议" = "Feedback";
@@ -212,3 +213,6 @@
 "未找到可用的邮件客户端。请用网页邮箱写到 %@。" = "No mail app is available. Email %@ from webmail instead.";
 "麦克风未授权：游戏内语音会失败，并可能卡在「进入大厅」。请到 系统设置 → 隐私与安全性 → 麦克风 打开「第五人格启动器」后重启游戏。" = "Microphone access is not authorized. In-game voice may fail, and the game may get stuck at “Entering Lobby”. Go to System Settings → Privacy & Security → Microphone, enable Identity V Launcher, then restart the game.";
 "麦克风尚未授权：首次启动游戏时请在系统弹窗上点「允许」，否则语音会失败并可能卡在「进入大厅」。" = "Microphone access is not yet authorized. When the game starts, select Allow in the system prompt; otherwise, voice may fail and the game may get stuck at “Entering Lobby”.";
+"游戏运行器已收到请求，但启动准备超时，仍未出现可验证的游戏进程；没有再次启动游戏。" = "The runner received the request, but startup preparation timed out without a verified game process. The game has not been launched again.";
+"游戏进程已出现，但尚未进入可验证的游戏窗口；不会自动再次启动。请打开日志查看启动原因。" = "The game process started, but no verified game window appeared. It will not be launched again automatically. Open the logs to inspect the startup failure.";
+"游戏运行环境绑定已变化，无法确认当前窗口。" = "The runtime binding changed; the current game window cannot be verified.";

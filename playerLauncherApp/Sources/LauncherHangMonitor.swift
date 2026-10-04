@@ -289,28 +289,17 @@ final class LauncherHangMonitor: @unchecked Sendable {
     private let onSuspicion: SuspicionHandler
     private let onRecovery: RecoveryHandler
     private var timer: DispatchSourceTimer?
-    private var enabled: Bool
     private var observations: [String: Observation] = [:]
     private var activity: NSObjectProtocol?
 
-    init(enabled: Bool, onSuspicion: @escaping SuspicionHandler,
+    init(onSuspicion: @escaping SuspicionHandler,
          onRecovery: @escaping RecoveryHandler) {
-        self.enabled = enabled
         self.onSuspicion = onSuspicion
         self.onRecovery = onRecovery
         start()
     }
 
     deinit { stop() }
-
-    func setEnabled(_ enabled: Bool) {
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.enabled = enabled
-            guard !enabled else { return }
-            self.resetObservations()
-        }
-    }
 
     func acknowledge(_ incident: LauncherHangIncident) {
         queue.async { [weak self] in
@@ -342,7 +331,6 @@ final class LauncherHangMonitor: @unchecked Sendable {
     }
 
     private func tick() {
-        guard enabled else { return }
         let sessions = LauncherGameSessionMatcher.verifiedSessions(snapshot: processDetailsSnapshot())
         // Window closure must not allow App Nap to defer the ten-second
         // watchdog. The assertion exists only while a verified game is alive;

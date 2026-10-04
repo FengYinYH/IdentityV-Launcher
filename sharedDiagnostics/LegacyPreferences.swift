@@ -11,7 +11,6 @@ enum IdentityVLegacyPreferences {
     struct Rule { let key: String; let kind: ValueKind }
 
     private static let launcherRules: [Rule] = [
-        .init(key: "identityVLauncherHangWarningsEnabled", kind: .boolean),
         .init(key: "idvLoginFollowGameLaunchEnabled", kind: .boolean),
         .init(key: "idvLoginPromptAnswered", kind: .boolean),
         .init(key: "idvLoginCertificateTrustNoticeAcknowledged", kind: .boolean),

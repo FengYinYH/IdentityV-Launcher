@@ -283,7 +283,6 @@ final class ToolboxViewModel: ObservableObject {
     @Published private(set) var showsLaunchFailureAlert = false
     /// The launcher owns this lightweight health reminder. It is opt-out and
     /// lives independently of the diagnostic toolbox.
-    @Published private(set) var hangWarningsEnabled: Bool
 
     var loginMutationIsBusy: Bool {
         loginInstallIsRunning || loginStartIsRunning || loginStopIsRunning || loginUninstallIsRunning
@@ -346,7 +345,9 @@ final class ToolboxViewModel: ObservableObject {
             samplerURL: Bundle.main.url(forResource: "idv-dense-metrics", withExtension: nil),
             root: ToolboxPath.denseMetricsRoot
         )
-        hangWarningsEnabled = UserDefaults.standard.object(forKey: "identityVLauncherHangWarningsEnabled") as? Bool ?? true
+        // RC2 makes the passive reminder a built-in behavior. An old explicit
+        // false preference must not silently disable it after this transition.
+        UserDefaults.standard.removeObject(forKey: "identityVLauncherHangWarningsEnabled")
         launcherHangMonitor = nil
         loadLauncherPreferences()
         // This preference means only “start IDV Login when a game starts”.
@@ -356,7 +357,6 @@ final class ToolboxViewModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "idvLoginEnabled")
         shouldOfferIdvLoginPrompt = UserDefaults.standard.object(forKey: "idvLoginPromptAnswered") == nil
         launcherHangMonitor = LauncherHangMonitor(
-            enabled: hangWarningsEnabled,
             onSuspicion: { [weak self] incident in
                 DispatchQueue.main.async { [weak self] in
                     self?.presentLauncherHangPrompt(for: incident)
@@ -393,24 +393,6 @@ final class ToolboxViewModel: ObservableObject {
         hangRecoveryTimer?.invalidate()
     }
 
-    /// The reminder is intentionally a menu preference: it keeps the main
-    /// launcher panel focused on choosing, installing, and starting a game.
-    /// The monitor itself is independent of the panel/window lifecycle.
-    func setHangWarningsEnabled(_ enabled: Bool) {
-        hangWarningsEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: "identityVLauncherHangWarningsEnabled")
-        launcherHangMonitor?.setEnabled(enabled)
-        if !enabled {
-            hangRecoveryTimer?.invalidate()
-            hangRecoveryTimer = nil
-            hangRecoveryCountdown = 0
-            hangRecoveryIncidentID = nil
-            pendingLauncherHangIncidentID = nil
-            launcherHangPrompt.dismiss()
-            isPresentingLauncherHangPrompt = false
-        }
-    }
-
     private func clearPendingLauncherHangRestart(for productID: GameProductID) {
         guard pendingLauncherHangRestart?.productID == productID else { return }
         pendingLauncherHangRestart = nil
@@ -420,7 +402,7 @@ final class ToolboxViewModel: ObservableObject {
     /// activates the launcher or takes keyboard focus; only the helper's
     /// explicit, incident-bound button reply can request the existing restart.
     private func presentLauncherHangPrompt(for incident: LauncherHangIncident) {
-        guard hangWarningsEnabled, !isPresentingLauncherHangPrompt,
+        guard !isPresentingLauncherHangPrompt,
               GameProcessIdentity.read(incident.session.identity.pid) == incident.session.identity else {
             launcherHangMonitor?.acknowledge(incident)
             return
@@ -457,7 +439,7 @@ final class ToolboxViewModel: ObservableObject {
     /// of waiting for a click over live gameplay, the panel counts 5→1 and closes
     /// itself; the helper holds the deadline, so a dropped tick cannot leave it up.
     private func presentLauncherHangRecovery(for incident: LauncherHangIncident) {
-        guard hangWarningsEnabled, isPresentingLauncherHangPrompt,
+        guard isPresentingLauncherHangPrompt,
               pendingLauncherHangIncidentID == incident.id else { return }
         hangRecoveryCountdown = HangPromptRecovery.firstCountdown
         hangRecoveryIncidentID = incident.id
@@ -539,6 +521,21 @@ final class ToolboxViewModel: ObservableObject {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let commands = Self.processCommandSnapshot()
             let processDetails = Self.processDetailsSnapshot()
+            let verifiedGameSessions = LauncherGameSessionMatcher.verifiedSessions(snapshot: processDetails)
+            // Take one non-capturing system window snapshot alongside the
+            // process snapshot. `.optionAll` includes hidden windows and other
+            // Spaces; only PID/layer/bounds are read, never window titles.
+            let windowRows = CGWindowListCopyWindowInfo(
+                [.optionAll, .excludeDesktopElements], kCGNullWindowID
+            ) as? [[String: Any]] ?? []
+            let gameWindows = windowRows.compactMap { window -> LauncherGameWindowCandidate? in
+                guard let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t,
+                      let layer = window[kCGWindowLayer as String] as? Int,
+                      let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
+                      let width = bounds["Width"],
+                      let height = bounds["Height"] else { return nil }
+                return LauncherGameWindowCandidate(ownerPID: ownerPID, layer: layer, width: width, height: height)
+            }
             let componentVersion = Self.loginComponentVersion()
             let processExists = RuntimeProcessMatcher.containsLoginProcess(in: commands)
             let readiness = processExists ? Self.loginReadinessStatus() : "not-running"
@@ -547,7 +544,11 @@ final class ToolboxViewModel: ObservableObject {
                 // after a failed root handoff.  Only the actual Windows game
                 // process is authoritative for the user-facing running state.
                 gameIsRunning: RuntimeProcessMatcher.containsGameProcess(in: commands),
-                runningProductIDs: Set(LauncherGameSessionMatcher.verifiedSessions(snapshot: processDetails).map(\.productID)),
+                runningProductIDs: Set(verifiedGameSessions.map(\.productID)),
+                windowReadyProductIDs: LauncherGameWindowMatcher.readyProductIDs(
+                    sessions: verifiedGameSessions,
+                    windows: gameWindows
+                ),
                 // If a legacy helper lacks the explicit status sudoers rule, we
                 // still must not promote a visible process to “ready”. Treat
                 // the unverifiable state as initializing so it remains
@@ -2737,6 +2738,8 @@ struct ToolboxProcessMatcherSelfTest {
             followerResult == sharedFailure,
             boundedReason == "最终可读原因",
             LaunchFailureClassifier.gameLaunchCode(for: "20 秒内没有出现可验证的游戏进程") == "IDV-LAUNCH-203",
+            LaunchFailureClassifier.gameLaunchCode(for: "游戏运行器已收到请求，但启动准备超时") == "IDV-LAUNCH-203",
+            LaunchFailureClassifier.gameLaunchCode(for: "游戏进程已出现，但尚未进入可验证的游戏窗口") == "IDV-LAUNCH-204",
             LaunchFailureClassifier.gameLaunchCode(for: "macOS 未能启动内嵌游戏运行器") == "IDV-LAUNCH-202",
             LaunchFailureClassifier.gameLaunchCode(for: "启动前检查失败") == "IDV-LAUNCH-201",
             launchFailure.title == "国服启动失败",
@@ -2754,6 +2757,7 @@ struct ToolboxProcessMatcherSelfTest {
             RuntimeProcessMatcher.containsLoginProcess(in: snapshot),
             !RuntimeProcessMatcher.containsGameProcess(in: watcher),
             !RuntimeProcessMatcher.containsLoginProcess(in: watcher),
+            LauncherGameWindowMatcher.fixtureChecks().allSatisfy { $0 },
             ToolboxViewModel.defaultInstallDirectory(for: .mainland).path
                 == URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
                     .appendingPathComponent("Library/Application Support/IdentityV/CN", isDirectory: true).path,

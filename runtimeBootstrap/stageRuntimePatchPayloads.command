@@ -1,6 +1,8 @@
 #!/bin/zsh
-# Stage and sign the four small, independently redistributable runtime patches
-# for a release build.  The large upstream Wine/DMG is intentionally never copied.
+# Stage and sign the original four independently redistributable runtime patches
+# (winemac/GMP/PCRE2/zstd). GDI PE and CoreAudio have their own rebuild/staging
+# recipes; this legacy helper alone does not prepare all six RC2 payloads.
+# The large upstream Wine/DMG is intentionally never copied.
 #
 # 签名与哈希的关系（2026-09-21）：公证要求包内每个 Mach-O 都带 Developer ID 签名
 # 与安全时间戳；签了时间戳的产物不可逐字节复现，所以随 App 分发的哈希只能从“已签名

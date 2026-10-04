@@ -2,13 +2,31 @@
 
 ## 目标和证据范围
 
-第五人格使用 Wine CoreAudio 时，播放和采集流分别跟随 macOS 当前默认输出、默认输入。设备选择继续由 macOS “系统设置 → 声音”负责；Wine 不向游戏枚举所有硬件，也不增加设备选择界面。此版本已作为本机产品默认 runtime 安装并绑定；audio1 保留为显式回退。真实设备切换和游戏语音验收尚未进行，本机默认状态不代表公开发行。
+第五人格使用 Wine CoreAudio 时，播放和采集流分别跟随 macOS 当前默认输出、默认输入。设备选择继续由 macOS “系统设置 → 声音”负责；Wine 不向游戏枚举所有硬件，也不增加设备选择界面。启动器候选的默认 runtime 采用此实现，audio1 保留为显式回退。10月4日模块曾完成本机安装及默认绑定；RC2延续该音频字节并更新GDI，新候选部署与真实设备切换分别验收，不能把旧槽的游戏启动对照当作新音频实测。真实设备切换和游戏语音验收尚未进行，本机绑定也不代表公开发行。
 
 代码以 CodeWeavers 26.1 源码包为基线：归档 SHA-256 `e4ec87d5821a009dd1f1d2e36ffe2e24b8fcbae9516375ea42f95a16928ab8fa`，未修改 `coreaudio.c` SHA-256 `635347dcfc86800ed64737c6487a808836240e7846c6af699493e7a683d3f42c`。补丁顺序是 `default-input-only.patch`、`capture-resample-produced-frames.patch`、`default-device-following.patch`；最终 C 文件 SHA-256 `ccd1db550dd16471e1f6df203e880928d1474aa82a42a9bc994d083f0baa3153`。新补丁复用既有输入枚举修复和录音转换帧数修复，没有替换它们。
 
-源码已有 `kAudioHardwarePropertyDefaultOutputDevice` / `kAudioHardwarePropertyDefaultInputDevice` 查询和 HALOutput 当前设备绑定。Wine 每个成功 Start 都会创建该流已有的控制 timer；新逻辑 piggyback 在这个线程上，每 100ms 只轮询该流对应的一个默认设备属性，约为每个 started stream 每秒 10 次属性读取。Start 过的 timer 会一直运行到 stream Release；单独 Stop 并不会结束它，所以未 Release 的 stopped stream 仍计入轮询量，多流成本随仍保留的 started stream 数量累加。此实现没有新增线程；CPU/功耗影响没有实测。
+源码已有 `kAudioHardwarePropertyDefaultOutputDevice` / `kAudioHardwarePropertyDefaultInputDevice` 查询和 HALOutput 当前设备绑定。Wine 每个成功 Start 都会创建该流已有的控制 timer；新逻辑 piggyback 在这个线程上，每 100ms 只轮询该流对应的一个默认设备属性，约为每个 started stream 每秒 10 次属性读取。Start 过的 timer 会一直运行到 stream Release；单独 Stop 并不会结束它，所以未 Release 的 stopped stream 仍计入轮询量，多流成本随仍保留的 started stream 数量累加。尚未 Start 的空闲流没有这项轮询。此实现没有新增线程或 timer 唤醒；属性读取已有窄基准，整个 Wine 的 CPU/功耗和游戏帧率没有实测。
 
 本轮不用 CoreAudio listener，是因为 listener 会引入进程/driver unload 时注销、重复注册、跨流 callback context 生命周期，以及事件与 stream teardown/重建竞争的同步工作。复用已有 per-stream timer 以少量可估算的属性轮询换取更简单的生命周期；若未来实测表明轮询开销不可接受，再在具备明确 unload 与引用计数协议后考虑 listener。
+
+Stop 不销毁流，之后还可以 Start；继续检查允许暂停期间换过设备的流在恢复前准备好当前路由，避免必须重新构造 Windows stream。代价是客户端保留了多少个 Start 过的流，就仍有多少份查询。Release 按现有生命周期停止控制线程；这不是额外的后台全局监测器。
+
+## 默认设备属性读取微基准（2026-10-05）
+
+在 M1 Pro（8 逻辑核）、macOS 27.2 / 26B5091g、交流电环境下，独立 C 程序仅读取默认输入/输出的 `AudioObjectGetPropertyData`。每档查询与同节奏空等待基线配对，15 秒 × 3 次，合计 30 样本、7,200 次查询，返回错误为 0。未创建音频流、访问麦克风或更改系统设备。负责人实际重新编译并执行的完整样本用作下表，背景构建负载较高，样本内 load1 为 5.41–44.73；因此区间是这次运行的观察值，不是普遍精度保证。
+
+| 总查询次数/秒 | 对应保留流数量 | 配对额外进程 CPU（单核尺度，百分点） | 配对 CPU/次均值 | 单次 wall p95 |
+| ---: | --- | --- | ---: | ---: |
+| 10 | 1 个输出流 | 0.037–0.185 | 95 µs | 0.462 ms |
+| 10 | 1 个输入流 | 0.042–0.077 | 55 µs | 0.893 ms |
+| 20 | 2 个流，交替输入/输出 | 0.088–0.106 | 49 µs | 0.429 ms |
+| 40 | 4 个流，交替输入/输出 | 0.243–0.260 | 63 µs | 0.472 ms |
+| 80 | 8 个流，交替输入/输出 | 0.288–0.383 | 40 µs | 0.304 ms |
+
+CPU 差是查询样本减同频率空等待样本的进程 CPU 时间，不除以 8 个逻辑核；wall 则含调度等待，不能把它直接乘以次数当 CPU。输出查询最大观察到 82.884 ms wall 离群值，当前证据不能区分冷启动、CoreAudio 工作与线程被调度出去，不能以它代表正常查询成本。查询程序自行安排节奏，实际补丁复用 Wine 原有 timer，因此这里没有测新增唤醒成本。
+
+该结果只量化本进程在单机属性读取的近似边际成本，未统计 CoreAudio 服务进程，也未模拟真实多流并发争用；不能外推系统总 CPU、整个 Wine 的耗电、游戏 FPS 或真实切换静音时长，也没有代替实际音频流回归。可复建基准源码见 `wineAudioPatch/repro/`。当前没有发现足以支持改为复杂 listener 生命周期的查询成本证据；未来若客户端异常保留大量流，应重新测量而非视本表为永久上限。
 
 输入继续使用既有 `ca_setup_audiounit` 转换器，根据新设备采样率重建采集容量。
 

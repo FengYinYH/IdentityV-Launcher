@@ -95,6 +95,36 @@ wine compositeSweep.exe 'C:\fonts\IdentityV-Local-Emoji-Test.ttf' \
   'IdentityV Local Emoji Test'
 ```
 
-审计结果为 31 项可视回归失败 0，3,349 条 sequence sweep 失败 0。最终 PE 的
+旧候选的审计结果为 31 项可视回归失败 0，3,349 条 sequence sweep 失败 0。旧候选 PE 的
 SHA-256：`3aa45d33ab949a188f3249d0a6ecdb7793f141eefa10d631e404dfe78464de48`。
 实机游戏聊天 A--N 已通过：肤色、职业合成和国旗均正确显示。
+
+## 2026-10-05：路径映射 GDI 重建
+
+旧候选在 `.rdata` 仍带有构建机路径；先前只运行 `llvm-strip --strip-debug` 后，7 个用户目录和 14 个工作区标记仍存在。不能把它视作公开可用的二进制。本轮直接从 CodeWeavers 26.1.0 源归档重建，锁定归档 SHA-256 `e4ec87d5821a009dd1f1d2e36ffe2e24b8fcbae9516375ea42f95a16928ab8fa`，顺序应用 0001（`0e893472e0e3a83d2080a2649eaf84e996d21ea311f548160af68186ad3b91e8`）与 0002（`fbeefa7343eef5faf9af88c9527ca09e61a8797bca73afa4af4940a68edd4394`）。补丁和生成 header 的 hash 在每次构建时复核。
+
+可复建入口：[buildGdi32PathMapped.command](buildGdi32PathMapped.command)。调用者必须显式提供源码归档、llvm-mingw、Bison、FreeType、GnuTLS、预期外置卷挂载点和 UUID，以及一个尚不存在且位于该卷内的构建目录；脚本不提供内盘回退。调用方式如下，路径值由构建环境显式设置：
+
+```sh
+export IDV_GDI_SOURCE_ARCHIVE=/external/source/crossover-sources-26.1.0.tar.gz
+export IDV_GDI_MINGW_ROOT=/external/toolchains/llvm-mingw-20251216-ucrt-macos-universal
+export IDV_GDI_BISON=/external/toolchains/bison/bin/bison
+export IDV_GDI_FREETYPE_ROOT=/external/toolchains/freetype-x86_64
+export IDV_GDI_GNUTLS_ROOT=/external/toolchains/gnutls-x86_64
+export IDV_GDI_VOLUME_MOUNT=/Volumes/Build
+export IDV_GDI_VOLUME_UUID=EXPECTED-UUID
+export IDV_GDI_BUILD_ROOT=/Volumes/Build/IdentityV-Launcher-builds/rc2-gdi
+export IDV_GDI_JOBS=6
+wineEmojiPatch/buildGdi32PathMapped.command
+```
+
+构建锁定 Clang 21.1.8、llvm-mingw x86_64 GCC wrapper SHA-256 `c9b86311ade81d53235c93fafabdf98328d094de344ea9a9038e0dab6695ee9f`、Bison 3.8.2 SHA-256 `3d0bf2004036e51fbf4cd4a56dcd485d2ed237a70e7338fb554a35ad9a80a36e`。源码与构建树都通过 `-ffile-prefix-map`、`-fdebug-prefix-map`、`-fmacro-prefix-map` 及相对 debug compilation dir 映射，并在最终 DLL 中移除 debug sections。`-ffile-prefix-map` 清理会影响路径常量与重定位，源重建不能以旧 PE 的 raw `.text` 字节不变为门槛。
+
+两个首轮失败解释了脚本里的构建适配，避免维护者重走无效尝试：
+
+- llvm-mingw 不含 host `dlltool`。winebuild 默认调用它，spawn 失败时却打印误导性的 `Undefined error: 0`。26.1 的 winebuild 有 `--without-dlltool`；脚本仅在新建构建树内将该参数注入 host winebuild，不改源码或共享 toolchain。
+- 原 toolchain 路径含空格；winegcc 把目标编译器命令传给 winebuild 时会形成空格分隔字符串，导致拆词后 spawn 失败。脚本只在构建树复制小型 x86_64 GCC wrapper、并用无空格路径符号链接到 clang；最终 verbose 链接命令证明该次调用可成功。
+
+2026-10-05 的剥除后候选 SHA-256 为 `0f608a883e86533cd6f79c007d40e43f017d13917d13a393f60b11a580e3051d`；同一源与编译输出的 `.text` SHA-256 为 `a41b57f0d117f0509d12ae016940fbb8d83b1a2ff24a2c7273f808817756966a`。与旧候选 `.text` 的 `8d3d1bcd1f259162f4eb4ca73d7a896110b82888c2e94f835b9dd6973733a96d` 不同；section headers、imports 和 exports 等单独契约检查通过，不能把不同 raw hash 解释成字节级等价。PE 的 TimeDateStamp 受重建时间影响，所以全文件摘要应以实际受检的输出锁定。
+
+验证器 [`repro/verify_gdi_pe_contract.py`](repro/verify_gdi_pe_contract.py) 对 AMD64、OS/subsystem version、section names/flags、imports 名称/真实 ordinal、exports 作比较；它正确忽略 named-import hint，因为 hint 是加速查表索引，不是 ordinal。它也扫描 `/Users/`、`codexDaily`、外置构建卷标记及传入的源/工具路径。最终零命中，PE ABI 契约检查通过。新候选在只含旧 `r1-emoji2-audio1` runtime 副本的新 WINEPREFIX 上通过 31 项 `compositeRegression`（failures=0）和 3,349 条 `compositeSweep`（failed=0）。该运行覆盖绘制、字体载入、shape 和宽度，不涉及游戏；没有验证对局聊天、安装包或实际 runtime 选择。被修改的 Wine 源文件保持其 LGPL-2.1-or-later 声明，仓库脚本按 GPL-3.0-only，Unicode 数据使用单独的 Unicode License v3。

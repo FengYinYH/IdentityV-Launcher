@@ -21,7 +21,7 @@
 
 ## 当前范围
 
-- 当前单个 `gdi32.dll` 基于精确 CodeWeavers 26.1 对应源码构建，SHA-256 `3aa45d33ab949a188f3249d0a6ecdb7793f141eefa10d631e404dfe78464de48`，2,170,880 bytes。
+- 原 emoji2 `gdi32.dll` 为 SHA-256 `3aa45d33ab949a188f3249d0a6ecdb7793f141eefa10d631e404dfe78464de48`、2,170,880 bytes；它后来被发现含有构建机路径，不能作为新的公开候选。当前仓库载荷与RC2新默认engine已改用下述路径映射重建 `0f608a…`，旧engine hash保留用于识别/回退旧槽。
 - 隔离 runtime 仅替换 `lib/wine/x86_64-windows/gdi32.dll`。原 r1 同文件 SHA-256 `3069d43300df2d0d054fbb4d4641f0b412032a11384a6c534009fd92b0ba98ac` 保持不变。prefix native override、两种 WINEDLLPATH 形态均没有实际采用新件，不能按这些方式安装。
 - 3,349 条 Unicode 15.1 标准组合及 VS16 变体扫描全部通过，均为单个有效 glyph，分段与宽度检查失败 0。31 项行为回归覆盖普通中英、肤色、职业、家庭、旗帜、键帽、心火、混排、左右中对齐、RTL 相邻及孤立代理项，失败 0；已查看实际绘制图。
 - 游戏候选选用独立 ID `wine11-codeweavers-26_1-dxmt-0_80-macos15-alpha1-r1-emoji2`，保留原 r1 为 lastKnownGood 和 emoji1 前一候选。它未成为发行默认，也未更新 DMG。
@@ -46,3 +46,13 @@
 私人项目档案保留当时的构建日志与原始截图，不是复现本仓补丁的前置条件。工具链为 llvm-mingw 20251216、临时 arm64 Bison 3.8.2；Bison 原包 SHA-256 `9bba0214ccf7f1079c5d59210045227bcf619519840ebfa80cd3849cff5a5bf2`。只构建 gdi32 的 PE 目标，不用这一轮 configure 的 Unix feature detection 产出替换声音、TLS 或图形组件。
 
 历史实机回退曾使用私人档案中的维护脚本恢复原安装 App、选中引擎、GDI 和字体别名；本仓不把那份针对旧现场的脚本当成可在新机器直接运行的工具。新的候选如需安装，须另行准备针对其实际版本的恢复步骤。
+
+## 2026-10-05 RC2 路径映射重建
+
+strip-only 不能清掉旧载荷 `.rdata` 中的用户目录与工作区标记；这一点已由独立剥除副本反证。新构建从 CodeWeavers 26.1.0 源码包重建，归档 SHA-256 为 `e4ec87d5821a009dd1f1d2e36ffe2e24b8fcbae9516375ea42f95a16928ab8fa`，只按顺序应用已审阅的 0001 与 0002（SHA-256 分别为 `0e893472e0e3a83d2080a2649eaf84e996d21ea311f548160af68186ad3b91e8` 和 `fbeefa7343eef5faf9af88c9527ca09e61a8797bca73afa4af4940a68edd4394`）。新建树的完整命令入口是 [`buildGdi32PathMapped.command`](buildGdi32PathMapped.command)。它要求调用者提供明确的外置卷挂载点、预期 UUID 与全新构建目录；构建目录必须处在该卷内，且卷标识不符时会在写入前退出。
+
+该脚本锁定 llvm-mingw 20251216 的 Clang 21.1.8、交叉编译 wrapper 摘要与 Bison 3.8.2 摘要，使用 `-ffile-prefix-map`、`-fdebug-prefix-map`、`-fmacro-prefix-map` 和相对调试编译目录映射源码与构建树，再移除调试段。llvm-mingw 不包含 host `dlltool`；Wine 26.1 的 `winebuild` 提供 `--without-dlltool`，脚本只在隔离构建树内包装该选项。工具链原位置含空格，而 `winebuild` 会把目标编译器命令作为空格分隔的参数传递；脚本在构建树内复制一个轻量 GCC wrapper 并链接编译器，保证该命令路径不含空格。两项 workaround 都不改上游源码或原工具链。
+
+剥除后的 RC2 隔离 GDI SHA-256 为 `0f608a883e86533cd6f79c007d40e43f017d13917d13a393f60b11a580e3051d`；未剥除构建的 SHA-256 为 `26a17e8f0db9a522e730c68158b0fadf32087bfcb487e0bf7d52e84ff2ad1854`。PE 检查与旧载荷相比确认 AMD64、Windows 6.0/子系统 6.0、7 个 section 的名称与 flags、全部 exports，以及按名称/真实 ordinal 归一化后的 imports 一致；named-import hint 会随重建变化，不是 ordinal。输出中的 `/Users/`、`codexDaily`、外置卷标记和具体输入工具路径扫描均为 0。编译输出 `.text` 原始哈希为 `a41b57f0d117f0509d12ae016940fbb8d83b1a2ff24a2c7273f808817756966a`，旧载荷对应哈希为 `8d3d1bcd1f259162f4eb4ca73d7a896110b82888c2e94f835b9dd6973733a96d`；源重建不以原始机器码逐字相等为验收门槛，差异保留为验证边界。重复构建的 PE 时间戳会改变整个文件 SHA，因此分发必须锁定实际经过检查的那份二进制摘要。
+
+新二进制在只含旧 `r1-emoji2-audio1` runtime 副本的独立 WINEPREFIX 上通过 `compositeRegression`（31 项，失败 0）和 `compositeSweep`（3,349 条 Unicode 15.1 RGI/VS16 序列，失败 0）。运行时仅在 S690 测试副本中替换 x64 GDI；源 slot 与当前 binding 的 GDI SHA 均保持原值。测试覆盖字体装载、绘制、shape 与 GDI 宽度，不是游戏内验证；未启动游戏、未打开音频采集。CodeWeavers/Wine 被修改源码保留 LGPL-2.1-or-later 声明；本仓构建脚本遵循仓库 GPL-3.0-only，Unicode 序列数据继续按单独的 Unicode License v3 处理。
