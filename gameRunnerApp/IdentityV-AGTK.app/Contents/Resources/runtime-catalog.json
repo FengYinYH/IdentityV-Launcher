@@ -459,7 +459,7 @@
         },
         "dxmt": {
           "relativePath": "lib/dxmt/x86_64-unix/winemetal.so",
-          "sha256": "16e32803d0d25d3bb41d9e1560f00d0919d76c6fa9b21dbe0ef827bb213faf0"
+          "sha256": "16e32803d0d25d3bb41d59e1560f00d0919d76c6fa9b21dbe0ef827bb213faf0"
         },
         "moltenVK": {
           "relativePath": "lib64/libMoltenVK.dylib",

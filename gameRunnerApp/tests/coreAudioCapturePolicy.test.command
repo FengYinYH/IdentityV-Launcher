@@ -13,6 +13,90 @@ AGTK_CATALOG="$PROJECT_ROOT/gameRunnerApp/IdentityV-AGTK.app/Contents/Resources/
 /usr/bin/cmp -s "$CATALOG" "$MAC_CATALOG"
 /usr/bin/cmp -s "$CATALOG" "$AGTK_CATALOG"
 
+# Catch catalog/manifest drift before the full App build. Runtime catalog files
+# may be verified against either the original source bytes or the final patched
+# bytes; status-only records intentionally describe files that are not bundled.
+/usr/bin/python3 - "$PROJECT_ROOT" <<'PY'
+import copy
+import json
+import re
+import sys
+import tempfile
+from pathlib import Path
+
+root = Path(sys.argv[1])
+catalog_path = root / "runtimeManifest/runtime-catalog.json"
+manifest_path = root / "runtimeBootstrap/runtime-manifest.json"
+
+def validate(catalog, manifest):
+    engines = catalog["engines"]
+    for engine_id, engine in engines.items():
+        for key, record in engine.get("verificationFiles", {}).items():
+            if "relativePath" not in record:
+                assert "sha256" not in record, f"{engine_id}.{key}: status-only record cannot have a digest"
+                continue
+            digest = record.get("sha256", "")
+            assert re.fullmatch(r"[0-9a-f]{64}", digest), f"{engine_id}.{key}: digest must be 64 lowercase hex characters"
+
+    defaults = [
+        (engine_id, engine)
+        for engine_id, engine in engines.items()
+        if engine.get("candidateSelection", {}).get("productDefault") is True
+    ]
+    assert len(defaults) == 1, "catalog must have exactly one product default"
+    engine_id, engine = defaults[0]
+    assert engine["candidateSelection"].get("runtimeVersion") == manifest.get("version"), \
+        "product default runtime version must match bootstrap manifest"
+
+    manifest_files = {
+        item["relativePath"]: item["sha256"]
+        for field in ("sourceVerificationFiles", "finalVerificationFiles")
+        for item in manifest.get(field, [])
+    }
+    catalog_files = {
+        record["relativePath"]: record["sha256"]
+        for record in engine.get("verificationFiles", {}).values()
+        if "relativePath" in record
+    }
+    for relative_path, digest in catalog_files.items():
+        assert manifest_files.get(relative_path) == digest, \
+            f"product default digest differs from bootstrap manifest: {relative_path}"
+    for relative_path, digest in {
+        item["relativePath"]: item["sha256"]
+        for item in manifest.get("finalVerificationFiles", [])
+    }.items():
+        assert catalog_files.get(relative_path) == digest, \
+            f"bootstrap final file missing or differs in product catalog: {relative_path}"
+
+catalog = json.loads(catalog_path.read_text())
+manifest = json.loads(manifest_path.read_text())
+validate(catalog, manifest)
+
+# A one-character truncation of a real default DXMT digest must fail this same
+# contract. Use a temporary catalog fixture; no runtime files are copied.
+fixture = copy.deepcopy(catalog)
+default_engine = next(
+    engine for engine in fixture["engines"].values()
+    if engine.get("candidateSelection", {}).get("productDefault") is True
+)
+dxmt = next(
+    record for record in default_engine["verificationFiles"].values()
+    if record.get("relativePath", "").endswith("/winemetal.so")
+)
+dxmt["sha256"] = dxmt["sha256"][:-1]
+with tempfile.TemporaryDirectory(prefix="coreaudio-catalog-contract-") as temporary:
+    fixture_path = Path(temporary) / "catalog.json"
+    fixture_path.write_text(json.dumps(fixture))
+    try:
+        validate(json.loads(fixture_path.read_text()), manifest)
+    except AssertionError as error:
+        assert "64 lowercase hex" in str(error), f"fixture failed for an unexpected reason: {error}"
+    else:
+        raise AssertionError("one-character DXMT digest truncation was accepted")
+
+print("Runtime catalog/manifest cross-file contract and truncated-DXMT negative test passed")
+PY
+
 # The first case establishes a default before user settings load; the second
 # one is the authoritative, post-settings policy gate.  Execute that exact
 # runner fragment in a local shell so stale launcher.env values cannot silently
