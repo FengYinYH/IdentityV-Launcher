@@ -534,26 +534,22 @@ struct LauncherGameWindowCandidate: Equatable {
 }
 
 enum LauncherGameWindowMatcher {
+    // Callers supply already verified session owners. Keep window matching
+    // independent of the monitoring implementation and its process sampler.
     static func readyProductIDs(
-        sessions: [LauncherGameSession],
+        sessions: [(productID: GameProductID, pid: Int32)],
         windows: [LauncherGameWindowCandidate]
     ) -> Set<GameProductID> {
         Set(sessions.compactMap { session in
             windows.contains {
-                $0.ownerPID == session.identity.pid && $0.isUsable
+                $0.ownerPID == session.pid && $0.isUsable
             } ? session.productID : nil
         })
     }
 
     static func fixtureChecks() -> [Bool] {
-        let mainland = LauncherGameSession(
-            productID: .mainland,
-            identity: GameProcessIdentity(pid: 41001, startSeconds: 10, startMicros: 20)
-        )
-        let global = LauncherGameSession(
-            productID: .global,
-            identity: GameProcessIdentity(pid: 41002, startSeconds: 11, startMicros: 21)
-        )
+        let mainland = (productID: GameProductID.mainland, pid: Int32(41001))
+        let global = (productID: GameProductID.global, pid: Int32(41002))
         let utilityWindow = LauncherGameWindowCandidate(ownerPID: 41001, layer: 0, width: 500, height: 500)
         let otherProcessWindow = LauncherGameWindowCandidate(ownerPID: 41003, layer: 0, width: 1280, height: 720)
         let realGameWindow = LauncherGameWindowCandidate(ownerPID: 41001, layer: 0, width: 640, height: 360)

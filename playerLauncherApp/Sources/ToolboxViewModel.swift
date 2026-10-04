@@ -546,7 +546,7 @@ final class ToolboxViewModel: ObservableObject {
                 gameIsRunning: RuntimeProcessMatcher.containsGameProcess(in: commands),
                 runningProductIDs: Set(verifiedGameSessions.map(\.productID)),
                 windowReadyProductIDs: LauncherGameWindowMatcher.readyProductIDs(
-                    sessions: verifiedGameSessions,
+                    sessions: verifiedGameSessions.map { (productID: $0.productID, pid: $0.identity.pid) },
                     windows: gameWindows
                 ),
                 // If a legacy helper lacks the explicit status sudoers rule, we

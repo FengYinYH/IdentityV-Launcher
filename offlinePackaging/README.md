@@ -132,11 +132,13 @@ keychain/p12/pem/*.reg/installation.json` 没有命中用户数据（只有随�
 
 **已知残留（本轮有意未修）**：`Contents/Resources/RuntimePatches/gdi32.dll` 是 emoji2 候选的
 自建载荷，保留了 DWARF 调试段，里面有 85 处
-`/Users/xunfeng/codexDaily/local/diagnostics/identityV/…` 形式的构建机源码路径；它来自
+`<build-root>/source-build-ligature/dlls/gdi32/…` 形式的构建机源码路径；实际私人目录不在公开文档中重现。它来自
 `1.0.0-rc.1-test.2` 的候选构建，公开 RC1 的 `r1` 默认运行时不含它。这是**构建机路径**，
 不是账号或凭据。2026-09-26 风吟判断本包只作一次性私人交付，决定本轮不改；但公开封包器的载荷
 审计明确拒绝 `codexDaily`/`/Users/<name>/`，因此**做下一次公开发行前必须处理**，
 步骤与验证要求见 [`../docs/knownIssues.md`](../docs/knownIssues.md)。
+
+2026-10-05 RC2 准备已以精确源码路径映射重建此载荷，并通过 PE 契约与隔离 emoji 回归；这不改变本页记录的旧私有整包。当前候选与最终出货审计边界仍以该已知问题页为准。
 
 网易 `downloadIPC.exe` 里的 `C:/Users/weiyufeng/…` 是网易构建机路径，来自受哈希锁定的上游原件，
 不是本项目能改的内容；`com.xunfeng.identityv.*` 是历史 bundle identifier（升级兼容契约）。
