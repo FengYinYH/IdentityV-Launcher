@@ -277,7 +277,21 @@ func artefactImage(t *testing.T, format, name string, content []byte) string {
 // same package would see each other's live mountpoints and appear to leak.
 func scopeTempRoot(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	if info, err := os.Stat("/usr/bin/hdiutil"); err != nil || info.Mode()&0111 == 0 {
+		t.Skip("hdiutil is required for the offline payload image fixture")
+	}
+	// macOS rejects hdiutil mountpoints on some external APFS volumes. Keep
+	// these small image-test fixtures in an isolated, automatically cleaned
+	// system temporary directory; production paths and build caches are unchanged.
+	root, err := os.MkdirTemp("/private/tmp", "idv-login-image-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Errorf("remove image-test temporary directory: %v", err)
+		}
+	})
 	t.Setenv("TMPDIR", root)
 	return root
 }

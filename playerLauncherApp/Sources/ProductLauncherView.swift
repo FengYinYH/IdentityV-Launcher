@@ -148,7 +148,7 @@ struct ProductLauncherView: View {
         ProductPanel(
             product: product,
             isRunning: model.runtimeStatus.runningProductIDs.contains(product.productId),
-            defaultInstallPath: model.defaultInstallPath(for: product.productId),
+            defaultInstallPath: ToolboxViewModel.defaultInstallPath(for: product.productId),
             action: { model.performProductAction($0, for: product.productId) },
             requestRemoval: { removalTarget = product },
             isBusy: { model.productActionIsRunning($0, productID: product.productId) },

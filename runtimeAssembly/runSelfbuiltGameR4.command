@@ -11,7 +11,7 @@ readonly ENGINE_ID='wine11-codeweavers-26_1-dxmt-0_80-selfbuilt-gnutls-macos15-r
 # workstation layout or active product runtime is a safe default in a clone.
 readonly RUNTIME="${IDENTITYV_R4_RUNTIME:-}"
 readonly DEFAULT_PREFIX="${IDENTITYV_R4_PREFIX:-}"
-readonly DEFAULT_GAME="$HOME/Library/Application Support/第五人格/CN/game/dwrg.exe"
+readonly DEFAULT_GAME="$HOME/Library/Application Support/IdentityV/CN/game/dwrg.exe"
 readonly GAME_D3DCOMPILER_RELATIVE='webviewsupport.cef904430/d3dcompiler_47.dll'
 readonly GAME_D3DCOMPILER_SHA256='90401f8b105c1deb070353a93247c74af9e62868e87fdfa71f35a85aae4820ad'
 readonly FORWARDER="$(cd "$(dirname "$0")/.." && pwd)/gameRunnerApp/IdentityV-Mac.app/Contents/Resources/IdentityVCommandGraveForwarder.dylib"
@@ -95,7 +95,7 @@ Usage: runSelfbuiltGameR4.command [--prefix PREFIX] [--game DWRG_EXE] [--winemsy
 
 Set IDENTITYV_R4_RUNTIME and IDENTITYV_R4_PREFIX to an existing isolated r4
 runtime and prefix before use. The default game is the signed-in user's
-mainland game at ~/Library/Application Support/第五人格/CN/game/dwrg.exe.
+mainland game at ~/Library/Application Support/IdentityV/CN/game/dwrg.exe.
 --preflight is read-only.  A real launch always needs --confirm-game-launch.
 EOF
 }
@@ -135,7 +135,7 @@ inode() { /usr/bin/stat -f '%d:%i' "$1"; }
 
 validate_path_boundary() {
   case "$prefix" in
-    "$HOME/Library/Application Support/IdentityVOnMac"/*|"$HOME/Library/Application Support/第五人格"/*)
+    "$HOME/Library/Application Support/IdentityVOnMac"/*|"$HOME/Library/Application Support/IdentityV"/*)
       die 'refusing a product prefix' ;;
   esac
   [[ "$prefix" = /* && -d "$prefix" && ! -L "$prefix" ]] || die 'prefix must be an existing absolute non-symlink isolated clone'

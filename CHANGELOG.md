@@ -1,10 +1,14 @@
 # 版本变更记录
 
-## 启动器三语言与固定登录更新策略（2026-10-04，本机候选，未发布/未安装）
+## 玩家游戏数据默认目录统一为 ASCII 路径（2026-10-04，未公开发布）
+
+国服与国际服目录分别默认为 `~/Library/Application Support/IdentityV/CN` 和 `~/Library/Application Support/IdentityV/Global`。本机维护安装将原中文目录原地改名，并同步安装记录与游戏链接；保留配置备份和回退清单，不复制或重新下载游戏。产品不增加中文路径 fallback 或目录扫描功能，不改变 App 名称、bundle ID 或 `IdentityVOnMac` 身份目录。自定义目录和发现已有游戏留待后续版本。路径决策和适用边界见[第一方身份说明](docs/firstPartyIdentity.md#用户数据权限和升级)。
+
+## 启动器三语言与固定登录更新策略（2026-10-04，未公开发布）
 
 启动器新增简体中文、繁体中文与英文；默认跟随系统，菜单栏选择持久化，只影响启动器界面。语言归属、资源与可维护边界见[语言说明](docs/launcherLocalization.md)。
 
-IDV Login 继续锁定官方 6.3.1 beta 原始资产，通过受管启动策略关闭自带更新检测入口与远程热修复供给；登录云端数据继续工作，旧 helper 必须更新为合约 8。来源依赖、实测 SHA、限定源码比较及许可/恢复边界见[来源审计](docs/idvLoginSourceAudit.md)。这次构建不改变已安装 App、组件或活动游戏，发行号保持原值。
+IDV Login 继续锁定官方 6.3.1 beta 原始资产，通过受管启动策略关闭自带更新检测入口与远程热修复供给；登录云端数据继续工作，旧 helper 必须更新为合约 8。来源依赖、实测 SHA、限定源码比较及许可/恢复边界见[来源审计](docs/idvLoginSourceAudit.md)。个人维护安装使用经 Developer ID 签名和公证的候选，发行号保持原值。
 
 本轮候选分工和最小剩余验收见[候选验收边界](docs/launcherNextCandidateVerification.md)。现有GDI调试路径残留仍是公开发行前必要处理项；性能优化、气泡音根因与其他未来功能不自动成为1.0门槛。
 

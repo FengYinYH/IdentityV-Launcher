@@ -785,13 +785,17 @@ final class ToolboxViewModel: ObservableObject {
         }
     }
 
-    func defaultInstallPath(for productID: GameProductID) -> String {
-        "~/Library/Application Support/第五人格/\(productID == .mainland ? "CN" : "Global")"
+    static func defaultInstallPath(for productID: GameProductID) -> String {
+        "~/Library/Application Support/\(Self.defaultInstallDirectoryName)/\(productID == .mainland ? "CN" : "Global")"
     }
+
+    // Keep the fresh-install root ASCII for stable shell and filesystem handling.
+    // Existing installs continue to use the location recorded by ProductManager.
+    private static let defaultInstallDirectoryName = "IdentityV"
 
     fileprivate static func defaultInstallDirectory(for productID: GameProductID) -> URL {
         let root = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-            .appendingPathComponent("Library/Application Support/第五人格", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/\(defaultInstallDirectoryName)", isDirectory: true)
         return root.appendingPathComponent(productID == .mainland ? "CN" : "Global", isDirectory: true)
     }
 
@@ -1006,7 +1010,7 @@ final class ToolboxViewModel: ObservableObject {
         productInstallStderrBuffer.removeAll(keepingCapacity: true)
         cancelledProductInstallPID = nil
         // This is already the complete launcher-owned root
-        // (…/第五人格/CN or …/第五人格/Global). Keep the transaction marker,
+        // (…/IdentityV/CN or …/IdentityV/Global). Keep the transaction marker,
         // work directory and game tree directly beneath it.
         let targetRoot = destinationParent
         do {
@@ -2752,10 +2756,14 @@ struct ToolboxProcessMatcherSelfTest {
             !RuntimeProcessMatcher.containsLoginProcess(in: watcher),
             ToolboxViewModel.defaultInstallDirectory(for: .mainland).path
                 == URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                    .appendingPathComponent("Library/Application Support/第五人格/CN", isDirectory: true).path,
+                    .appendingPathComponent("Library/Application Support/IdentityV/CN", isDirectory: true).path,
             ToolboxViewModel.defaultInstallDirectory(for: .global).path
                 == URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                    .appendingPathComponent("Library/Application Support/第五人格/Global", isDirectory: true).path
+                    .appendingPathComponent("Library/Application Support/IdentityV/Global", isDirectory: true).path,
+            ToolboxViewModel.defaultInstallPath(for: .mainland)
+                == "~/Library/Application Support/IdentityV/CN",
+            ToolboxViewModel.defaultInstallPath(for: .global)
+                == "~/Library/Application Support/IdentityV/Global"
         ] + DenseMonitoringProcessMatcherSelfTest.checks()
         guard checks.allSatisfy({ $0 }) else {
             FileHandle.standardError.write(

@@ -18,7 +18,7 @@
 
 ## 用户数据、权限和升级
 
-- 文件态数据继续使用 `~/Library/Application Support/IdentityVOnMac`、`~/Library/Logs/IdentityVOnMac`、`~/Library/Application Support/第五人格` 和既有系统组件目录；不搬迁游戏、prefix、runtime、IDV Login 配置或系统 CA。新 App 使用旧文件路径时须沿用已有所有权和符号链接防护。
+- 文件态数据继续使用 `~/Library/Application Support/IdentityVOnMac`、`~/Library/Logs/IdentityVOnMac` 和既有系统组件目录；游戏默认根目录改为 `~/Library/Application Support/IdentityV`。本机维护安装对旧中文游戏根目录原地改名，同步已记录路径与 prefix 内的游戏链接，备份小配置并记录反向操作；不搬迁 prefix、runtime、IDV Login 配置或系统 CA。产品仍按 ProductManager 的通用位置记录读写，不增加旧中文目录 fallback 或自动扫描迁移。自定义位置及发现已有游戏是后续功能。新 App 使用已有文件路径时须沿用所有权和符号链接防护。
 - 旧玩家 App `UserDefaults` 域中实际存在登录跟随、授权说明确认和窗口位置等键；旧工具箱域中存在窗口位置。新 App 在首次运行、任何业务模型读取偏好之前，从**确切旧域**只读取已知键，按类型复制到新域；已有新值优先，迁移一次后用新域 marker 防止把旧值反复覆盖。迁移不读取或写出密码，不删除旧域，也不触发系统提示。旧 App 仍可从原偏好和安装备份恢复。
 - 本项目第一方用户设置没有使用随 bundle ID 改变的 Keychain service/account；公证 profile、代码签名证书仍在既有 Keychain。系统 Keychain 中由 IDV Login 管理的 CA 是独立的已登记状态，本阶段不导入、导出或改信任。若后续实机发现未覆盖的 Keychain 访问约束，以实物为准再补迁移，不据静态搜索宣称必然无影响。
 - 新 bundle ID 可能使 macOS 将麦克风、屏幕录制、AppleEvents 等视作新的权限请求者。源 plist 和 Hardened Runtime entitlements 要随新 ID 匹配，签名与公证验证其声明；**构建成功不证明旧 TCC 授权转移**。日用 App 升级时先保留旧 App 备份，按可见提示由用户确认实际授权；真实首次安装和旧装升级分别验收，不静默触发系统弹窗。
