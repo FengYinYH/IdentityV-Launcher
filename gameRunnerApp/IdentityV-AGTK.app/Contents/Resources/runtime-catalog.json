@@ -501,8 +501,84 @@
       },
       "candidateSelection": {
         "channel": "product",
-        "productDefault": true,
+        "productDefault": false,
         "runtimeVersion": "wine11-codeweavers-26.1-dxmt-0.80-macos15-alpha1-r1-emoji2-audio-default-following-20261004",
+        "fallbackEngineId": "wine11-codeweavers-26_1-dxmt-0_80-macos15-alpha1-r1-emoji2-audio1",
+        "activation": "runtime-bootstrap-manifest"
+      }
+    },
+    "wine11-codeweavers-26_1-dxmt-0_80-macos15-alpha1-r1-emoji2-audio-default-following-20261005-rc2": {
+      "launchProfile": "codeweavers-wine-release-dxmt",
+      "capabilities": {
+        "coreAudioCapturePolicy": "runtime-default-device-following",
+        "d3dcompiler47Policy": "verified-game-native-when-manifest-present"
+      },
+      "version": {
+        "wine": "11.0",
+        "codeweavers": "26.1",
+        "dxmt": "0.80",
+        "moltenVK": "1.4.1",
+        "candidateRevision": "emoji2-source-path-mapped-capture-resample-default-input-output-following-x86_64"
+      },
+      "executablePaths": {
+        "wine": "lib/wine/x86_64-unix/wine",
+        "wineserver": "bin/wineserver"
+      },
+      "verificationFiles": {
+        "wine": {
+          "relativePath": "lib/wine/x86_64-unix/wine",
+          "sha256": "5e652db558d32decea27a6c2ea3ec704f5da51eb8b762529793eb7de3bc16c45"
+        },
+        "wineserver": {
+          "relativePath": "bin/wineserver",
+          "sha256": "8fb30d3e5a4a60666132c8a3f91cf3dfea3b4f21f9ea5660da4d65388ce8a4fe"
+        },
+        "dxmt": {
+          "relativePath": "lib/dxmt/x86_64-unix/winemetal.so",
+          "sha256": "16e32803d0d25d3bb41d59e1560f00d0919d76c6fa9b21dbe0ef827bb213faf0"
+        },
+        "moltenVK": {
+          "relativePath": "lib64/libMoltenVK.dylib",
+          "sha256": "e1c3e9c119157981e72a63554cb8155a6e81a1f392f4a9e3666e56862c4fb208"
+        },
+        "winemac": {
+          "relativePath": "lib/wine/x86_64-unix/winemac.so",
+          "sha256": "365fefb1c0bf4c0e54f4fd3a00dbd44bd9a6febc75209846b6de2c270bdb9c60"
+        },
+        "gmp": {
+          "relativePath": "lib64/libgmp.10.dylib",
+          "sha256": "59d1716ebecde1ce8cb9dac1d402dcf5cb377eba5059762be79a4cdd519a9182"
+        },
+        "pcre2": {
+          "relativePath": "lib64/libpcre2-8.0.dylib",
+          "sha256": "b2138825dd47d774fa5abd855f6bbf8aa61693bbe8df324132a5b3f6c6d0d292"
+        },
+        "zstd": {
+          "relativePath": "lib64/libzstd.1.dylib",
+          "sha256": "0d18032a7b715bcf0782e5309e8b3b89c2c8e44f3c9c6857f38397e6e520722b"
+        },
+        "gdi32": {
+          "relativePath": "lib/wine/x86_64-windows/gdi32.dll",
+          "sha256": "0f608a883e86533cd6f79c007d40e43f017d13917d13a393f60b11a580e3051d"
+        },
+        "winecoreaudio": {
+          "relativePath": "lib/wine/x86_64-unix/winecoreaudio.so",
+          "sha256": "9588fcdd5b262e85e9255c647b6a5a43b077553b6d8531d5c7ab8d6eb27186d8"
+        }
+      },
+      "licenseNotice": {
+        "status": "bootstrap-from-original-upstream",
+        "reference": "runtimeBootstrap/runtime-manifest.json"
+      },
+      "fontConfiguration": {
+        "cjkFamily": "IdentityV Emoji CJK",
+        "cjkFilename": "IdentityV-Emoji-CJK.ttf",
+        "cjkSha256": "c002488492344453723dc491ecbe2646018f94a3060a8d0cb5829ef8b4d0d45b"
+      },
+      "candidateSelection": {
+        "channel": "product",
+        "productDefault": true,
+        "runtimeVersion": "wine11-codeweavers-26.1-dxmt-0.80-macos15-alpha1-r1-emoji2-audio-default-following-20261005-rc2",
         "fallbackEngineId": "wine11-codeweavers-26_1-dxmt-0_80-macos15-alpha1-r1-emoji2-audio1",
         "activation": "runtime-bootstrap-manifest"
       }

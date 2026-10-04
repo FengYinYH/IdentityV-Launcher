@@ -120,7 +120,7 @@
     },
     {
       "relativePath": "lib/wine/x86_64-windows/gdi32.dll",
-      "sha256": "3aa45d33ab949a188f3249d0a6ecdb7793f141eefa10d631e404dfe78464de48"
+      "sha256": "0f608a883e86533cd6f79c007d40e43f017d13917d13a393f60b11a580e3051d"
     },
     {
       "relativePath": "lib/wine/x86_64-unix/winecoreaudio.so",
