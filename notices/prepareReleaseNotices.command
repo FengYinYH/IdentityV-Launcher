@@ -139,9 +139,9 @@ Wine/yanyun 衍生补丁、第三方组件、游戏资源和 idv-login 不因本
 根许可证而改变许可；它们继续按 `ThirdPartyNotices/` 和对应源码目录中
 记录的各自许可证、来源与分发边界处理。
 
-本材料包主要承载第三方 notice 与对应源码，并不单独构成启动器的完整
-对应源码。向任何受邀者或公众分发启动器二进制时，必须在同一发行位置
-另行提供与该二进制精确匹配的项目源码归档或公开 Git tag。
+本材料包同时提供第三方 notice、对应源码和精确 clean HEAD 的项目源码归档。
+向任何受邀者或公众分发启动器二进制时，应在同一发行位置提供此材料包，
+并核对首方源码 commit 与 App 内 build-provenance.json 一致。
 EOF
 
 cat > "$stage/CorrespondingSources/Wine-CodeWeavers-source-offer.txt" <<'EOF'
@@ -182,7 +182,7 @@ EOF
 cat > "$stage/CorrespondingSources/idv-login-source-acquisition.txt" <<EOF
 idv-login $idv_version beta source acquisition notice
 
-This RC1 material set does not contain idv-login's codeload source archive.
+This RC2 material set does not contain idv-login's codeload source archive.
 At the referenced commit, that archive contains Windows payloads including
 downloadIPC.exe, OrbitSDK.dll, aria2c.exe, mpay.dll, and a nested downloadIPC.zip.
 Their licenses and redistribution permission have not been established for this
@@ -199,7 +199,7 @@ The GPL-3.0-or-later license text for the upstream project is included at:
 ThirdPartyNotices/licenses/idv-login-GPL-3.0-or-later.txt
 
 This notice is not a claim that bundling the upstream macOS idv-login binary is
-fully compliant.  The RC1 launcher must either obtain that binary directly
+fully compliant.  The launcher must either obtain that binary directly
 from the upstream release and verify it, or complete a separate audit of its
 PyInstaller/PyQt/Qt closure, notices, source obligations, and exact hash.
 EOF
