@@ -1,10 +1,10 @@
 # 第五人格启动器发行封包
 
-本目录负责从一个已构建的启动器 App 生成 DMG、第三方许可与对应源码材料 ZIP，以及两者的 SHA-256 清单。封包器不会安装 App、启动游戏、申请系统权限或替换 runtime。发布候选还要配上精确匹配的项目源码归档/公开 Git tag，并把它与 [ReleaseMaterials](../notices/README.md)、DMG 和统一校验清单放在同一发行位置；封包器生成的材料 ZIP 本身不包含完整项目源码，也不等同于正式公开发布。
+本目录负责从一个已构建的启动器 App 生成 DMG、许可与对应源码材料 ZIP，以及两者的 SHA-256 清单。封包器不会安装 App、启动游戏、申请系统权限或替换 runtime。RC2 的 [ReleaseMaterials](../notices/README.md) 同时包含精确匹配 clean HEAD 的完整首方源码归档；它与 DMG、统一校验清单应放在同一发行位置。封包成功不等同于正式公开发布。
 
 ## 版本与当前实物
 
-版本取自 App 的 `IdentityVReleaseVersion`。**1.0.0-rc.1 已于 2026-09-23 公开发布**；源码当前仍保留这个号码用于日常构建，封包器会拒绝以这个已用号码再次发行。下一次封包先确定范围，再把 `IdentityVReleaseVersion` 增至新候选号并从干净提交重建。[变更记录](../CHANGELOG.md)说明已发布内容与未决问题。脚本文件名 `buildAlpha1Preview.command` 为兼容既有调用保留的历史名称，不决定版本号或签名方式。以下是 RC1 已发布物的文件名示例：
+版本取自 App 的 `IdentityVReleaseVersion`。**1.0.0-rc.1 已于 2026-09-23 公开发布**；源码当前准备 `1.0.0-rc.2` / build 5，尚未公开发布，仍须从干净提交构建和核对实际包。[变更记录](../CHANGELOG.md)说明已发布内容与未决问题。脚本文件名 `buildAlpha1Preview.command` 为兼容既有调用保留的历史名称，不决定版本号或签名方式。以下保留 RC1 已发布物的文件名示例：
 
 - `第五人格启动器-1.0.0-rc.1.dmg`
 - `第五人格启动器-1.0.0-rc.1-ReleaseMaterials.zip`
@@ -23,15 +23,17 @@
 ./releasePackaging/buildAlpha1Preview.command
 ```
 
-第三方材料生成器仅在 `notices/.build/` 重建忽略的中间产物；封包器在 Developer ID 模式下对 staging App 签名、公证和 staple，再对 DMG 自身签名、公证和 staple。两者分别按适合的 Gatekeeper 类型验收。公证 profile 从 `IDENTITYV_NOTARY_PROFILE` 读取，凭据只放在钥匙串。构建模式为 `auto` 时优先选用可用的 Developer ID，缺 profile 会直接失败。若明确选择 ad-hoc 或本地开发签名，生成物不是普通用户可直接信任的正式候选，需清楚标记为内部测试。
+第三方材料生成器默认在 `notices/.build/` 重建忽略的中间产物，可用绝对路径 `IDENTITYV_NOTICES_BUILD_ROOT` 移到已核验外部卷，并让封包器读取同一位置。原厂锁定输入可用 `IDENTITYV_NOTICES_CACHE_ROOT` 只读复用，每项仍验大小/hash，首方源码始终从当前 clean HEAD 生成。封包器在 Developer ID 模式下对 staging App 签名、公证和 staple，再对 DMG 自身签名、公证和 staple。两者分别按适合的 Gatekeeper 类型验收。公证 profile 从 `IDENTITYV_NOTARY_PROFILE` 读取，凭据只放在钥匙串。构建模式为 `auto` 时优先选用可用的 Developer ID，缺 profile 会直接失败。若明确选择 ad-hoc 或本地开发签名，生成物不是普通用户可直接信任的正式候选，需清楚标记为内部测试。
 
 若 App 尚未构建，使用 `./releasePackaging/buildAlpha1Preview.command --rebuild`；该选项调用玩家启动器构建脚本，会改写 `playerLauncherApp/build/第五人格启动器.app`，并按构建脚本实际设置使用签名身份。若需保留默认构建，可先由调用方在隔离目录完成构建，再设置绝对路径 `IDENTITYV_BUILD_ROOT=/绝对构建目录`；封包器会从同一目录读取 App。`--output /绝对输出目录` 可将最终产物及暂存区放到指定位置。省略 `--rebuild` 时，封包器仍会核对 App 内 `build-provenance.json` 的源码提交、构建前干净状态、包内 manifest/catalog/Info 哈希、当前源码资源和唯一默认运行时；缺失或不一致就拒绝封包。
 
 首次使用时 `preparePackagingEnvironment.command` 只创建本目录被忽略的 `.venv`，固定安装 `dmgbuild 1.6.7`，不改系统 Python。封包用隔离 staging、禁入内容扫描、运行时补丁哈希校验、签名树验证、麦克风用途声明契约、最高 macOS 部署目标审计和只读 DMG 挂载复验。DMG 可见布局是启动器 App 与指向 `/Applications` 的拖放入口，另带 Finder 背景元数据；游戏、基础 Wine runtime、`DWRG.dmg`、网易下载核心及 `idv-login` 二进制不得进入 App/DMG。
 
-材料 ZIP 包含项目 GPL 原文、第三方 notice、选定组件的对应源码及补丁/构建说明，但不含完整启动器源码归档。发布前必须复核生成后的 `ThirdPartyNotices/` 和 `CorrespondingSources/` 与最终 App 实际包含的组件/版本一致；若 idv-login、runtime patch、Go helper 或其他依赖版本改变，材料锁和发行说明也要一起更新。不得把材料包生成成功当作第三方分发权审计通过的证明。
+材料 ZIP 包含项目 GPL 原文、第三方 notice、选定组件的对应源码及补丁/构建说明，以及完整首方源码归档/commit 文本。发布前必须复核生成后的 `ThirdPartyNotices/` 和 `CorrespondingSources/` 与最终 App 实际包含的组件/版本一致；若 idv-login、runtime patch、Go helper 或其他依赖版本改变，材料锁和发行说明也要一起更新。不得把材料包生成成功当作第三方分发权审计通过的证明。
 
-项目源码 ZIP 由发行方从审查过的明确 Git 提交另外生成，不由 `buildAlpha1Preview.command` 自动产生。它应包含构建所需的 runner 模板与 runtime patch 二进制输入，排除机内诊断和可再生构建输出；从**干净副本**全量构建 App，再为纳入的源码逐文件生成 `SOURCE-SHA256SUMS.txt`，压缩并从解压副本复验文件哈希和可执行位。后续修改若改变 App 构建输入，须重建、重封并重新生成对应源码归档；仅以同名版本号不能证明对应。
+首方源码由材料生成器从审查过的 clean HEAD 用 `git archive` 生成，包含构建所需的 tracked runner 模板与 runtime patch 输入，排除未纳管的机内诊断和可再生输出。归档 SHA 位于材料内部 `SHA256SUMS`，commit 文本必须与 App 内 `build-provenance.json` 一致。后续修改若改变源码身份或 App 输入，应重建、重封并重新生成对应源码归档；仅以同名版本号不能证明对应。
+
+载荷扫描只例外允许 `Contents/Resources/RuntimePatches/gdi32.dll`，且必须通过六枚 runtime patch 的完整 hash/签名审计；其他 Windows DLL/EXE 和游戏资源仍拒绝。`python3 releasePackaging/payloadAuditSelfTest.py` 用实际扫描函数验证锁定 GDI 可用、额外 DLL 和改字节的 GDI 被拒，测试不运行 Wine 或游戏。
 
 发行版本对应固定字节，因此封包器会拒绝覆盖输出目录内已有的同名 DMG、材料 ZIP 或清单。请为每轮候选使用新建的空输出目录。全部验证完成后，三个文件依次移入输出目录；若移动阶段遇到磁盘错误，目录可能只含部分新产物，此时将整目录视为失败候选并保留作证据。封包结束时私有 `.stage-*` 与挂载目录会清理。成功后复算清单、检查 ZIP 内容、验证 DMG、公证票据与签名。
 

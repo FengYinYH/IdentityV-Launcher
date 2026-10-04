@@ -132,7 +132,8 @@ trap cleanup EXIT INT TERM
 ! /usr/bin/find "$app_stage" \( -iname 'idv-login.raw' -o -iname 'idv-login-v*-mac' \) -print -quit | /usr/bin/grep -q . || { print -u2 -- "Bundled IDV Login binary is forbidden."; exit 1; }
 
 # Fail closed before signing: these belong to upstream downloads or to the game,
-# never to an Alpha 1 launcher archive.
+# never to a launcher archive. The one source-built GDI PE is an explicit,
+# hash-verified runtime patch, not a license to bundle arbitrary Windows DLLs.
 typeset -a forbidden_patterns
 forbidden_patterns=(
   'DWRG.dmg' 'downloadIPC' 'aria2' 'Orbit' 'dwrg.exe'
@@ -155,7 +156,14 @@ audit_app_payload() {
   done < <(/usr/bin/find "$root" -print0)
   while IFS= read -r -d '' candidate; do
     case "${candidate:e:l}" in
-      exe|dll|pak|ucas|utoc) print -u2 -- "Forbidden game-payload extension: $candidate"; (( forbidden += 1 )) ;;
+      dll)
+        if [[ "$candidate" == "$root/Contents/Resources/RuntimePatches/gdi32.dll" ]]; then
+          "$runtime_patch_audit" "$root" || return 1
+        else
+          print -u2 -- "Forbidden game-payload extension: $candidate"; (( forbidden += 1 ))
+        fi
+        ;;
+      exe|pak|ucas|utoc) print -u2 -- "Forbidden game-payload extension: $candidate"; (( forbidden += 1 )) ;;
     esac
   done < <(/usr/bin/find "$root" -type f -print0)
   (( forbidden == 0 )) || { print -u2 -- "Payload audit failed ($forbidden finding(s))."; return 1; }
