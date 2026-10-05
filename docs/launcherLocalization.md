@@ -14,7 +14,7 @@ RC2 玩家启动器支持简体中文、繁体中文、英文；改变启动器�
 
 ## 验证与剩余边界
 
-`launcherLocalizationResourcesSelfTest.py` 检查三份表的212个键一致、启动器/反馈页/保留工具视图的静态中文字串均有资源、必需动态模板及麦克风授权提示存在、支持语言列表与文件夹一致。`LauncherLanguageSelfTest.swift` 验证简繁解析（含TW/HK/MO）、其他语言回退、空/非法偏好回退、持久选择、动态进度/动作、错误码提示和邮件客户端fallback。完整构建在编译App前运行两项检查。
+`launcherLocalizationResourcesSelfTest.py` 检查三份表的216个键一致、启动器/反馈页/保留工具视图的静态中文字串均有资源、必需动态模板及麦克风授权提示存在、支持语言列表与文件夹一致。`LauncherLanguageSelfTest.swift` 验证简繁解析（含TW/HK/MO）、其他语言回退、空/非法偏好回退、持久选择、动态进度/动作、错误码提示和邮件客户端fallback。完整构建在编译App前运行两项检查。
 
 实际macOS界面检查补充了纯查表测试的边界：sheet可拥有独立窗口环境，因此安装提示与反馈sheet显式接收当前locale；运行时String占位符须保留为`LocalizedStringKey`，插值版本标签须用完整格式键。更新提示也必须翻译完整消息，不能只匹配前半句。回归检查纳入这些契约；最终安装仍核对实际菜单、弹窗与布局，不能仅凭资源键集合推定SwiftUI呈现正确。
 
@@ -23,6 +23,8 @@ RC2 玩家启动器支持简体中文、繁体中文、英文；改变启动器�
 ## 游戏宿主菜单名称与缓存时序
 
 游戏宿主名称在下次启动时采用启动器已解析的语言：简中和繁中为“第五人格”，英文为“Identity V”。ProductManager 显式读取启动器偏好域，复用 `LauncherLanguage` 的同一解析规则，再把受限名称传给内嵌运行器。名称不由国服/国际服推断；游戏内容语言不受影响。
+
+IDV Login 的受限用户态桥也能直接进入运行器，它刻意清空 root 环境，不经过 manager 的启动函数。该入口没有名称变量时，运行器调用所在启动器的只读 `game-display-name` 命令，仍复用同一偏好解析；独立运行器缺少所在启动器时才回退简中。合约实际执行这段 child 分支，覆盖登录桥缺变量及两服不同语言，防止普通启动成功却遗漏可选登录入口。
 
 CodeWeavers 26.1 的 `loader/main.c` 在 `main()` 中读取并清除 `WINEPRELOADERAPPNAME`，通过 `vm_protect` 改写 Mach-O 的 `__TEXT,__info_plist`。最初的实现仅设置这个变量，静态 child 合约通过，但实际游戏菜单仍是“CrossOver-Hosted Application”。锁定 x86_64 loader 的 XML 匹配与调用顺序均核对正确；不能凭签名属性把失败归因于 Hardened Runtime 或重执行。
 

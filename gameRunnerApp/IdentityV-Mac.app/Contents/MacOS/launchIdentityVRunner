@@ -1137,10 +1137,20 @@ launch_game_once() {
     (
       # CodeWeavers rewrites the embedded name after AppKit has cached it.
       # The native helper also refreshes the process-local bundle dictionary.
-      # Accept only resolved UI names; standalone runner defaults to Chinese.
+      # IDV Login's fixed bridge enters the runner without manager environment.
+      # Ask the enclosing launcher manager's read-only language resolver in that
+      # case, rather than silently losing the user's English preference.
       case "${IDENTITYV_GAME_DISPLAY_NAME-}" in
         "Identity V"|"第五人格") ;;
-        *) export IDENTITYV_GAME_DISPLAY_NAME="第五人格" ;;
+        *)
+          name_manager="$APP_CONTENTS/../../../Resources/IdentityVProductManager"
+          resolved_name=""
+          [[ ! -x "$name_manager" ]] || resolved_name="$("$name_manager" game-display-name 2>/dev/null)"
+          case "$resolved_name" in
+            "Identity V"|"第五人格") export IDENTITYV_GAME_DISPLAY_NAME="$resolved_name" ;;
+            *) export IDENTITYV_GAME_DISPLAY_NAME="第五人格" ;;
+          esac
+          ;;
       esac
       export WINEPRELOADERAPPNAME="$IDENTITYV_GAME_DISPLAY_NAME"
       if (( ${#hud_environment[@]} )); then

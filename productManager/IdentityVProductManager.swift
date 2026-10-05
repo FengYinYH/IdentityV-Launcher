@@ -3645,6 +3645,11 @@ private extension JSONEncoder { static var pretty: JSONEncoder { let encoder = J
 private func runMain() throws {
     let args = Array(CommandLine.arguments.dropFirst())
     guard let command = args.first else { throw ManagerError.message("用法：status --json | resolve-manifest --json | select|install|import|prepare-launch|launch|restart|repair --product mainland|global") }
+    if command == "game-display-name" {
+        let preferences = UserDefaults(suiteName: "com.fengyin.identityv.launcher") ?? .standard
+        print(LauncherLanguage.configured(from: preferences).gameDisplayName)
+        return
+    }
     if command == "self-test" {
         try runSelfTest()
         print("产品管理器自检通过。")
