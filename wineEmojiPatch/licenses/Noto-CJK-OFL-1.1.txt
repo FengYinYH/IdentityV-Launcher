@@ -1,3 +1,7 @@
+Noto Sans CJK SC, Version 2.004
+Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+Source: https://github.com/notofonts/noto-cjk/tree/Sans2.004
+
 This Font Software is licensed under the SIL Open Font License,
 Version 1.1.
 
