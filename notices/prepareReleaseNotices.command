@@ -31,13 +31,13 @@ source_commit="$(/usr/bin/git -C "$project_dir" rev-parse HEAD)"
 idv_component="$project_dir/idvLoginComponent.json"
 idv_version="$(/usr/bin/plutil -extract version raw -o - "$idv_component")"
 idv_release_tag="$(/usr/bin/plutil -extract releaseTag raw -o - "$idv_component")"
-idv_source_commit="116149162aecec41c1bfa95bed7a96a7f957da8e"
+idv_source_commit="3642748dcf82c326ddb5cb657714be9a0885d7fc"
 idv_license_path="ThirdPartyNotices/licenses/idv-login-GPL-3.0-or-later.txt"
 idv_license_url="$(/usr/bin/awk -F '\t' -v name="$idv_license_path" '$2 == name {print $3}' "$manifest")"
 idv_license_purpose="$(/usr/bin/awk -F '\t' -v name="$idv_license_path" '$2 == name {print $7}' "$manifest")"
-[[ "$idv_release_tag" == "v${idv_version}-beta" &&
+[[ "$idv_release_tag" == "v${idv_version}-stable" &&
    "$idv_license_url" == "https://raw.githubusercontent.com/KKeygen/idv-login/$idv_source_commit/LICENSE" &&
-   "$idv_license_purpose" == "idv-login $idv_version beta "* ]] || {
+   "$idv_license_purpose" == "idv-login $idv_version stable "* ]] || {
   print -u2 -- "idv-login App lock, license source and release material version disagree."
   exit 65
 }
@@ -201,7 +201,7 @@ directly from its upstream publisher and is outside this package's redistributio
 EOF
 
 cat > "$stage/CorrespondingSources/idv-login-source-acquisition.txt" <<EOF
-idv-login $idv_version beta source acquisition notice
+idv-login $idv_version stable source acquisition notice
 
 This RC2 material set does not contain idv-login's codeload source archive.
 At the referenced commit, that archive contains Windows payloads including

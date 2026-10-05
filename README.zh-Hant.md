@@ -2,17 +2,13 @@
 
 # 第五人格啟動器 · IdentityV Launcher
 
-第五人格啟動器是讓 Apple Silicon Mac 執行《第五人格》PC 互通版的非官方專案。這個專案不必安裝 Crossover，也不需要網易發燒遊戲平台。你甚至可以用觸控板玩。
-
-> 本頁介紹的是 `1.0.0-rc.2` 候選內容。候選仍在準備中，尚未公開發布；已公開的 RC1 不包含這裡列出的新功能，請以 GitHub Releases 實際發布的版本為準。
+第五人格啟動器是讓 Apple Silicon Mac 執行《第五人格》PC 互通版的非官方專案。此專案不必安裝 Crossover，也不需要網易發燒遊戲平台。你甚至可以用觸控板玩。
 
 ## 功能介紹
 
-支援國服與國際服的下載、校驗、啟動、修復和解除安裝。兩服使用各自的官方遊戲清單，並共用網易下載核心與下載後完整性複驗；下載中可以暫停、繼續或取消。
+支援國服與國際服的下載、校驗、啟動、修復和解除安裝。
 
-全新安裝預設使用 ASCII 目錄：國服 `~/Library/Application Support/IdentityV/CN`，國際服 `~/Library/Application Support/IdentityV/Global`。已有安裝會依啟動器記錄的位置管理；啟動器不會掃描其他目錄或自動搬遷遊戲。
-
-啟動器支援簡體中文、繁體中文和 English，預設跟隨系統語言。選單中的選擇會儲存，只影響啟動器介面，不會改變遊戲語言。
+啟動器支援簡體中文、繁體中文和 English，預設跟隨系統語言。
 
 支援遊戲內鍵盤映射。遊戲內 Command 對應 Windows 的 Alt；MacBook 鍵盤的 F1–F9 與 Windows 對應按鍵效果一致，保留 F10–F12 的音量控制功能。不影響遊戲外的鍵盤功能。
 
@@ -22,19 +18,17 @@
 
 ## 下載與安裝
 
-RC2 候選尚未公開發布，目前沒有對應的公開下載檔案。正式發布後請從 GitHub Releases 下載 `1.0.0-rc.2`，再依照以下步驟安裝：
-
-目前基礎執行環境為 Wine 11 / CodeWeavers 26.1。啟動器會按需從 novak037/yanyun-on-mac v0.1.2 的 `DWRG.dmg` 取得，並校驗鎖定的檔案大小與 SHA-256；公開安裝包不包含該檔案。
-
 1. 開啟下載的磁碟映像，將「第五人格啟動器.app」拖入「應用程式」。
-2. 開啟啟動器，選擇國服或國際服並點擊下載遊戲；啟動器會自動完成下載和安裝。
+2. 開啟啟動器，選擇國服或國際服，點擊下載遊戲；啟動器會自動完成下載和安裝。
 3. 點擊啟動遊戲。
+
+從 RC1 升級時，先退出遊戲再替換啟動器。舊版預設遊戲目錄會自動改名，無需重新下載；IDV Login 需要在啟動器中點擊「更新」，帳號與設定會保留。
 
 ## IDV Login
 
-IDV Login 是非必要的選用登入元件。沒有安裝它也可以下載、修復和遊玩遊戲；登入時直接使用遊戲官方登入流程即可。
+IDV Login 是非必要的選用登入元件。沒有安裝它也可以下載、修復和遊玩遊戲；登入時使用遊戲官方登入流程即可。
 
-目前候選固定使用官方 `6.3.1 beta`。啟動器會關閉該元件自己的升級檢查和遠端熱修復供應，避免固定版本在執行期間自行變動；這不影響其雲端登入服務。候選建置和元件策略檢查不等於真實帳號登入驗收，登入體驗仍待驗證。
+目前支援官方版本 `6.3.2`，元件更新由啟動器維護。
 
 ## 注意事項
 
@@ -48,13 +42,13 @@ IDV Login 是非必要的選用登入元件。沒有安裝它也可以下載、�
 
 專案目標為 macOS 15 及以上；目前候選只在 macOS 27 完成實機驗證。部分構件的技術最低系統標記為 macOS 14，不代表完整產品已驗證或承諾支援 macOS 14。
 
-不提供穩定性、效能或不封號承諾。作者不為你的段位分、認知分、勝率或墨跡負責，尤其請謹慎打排位。如果因此造成損失，可以找作者開自訂房，接受螺旋鞭補償。
+不提供穩定性、效能和不封號承諾。作者不為你的段位分、認知分、勝率、墨跡負責，尤其請謹慎打排位。如果因此造成損失，可以找作者開自訂房，接受螺旋鞭補償。
 
 ## 意見回饋與開發
 
 啟動器可在本機產生已脫敏的診斷封包，再交給郵件用戶端；你可以檢查內容後自行寄出，啟動器不會在背景上傳。
 
-維護專案請從[開發者指南](docs/developerGuide.md)開始；[專案地圖](projectMap.md)列出目錄和指令碼職責，[工程取捨](docs/engineeringDecisions.md)說明設計原因。候選細節見[語言說明](docs/launcherLocalization.md)、[兩服下載共鏈](docs/downloadCoreUnification.md)、[IDV Login 來源與策略](docs/idvLoginSourceAudit.md)和[音訊裝置跟隨邊界](docs/audioDefaultDeviceFollowing.md)。
+維護專案請從[開發者指南](docs/developerGuide.md)進入；[專案地圖](projectMap.md)列出目錄和指令碼職責，[工程取捨](docs/engineeringDecisions.md)解釋設計原因。候選細節見[語言說明](docs/launcherLocalization.md)、[兩服下載共鏈](docs/downloadCoreUnification.md)、[IDV Login 來源與策略](docs/idvLoginSourceAudit.md)和[音訊裝置跟隨邊界](docs/audioDefaultDeviceFollowing.md)。
 
 原創程式碼採用 [GPL-3.0-or-later](LICENSE)；遊戲及第三方元件遵循各自授權，見[第三方說明](notices/README.md)。
 

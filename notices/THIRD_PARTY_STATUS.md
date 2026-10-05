@@ -2,7 +2,7 @@
 
 ## RC2 候选的当前边界（2026-10-05）
 
-当前候选为 `1.0.0-rc.2`，尚未公开发布。可选登录组件固定 `v6.3.1-beta`（源 commit `116149162aecec41c1bfa95bed7a96a7f957da8e`）；它不随 App 分发，也不是游戏下载/修复的依赖。基础 Wine/DXMT/GStreamer 闭包仍按下述固定上游直接获取，不随本项目包二次分发。
+当前候选为 `1.0.0-rc.2`，尚未公开发布。可选登录组件固定 `v6.3.2-stable`（源 commit `3642748dcf82c326ddb5cb657714be9a0885d7fc`）；它不随 App 分发，也不是游戏下载/修复的依赖。基础 Wine/DXMT/GStreamer 闭包仍按下述固定上游直接获取，不随本项目包二次分发。
 
 随 App 的自建运行模块现为六枚：`winemac.so`、`gdi32.dll`、`winecoreaudio.so`、GMP、PCRE2、zstd。GDI 的字体回退/emoji 与路径映射、CoreAudio 的重采样/设备跟随修改及复建输入已纳入材料生成器；最终字节以 `runtimeBootstrap/runtime-manifest.json` 和候选材料校验清单为准。下文“四枚”和 RC1 候选 hash 保留历史审计条件，不表示这些旧材料已经覆盖 RC2。
 

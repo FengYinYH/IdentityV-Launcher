@@ -1135,14 +1135,14 @@ launch_game_once() {
     # retains the runner's library path, adds HUD vars only for direct dwrg,
     # then execs Wine so LAUNCHED_WINE_PID is still Wine's PID.
     (
-      # CodeWeavers' loader uses this for the macOS menu, then unsets it.
-      # Scope it to the final game child: do not rename Wine setup/helpers or
-      # rewrite the upstream plist/signature to obscure the runtime's source.
-      if [[ "$PRODUCT" == "global" ]]; then
-        export WINEPRELOADERAPPNAME="Identity V"
-      else
-        export WINEPRELOADERAPPNAME="第五人格"
-      fi
+      # CodeWeavers rewrites the embedded name after AppKit has cached it.
+      # The native helper also refreshes the process-local bundle dictionary.
+      # Accept only resolved UI names; standalone runner defaults to Chinese.
+      case "${IDENTITYV_GAME_DISPLAY_NAME-}" in
+        "Identity V"|"第五人格") ;;
+        *) export IDENTITYV_GAME_DISPLAY_NAME="第五人格" ;;
+      esac
+      export WINEPRELOADERAPPNAME="$IDENTITYV_GAME_DISPLAY_NAME"
       if (( ${#hud_environment[@]} )); then
         export "${hud_environment[@]}"
       fi

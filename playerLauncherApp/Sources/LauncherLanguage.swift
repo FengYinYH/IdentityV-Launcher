@@ -36,6 +36,12 @@ enum LauncherLanguage: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Resolved at the next game launch. This labels the macOS host UI only;
+    /// the game's own language and product region remain independent.
+    var gameDisplayName: String {
+        locale.identifier == "en" ? "Identity V" : "第五人格"
+    }
+
     var menuTitle: String {
         switch self {
         case .system: localized("跟随系统")

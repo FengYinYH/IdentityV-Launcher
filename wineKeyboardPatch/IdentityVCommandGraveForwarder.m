@@ -540,6 +540,30 @@ static BOOL isIdentityVWineProcess(void)
 }
 
 /*
+ * CodeWeavers 26.1 rewrites its embedded CFBundleName in main(), after dyld
+ * has loaded this AppKit-linked helper. CFBundle has already cached the old
+ * dictionary: the real signed loader's --version probe confirmed a changed
+ * embedded name with an unchanged cached name. Refresh the process-local
+ * dictionary before Wine creates NSApplication, instead of editing the
+ * signed runtime or changing its bundle identity. This adapter is limited to
+ * the managed game's two display names; setup tools keep upstream metadata.
+ */
+static void configureGameDisplayName(void)
+{
+    const char *value = getenv("IDENTITYV_GAME_DISPLAY_NAME");
+    if (!value) return;
+    NSString *name = [NSString stringWithUTF8String:value];
+    if (![name isEqualToString:@"第五人格"] && ![name isEqualToString:@"Identity V"]) return;
+    CFMutableDictionaryRef info = (CFMutableDictionaryRef)CFBundleGetInfoDictionary(CFBundleGetMainBundle());
+    if (!info) return;
+    CFDictionarySetValue(info, kCFBundleNameKey, (__bridge CFStringRef)name);
+    CFDictionarySetValue(info, CFSTR("CFBundleDisplayName"), (__bridge CFStringRef)name);
+    NSProcessInfo.processInfo.processName = name;
+    fprintf(stderr, "IdentityV native display name: %s\n",
+            [[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleName"] UTF8String]);
+}
+
+/*
  * The HID lease maps physical F11 to the otherwise-unused F20 usage so the
  * Dock cannot consume it first. UserKeyMapping has no modifier predicate, so
  * modified F11 chords arrive here as F20 and must be restored before Wine sees
@@ -566,6 +590,8 @@ static void installCommandGraveForwarder(void)
     @autoreleasepool
     {
         if (!isIdentityVWineProcess()) return;
+
+        configureGameDisplayName();
 
         /* CoreAudio listener registration and the initial capability probe stay off AppKit's thread. */
         scheduleAudioCapabilityProbe();

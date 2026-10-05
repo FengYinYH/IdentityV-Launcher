@@ -748,7 +748,8 @@ final class ToolboxViewModel: ObservableObject {
         clearInstallCompletionPresentation()
         if action == .install {
             let directory = Self.defaultInstallDirectory(for: productID)
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            // The manager migrates RC1 before creating the new default root;
+            // creating it here would manufacture a migration target conflict.
             startInstallerDownload(productID: productID, manager: manager, destinationParent: directory)
             return
         }
@@ -791,7 +792,8 @@ final class ToolboxViewModel: ObservableObject {
     }
 
     // Keep the fresh-install root ASCII for stable shell and filesystem handling.
-    // Existing installs continue to use the location recorded by ProductManager.
+    // ProductManager migrates the old default root once while games are idle;
+    // other installs continue to use their recorded location.
     private static let defaultInstallDirectoryName = "IdentityV"
 
     fileprivate static func defaultInstallDirectory(for productID: GameProductID) -> URL {

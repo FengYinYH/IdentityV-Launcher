@@ -24,6 +24,9 @@ trap cleanup EXIT
   -target arm64-apple-macos14.0 \
   -sdk "$SDK_PATH" \
   "$SOURCE" \
+  "$SCRIPT_DIR/LegacyDefaultPathMigration.swift" \
+  "$SCRIPT_DIR/LegacyDefaultPathMigrationSelfTest.swift" \
+  "$SCRIPT_DIR/../playerLauncherApp/Sources/LauncherLanguage.swift" \
   -o "$MANAGER"
 /bin/cp "$CATALOG" "$TEST_BIN/products.json"
 "$MANAGER" self-test

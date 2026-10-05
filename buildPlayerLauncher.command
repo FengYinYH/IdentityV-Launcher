@@ -268,6 +268,9 @@ done
   -target arm64-apple-macos14.0 \
   -sdk "$SDK_PATH" \
   "$PRODUCT_MANAGER_SOURCE" \
+  "$PROJECT_ROOT/productManager/LegacyDefaultPathMigration.swift" \
+  "$PROJECT_ROOT/productManager/LegacyDefaultPathMigrationSelfTest.swift" \
+  "$SOURCE_ROOT/Sources/LauncherLanguage.swift" \
   -o "$PRODUCT_MANAGER_DESTINATION"
 /bin/cp "$PRODUCT_MANAGER_WRAPPER" "$PRODUCT_MANAGER_WRAPPER_DESTINATION"
 /bin/cp "$PRODUCT_CATALOG" "$PRODUCT_CATALOG_DESTINATION"

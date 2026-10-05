@@ -29,7 +29,7 @@ flowchart LR
 | `gameDownloader/` | 游戏下载、更新和文件校验逻辑。 |
 | `downloaderCoreBootstrap/` | 获取并校验网易下载核心的引导程序；不存放用户账号。 |
 | `productCatalog/` | 两服及其组件的产品目录与锁定配置。 |
-| `productManager/` | 按产品目录组织安装、更新、修复等流程，`fixtures/` 是测试样本。 |
+| `productManager/` | 按产品目录组织安装、更新、修复等流程；RC1 默认中文目录的一次性迁移同步安装记录和 prefix 链接，保留事务恢复。`fixtures/` 是测试样本。 |
 | `manifestPlanner/` | 比对远端与本地文件清单，规划下载和修复。 |
 | `runtimeManifest/` | Wine 运行环境目录、哈希和部署目标审计。 |
 | `runtimeBootstrap/` | 取得、校验和安装共享运行环境；`releasePayloads/` 是四枚按哈希锁定的**已签补丁构建输入**，不是自动生成缓存。 |
@@ -45,7 +45,7 @@ flowchart LR
 | `wineAudioInterposer/` | Wine 音频接口补丁/插桩源码与测试。 |
 | `wineAudioPatch/` | 默认设备相关源码补丁、精确来源/模块核验与隔离候选构建；`stageDefaultDeviceRuntime.command` 从已核验audio1克隆新的本地运行包，不改当前选择或启动游戏。 |
 | `wineEmojiPatch/` | 表情与文字兼容补丁；`repro/` 是复现源码和测试材料，`licenses/` 是所用数据许可。 |
-| `wineKeyboardPatch/` | 键盘映射兼容补丁源码。 |
+| `wineKeyboardPatch/` | 游戏原生辅助模块：键盘映射、音量键和随启动器语言的宿主名称；包含无窗口的名称缓存回归。 |
 | `wineMousePatch/` | 鼠标输入兼容补丁源码。 |
 | `wineNetworkInterposer/` | 网络兼容插桩源码和测试。 |
 | `diagnostics/` | **只保留产品使用的诊断导出源码与合约测试**；个人日志、截图、按日期的实机记录不在本仓。 |

@@ -3,8 +3,8 @@ import Foundation
 /// Fixed upstream component shipped by reference, never inside the app. Keep
 /// the UI/cache contract together; the build checks it against the manifest.
 enum IdvLoginRelease {
-    static let version = "6.3.1"
-    static let assetName = "idv-login-v\(version)-beta-mac"
+    static let version = "6.3.2"
+    static let assetName = "idv-login-v\(version)-stable-mac"
 
     static func isCurrent(installedVersion: String?, helperIsCurrent: Bool) -> Bool {
         installedVersion == version && helperIsCurrent

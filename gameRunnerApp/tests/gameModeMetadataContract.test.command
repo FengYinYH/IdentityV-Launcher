@@ -32,7 +32,7 @@ root = Path(sys.argv[1])
 mac = (root / 'IdentityV-Mac.app/Contents/MacOS/launchIdentityVRunner').read_text()
 agtk = (root / 'IdentityV-AGTK.app/Contents/MacOS/launchIdentityVRunner').read_text()
 assert mac == agtk
-assert mac.count('export WINEPRELOADERAPPNAME=') == 2
+assert mac.count('export WINEPRELOADERAPPNAME=') == 1
 fragment = mac.split('    (\n      # CodeWeavers', 1)[1]
 fragment = '      # CodeWeavers' + fragment.split('    ) >>"$LOG_FILE"', 1)[0]
 assert '/usr/bin/env' not in fragment
@@ -40,9 +40,9 @@ with tempfile.TemporaryDirectory(prefix='wine-menu-child-contract-') as director
     stub = Path(directory) / 'wine-stub'
     stub.write_text('#!/bin/zsh\nprint -r -- "$WINEPRELOADERAPPNAME"\nprint -r -- "$1"\n')
     stub.chmod(0o700)
-    for product, windows_root, expected in [('mainland', 'IdentityV', '第五人格'), ('global', 'IdentityVGlobal', 'Identity V')]:
+    for product, windows_root, selected, expected in [('mainland', 'IdentityV', 'Identity V', 'Identity V'), ('global', 'IdentityVGlobal', '第五人格', '第五人格'), ('global', 'IdentityVGlobal', 'invalid', '第五人格')]:
         environment = os.environ.copy()
-        environment.update(PRODUCT=product, WINDOWS_GAME_ROOT=windows_root, WINE_BIN=str(stub))
+        environment.update(PRODUCT=product, WINDOWS_GAME_ROOT=windows_root, WINE_BIN=str(stub), IDENTITYV_GAME_DISPLAY_NAME=selected)
         code = 'unset WINEPRELOADERAPPNAME\ntypeset -a hud_environment GAME_LAUNCH_ARGUMENTS\n(\n' + fragment + '\n)\nprint -r -- "parent=${WINEPRELOADERAPPNAME-unset}"\n'
         result = subprocess.run(['/bin/zsh', '-c', code], env=environment, text=True, capture_output=True, check=True)
         assert result.stdout.splitlines() == [expected, 'C:\\Games\\' + windows_root + '\\dwrg.exe', 'parent=unset'], result.stdout

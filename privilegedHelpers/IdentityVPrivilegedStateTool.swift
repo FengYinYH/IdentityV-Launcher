@@ -22,12 +22,12 @@ private let maximumStateBytes = 8 * 1_024 * 1_024
 // behavior to the original frozen module, suppress only release/hotfix offers.
 // Revalidate this hook whenever the pinned component changes (see docs).
 private let idvLoginUpdatePolicy = #"""
-# Project-owned policy for the unmodified idv-login v6.3.1-beta binary.
+# Project-owned policy for the unmodified idv-login v6.3.2-stable binary.
 import importlib.util
 import sys
 from envmgr import genv
 
-if str(genv.get("VERSION", "")) not in ("v6.3.1-beta", "v6.3.1", "6.3.1-beta", "6.3.1"):
+if str(genv.get("VERSION", "")) not in ("v6.3.2-stable", "v6.3.2", "6.3.2-stable", "6.3.2"):
     raise RuntimeError("Unsupported IDV Login version for launcher update policy")
 
 # Skip only upstream's overlay finder; the PyInstaller finder must load the

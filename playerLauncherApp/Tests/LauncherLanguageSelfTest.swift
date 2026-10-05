@@ -84,7 +84,11 @@ enum LauncherLanguageSelfTest {
             translatedLoginVersionHant == "版本 6.3.1",
             translatedUpdateNotice == "Current version 6.3.1. Automatic updates are not available yet; download the updated installer image, then quit the launcher and replace the app."
         ]
-        let checks = localeChecks + [defaultLanguage, storedLanguage, invalidValueFallsBack] + translationChecks
+        let gameNames = [LauncherLanguage.simplifiedChinese.gameDisplayName == "第五人格",
+                         LauncherLanguage.traditionalChinese.gameDisplayName == "第五人格",
+                         LauncherLanguage.english.gameDisplayName == "Identity V",
+                         LauncherLanguage.system.gameDisplayName == (LauncherLanguage.system.locale.identifier == "en" ? "Identity V" : "第五人格")]
+        let checks = localeChecks + [defaultLanguage, storedLanguage, invalidValueFallsBack] + translationChecks + gameNames
         guard checks.allSatisfy({ $0 }) else {
             FileHandle.standardError.write(Data("Launcher language self-test failed: \(checks)\n".utf8))
             exit(1)

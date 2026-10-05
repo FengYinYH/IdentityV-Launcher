@@ -562,10 +562,56 @@ private func withMutationLock<T>(_ body: () throws -> T) throws -> T {
     guard descriptor >= 0 else { throw ManagerError.message("无法建立启动器操作锁。") }
     defer { close(descriptor) }
     guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-        throw ManagerError.message("另一个安装、导入或切换操作仍在进行，请稍后重试。")
+        throw ProductMutationLockError.busy
     }
     defer { flock(descriptor, LOCK_UN) }
     return try body()
+}
+
+private enum ProductMutationLockError: LocalizedError {
+    case busy
+    var errorDescription: String? { "另一个安装、导入或切换操作仍在进行，请稍后重试。" }
+}
+
+/// Any game process blocks a directory move, including Global or multiple
+/// sessions. Unknown process-query failures also block; a missing single
+/// mainland PID is not sufficient evidence that all managed files are idle.
+private func gameIsRunningForDirectoryMigration() -> Bool {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+    process.arguments = ["-u", String(getuid()), "-f", #"(^|[\\/])dwrg[.]exe([[:space:]]|$)"#]
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    guard (try? process.run()) != nil else { return true }
+    process.waitUntilExit()
+    return process.terminationStatus != 1
+}
+
+private func defaultDirectoryMigrationRequest() -> LegacyDefaultPathMigration.Request {
+    let parent = home.appendingPathComponent("Library/Application Support", isDirectory: true)
+    return LegacyDefaultPathMigration.Request(
+        oldRoot: parent.appendingPathComponent("第五人格", isDirectory: true),
+        newRoot: parent.appendingPathComponent("IdentityV", isDirectory: true),
+        supportDirectory: supportDirectory,
+        recordFiles: [stateURL, legacyURL],
+        mountedVolume: { mountedVolumeURL(uuid: $0) },
+        isGameRunning: gameIsRunningForDirectoryMigration
+    )
+}
+
+@discardableResult
+private func migrateDefaultDirectoryIfNeeded(
+    request: LegacyDefaultPathMigration.Request = defaultDirectoryMigrationRequest()
+) throws -> LegacyDefaultPathMigration.Outcome {
+    guard LegacyDefaultPathMigration.needsMigration(request) else { return .noLegacyRoot }
+    let result = try LegacyDefaultPathMigration.run(request)
+    // A pending transaction is first rolled back, then the same real entry
+    // completes the forward move before permitting a launch. Never launch
+    // against the recovered Chinese root and defer the move to a later poll.
+    if result == .recoveredInterruptedMigration {
+        return try LegacyDefaultPathMigration.run(request)
+    }
+    return result
 }
 
 private func mountedVolumeURL(uuid: String) -> URL? {
@@ -2174,6 +2220,9 @@ private func run(_ command: String, product: ProductID) throws {
         try requireRuntimePrerequisites()
     }
     try withMutationLock {
+        if ["install", "import", "prepare-launch", "launch", "restart", "repair"].contains(command) {
+            try migrateDefaultDirectoryIfNeeded()
+        }
         var state = try loadState(); let catalog = try loadCatalog()
         guard let item = catalog.products.first(where: { $0.id == product }) else { throw ManagerError.message("未知产品。") }
         switch command {
@@ -2185,6 +2234,13 @@ private func run(_ command: String, product: ProductID) throws {
         let reporter = DownloadProgressReporter(product: product)
         guard let destinationParent = argument(after: "--destination-parent") else {
             throw ManagerError.message("安装游戏需要 --destination-parent <文件夹>。")
+        }
+        let defaultParent = home.appendingPathComponent("Library/Application Support/IdentityV", isDirectory: true)
+            .appendingPathComponent(product == .mainland ? "CN" : "Global", isDirectory: true)
+        if URL(fileURLWithPath: destinationParent).standardizedFileURL == defaultParent.standardizedFileURL {
+            // Do this after the one-time migration, under the same lock. UI
+            // preparation must not pre-create a competing IdentityV root.
+            try fileManager.createDirectory(at: defaultParent, withIntermediateDirectories: true)
         }
         if product == .mainland {
             try installDirectMainland(item, state: &state, destinationParent: destinationParent, reporter: reporter)
@@ -2225,6 +2281,12 @@ private func run(_ command: String, product: ProductID) throws {
         let process = Process()
         process.executableURL = try embeddedGameRunnerExecutable(runner: app)
         process.arguments = embeddedGameRunnerArguments(product: product)
+        // The helper is a separate executable, so read the launcher's suite
+        // explicitly and reuse its resolver instead of inferring game region.
+        var environment = ProcessInfo.processInfo.environment
+        let launcherDefaults = UserDefaults(suiteName: "com.fengyin.identityv.launcher") ?? .standard
+        environment["IDENTITYV_GAME_DISPLAY_NAME"] = LauncherLanguage.configured(from: launcherDefaults).gameDisplayName
+        process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
@@ -2764,6 +2826,16 @@ private func writeLittleEndianUInt32(_ value: UInt32, to data: inout Data, at of
 }
 
 private func runSelfTest() throws {
+    let migrationFixture = fileManager.temporaryDirectory
+        .appendingPathComponent("identityv-manager-upgrade-\(UUID().uuidString)", isDirectory: true)
+    try fileManager.createDirectory(at: migrationFixture, withIntermediateDirectories: true)
+    defer { try? fileManager.removeItem(at: migrationFixture) }
+    try LegacyDefaultPathMigrationSelfTest.run(
+        migrate: { try migrateDefaultDirectoryIfNeeded(request: $0) },
+        restore: { try LegacyDefaultPathMigration.restoreCompletedMigration($0, backup: $1) },
+        recoveryCompletesMigration: true,
+        at: migrationFixture
+    )
     var intelProbeCalls = 0
     do {
         try requireRuntimePrerequisites(majorVersion: 14) { intelProbeCalls += 1; return true }
@@ -3570,7 +3642,7 @@ private func downloadInstaller(
 
 private extension JSONEncoder { static var pretty: JSONEncoder { let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; return encoder } }
 
-private func main() throws {
+private func runMain() throws {
     let args = Array(CommandLine.arguments.dropFirst())
     guard let command = args.first else { throw ManagerError.message("用法：status --json | resolve-manifest --json | select|install|import|prepare-launch|launch|restart|repair --product mainland|global") }
     if command == "self-test" {
@@ -3620,6 +3692,19 @@ private func main() throws {
     }
     if command == "status" {
         guard args.contains("--json") else { throw ManagerError.message("status 需要 --json。") }
+        // First launch after RC1 performs the one-time move while idle. A
+        // running game or another mutation defers it without losing the old
+        // installation's readable status or interrupting an active session.
+        if LegacyDefaultPathMigration.needsMigration(defaultDirectoryMigrationRequest()),
+           !gameIsRunningForDirectoryMigration() {
+            do {
+                _ = try withMutationLock { try migrateDefaultDirectoryIfNeeded() }
+            } catch ProductMutationLockError.busy {
+                // The next normal status refresh retries after that operation.
+            } catch {
+                guard gameIsRunningForDirectoryMigration() else { throw error }
+            }
+        }
         let catalog = try loadCatalog(); let state = try loadState()
         let document = StatusDocument(schemaVersion: 1, selectedProductId: state.selectedProductId, products: catalog.products.map { status(for: $0, state: state) })
         print(String(decoding: try JSONEncoder.pretty.encode(document), as: UTF8.self)); return
@@ -3628,4 +3713,9 @@ private func main() throws {
     try run(command, product: product)
 }
 
-do { try main() } catch { fputs("\(error.localizedDescription)\n", stderr); exit(1) }
+@main
+private enum IdentityVProductManagerEntry {
+    static func main() {
+        do { try runMain() } catch { fputs("\(error.localizedDescription)\n", stderr); exit(1) }
+    }
+}

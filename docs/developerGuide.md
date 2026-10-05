@@ -6,9 +6,11 @@
 
 本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper 合约为 8；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。
 
-IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精确字节锁和许可来源；当前 6.3.1 上游标签是 beta，不能推断有 stable 资产。通常先退出游戏再运行安装器。已明确安排保留活动游戏的维护更新，可先停止登录代理，再使用安装器的 `--allow-running-game-with-stopped-proxy`；此参数仍要求代理进程和托管 hosts 均已消失，不提供活动代理绕过。具体证据与回退见[组件说明](../idvLoginComponent/README.md)。
+IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精确字节锁和许可来源；当前锁定官方 `v6.3.2-stable`，标签与资产以实际 Release 核验，不能由版本号猜测通道。通常先退出游戏再运行安装器。已明确安排保留活动游戏的维护更新，可先停止登录代理，再使用安装器的 `--allow-running-game-with-stopped-proxy`；此参数仍要求代理进程和托管 hosts 均已消失，不提供活动代理绕过。具体证据与回退见[组件说明](../idvLoginComponent/README.md)。
 
 玩家 App 的界面和调度位于 `playerLauncherApp/Sources/`。下载与校验依次由 `productCatalog/`、`productManager/`、`manifestPlanner/`、`gameDownloader/` 等模块负责；国服和国际服首装及完整性修复共用 manifest planner 与网易 `downloadIPC.exe` supervisor，国际服通过显式 `oversea` 路由保持 LoadingBay 产品身份。国际服 adapter 仍独立解析并校验官方清单及安装器地址；两服的发布事务和游戏路径绑定保持分开。共链证据及边界见[网易下载核心共链说明](downloadCoreUnification.md)。共享 Wine/DXMT 输入由 `runtimeManifest/` 与 `runtimeBootstrap/` 锁定、取得和核验。玩家点启动游戏后，内嵌的 `gameRunnerApp/IdentityV-Mac.app` 承接启动命令，调用 Wine，再进入游戏。`gameRunnerApp/IdentityV-AGTK.app` 是历史/开发模板，不在当前玩家 App 内出货。
+
+RC1 升级时，ProductManager 的状态/操作入口在空闲状态执行[默认目录一次性迁移](rc1UpgradeMigration.md)。迁移与安装操作共用受管写锁，并由独立 journal 保存小配置/链接回退；活动游戏延后迁移，读取原记录仍可识别它。新名称由现有 `wineKeyboardPatch/` 原生辅助模块在 AppKit 创建菜单前适配，原因和无窗口系统名称回归见[语言说明](launcherLocalization.md#游戏宿主菜单名称与缓存时序)。
 
 维护者工具箱的 UI、浮窗和采集在 `maintenanceToolboxApp/Sources/`，独立构建与安装。两款 App 显式编译 `sharedDiagnostics/` 的健康、采样、采集状态和受限旧偏好迁移源码；工具箱不调用玩家 App 的私有源码目录。游戏运行数据、账号、prefix 与基础 runtime 在用户环境，仓库中保存来源、版本与哈希契约，并非真实用户数据。模块的逐项归属和源码入口见[地图](../projectMap.md)。
 

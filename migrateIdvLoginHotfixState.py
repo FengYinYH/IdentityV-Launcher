@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Isolate idv-login hotfix state when switching component versions.
 
-The macOS build stores Python overlay modules outside the bundled executable.
-Upstream 6.2.3 activates every pending/applied record without checking that the
-record belongs to the running version.  Reusing a 6.1 overlay can therefore
-replace a 6.2 module with an incompatible implementation.
+The pinned 6.3.2-stable source still loads every pending/applied overlay record
+without matching its version to the running component. Reusing a 6.3.0 overlay
+can therefore replace a 6.3.2 module with an incompatible implementation.
 
 This helper preserves all non-hotfix configuration, creates recoverable
 backups, archives the old overlay, and clears only the version-scoped hotfix
@@ -165,10 +164,14 @@ def _run_self_test() -> None:
     with tempfile.TemporaryDirectory(prefix="idv-login-hotfix-migration-test-") as temporary:
         work_dir = Path(temporary)
         config = {
-            "account_records": [{"keep": "unchanged"}],
-            "game_path": "/Applications/IdentityV.app",
+            # Synthetic RC1 state proves the 6.3.0 -> 6.3.2 version-change
+            # path preserves login/config/certificate metadata while only
+            # retiring version-scoped hotfix state.
+            "account_records": [{"channel": "fixture", "record": "synthetic"}],
+            "game_path": "/fixture/IdentityV.app",
+            "certificate_state": {"fingerprint": "fixture-certificate"},
             "hotfix_probed": True,
-            "hotfix_records": {"v6.1.0-mac|cloudRes@old": {"status": "applied"}},
+            "hotfix_records": {"v6.3.0|cloudRes@old": {"status": "applied"}},
             "hotfix_pending_validate": ["old"],
             "hotfix_applied": ["old"],
             "hotfix_skipped": ["old-skipped"],
@@ -179,18 +182,30 @@ def _run_self_test() -> None:
         overlay = work_dir / "hotfix_overlay"
         overlay.mkdir()
         (overlay / "cloudRes.py").write_text("OLD = True\n", encoding="utf-8")
+        certificates = work_dir / "mitmproxy-conf"
+        certificates.mkdir()
+        (certificates / "mitmproxy-ca-cert.pem").write_text(
+            "synthetic user certificate\n", encoding="utf-8"
+        )
+        (work_dir / "root_ca_oversea_0213.pem").write_text(
+            "synthetic root certificate\n", encoding="utf-8"
+        )
 
-        result = migrate(work_dir, "6.1.0", "6.2.3", uid, gid, "TEST")
+        result = migrate(work_dir, "6.3.0", "6.3.2", uid, gid, "TEST")
         migrated = json.loads((work_dir / "config.json").read_text(encoding="utf-8"))
         assert migrated["account_records"] == config["account_records"]
         assert migrated["game_path"] == config["game_path"]
+        assert migrated["certificate_state"] == config["certificate_state"]
+        assert (certificates / "mitmproxy-ca-cert.pem").read_text(encoding="utf-8") == "synthetic user certificate\n"
+        assert (work_dir / "root_ca_oversea_0213.pem").read_text(encoding="utf-8") == "synthetic root certificate\n"
         assert not any(key in migrated for key in HOTFIX_KEYS)
         assert Path(result["config_backup"]).is_file()
         assert Path(result["overlay_backup"], "cloudRes.py").is_file()
         assert not overlay.exists()
 
-        no_op = migrate(work_dir, "6.2.3", "6.2.3", uid, gid, "TEST2")
+        no_op = migrate(work_dir, "6.3.2", "6.3.2", uid, gid, "TEST2")
         assert no_op["migrated"] is False
+        assert len(list((work_dir / "componentMigrationBackups").iterdir())) == 2
 
     with tempfile.TemporaryDirectory(prefix="idv-login-hotfix-symlink-test-") as temporary:
         work_dir = Path(temporary) / "idv-login"
@@ -200,7 +215,7 @@ def _run_self_test() -> None:
         (external_overlay / "do-not-touch.py").write_text("KEEP = True\n", encoding="utf-8")
         (work_dir / "hotfix_overlay").symlink_to(external_overlay, target_is_directory=True)
         try:
-            migrate(work_dir, "6.1.0", "6.2.3", uid, gid, "TEST3")
+            migrate(work_dir, "6.3.0", "6.3.2", uid, gid, "TEST3")
         except ValueError as error:
             assert "symbolic link" in str(error)
         else:
