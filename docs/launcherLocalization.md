@@ -30,4 +30,4 @@ CodeWeavers 26.1 的 `loader/main.c` 在 `main()` 中读取并清除 `WINEPRELOA
 
 真实签名 loader 的无 GUI `--version` 对照给出关键反证：退出时嵌入的 `CFBundleName` 已是“第五人格”，Foundation 缓存仍为旧名。注入的原生辅助模块链接 AppKit，框架在 Wine 的 `main()` 之前加载；改写映像不等于更新框架的进程内字典。因此现有辅助模块在游戏创建 `NSApplication` 前同步 CFBundle 名称/显示名称和 NSProcessInfo 进程名，保留原始 bundle ID、签名身份和上游运行包字节。只接受上述两枚名称，且仅限包含 `dwrg.exe` 参数的受管游戏进程，不给安装/配置工具改名。
 
-`wineKeyboardPatch/gameDisplayNameSelfTest.command` 编译实际生产辅助模块的适配函数，并通过 `open -g -n` 启动无窗口、禁止激活的 x86_64 probe；外部进程查询 `NSRunningApplication.localizedName`，分别要求简中/繁中共用名和英文名正确。它不打开音频流、不更改设备、不操作游戏。这比字符串/环境变量检查多验证了 AppKit/LaunchServices 的实际名称，但真实 Wine 游戏菜单仍需在最终 App 的下一次游戏启动确认。升级 Wine、框架或系统版本时应保留这层回归，不能只检查可执行映像中的 XML。
+`wineKeyboardPatch/gameDisplayNameSelfTest.command` 编译实际生产辅助模块的适配函数，并通过 `open -g -n` 启动无窗口、禁止激活的 x86_64 probe；外部进程查询 `NSRunningApplication.localizedName`，分别要求简中/繁中共用名和英文名正确。它不打开音频流、不更改设备、不操作游戏。这比字符串/环境变量检查多验证了 AppKit/LaunchServices 的实际名称；发行验收还须用最终出货 App 分别按中文和英文启动真实 Wine 游戏，核对窗口、进程名称与实际加载的辅助模块。这是独立的验证层，probe 不能替代它。升级 Wine、框架或系统版本时应保留这些回归，不能只检查可执行映像中的 XML。
