@@ -27,11 +27,11 @@
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
     <key>CFBundleVersion</key>
-    <string>6</string>
+    <string>7</string>
     <key>IdentityVReleaseVersion</key>
-    <string>1.0.0-rc.2</string>
+    <string>1.0.0-rc.3</string>
     <key>IdentityVFeedbackEmail</key>
-    <string>fengyin.apps@icloud.com</string>
+    <string>FengYinYH@icloud.com</string>
     <key>IdentityVFeedbackIssueURL</key>
     <string></string>
     <key>LSApplicationCategoryType</key>

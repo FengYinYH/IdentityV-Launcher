@@ -29,7 +29,7 @@ struct FeedbackBundle: Decodable {
 
 enum FeedbackDestination {
     static var email: String {
-        Bundle.main.object(forInfoDictionaryKey: "IdentityVFeedbackEmail") as? String ?? "fengyin.apps@icloud.com"
+        Bundle.main.object(forInfoDictionaryKey: "IdentityVFeedbackEmail") as? String ?? "FengYinYH@icloud.com"
     }
 
     static var configuredIssueURL: URL? {

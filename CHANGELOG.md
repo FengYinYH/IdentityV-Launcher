@@ -1,5 +1,13 @@
 # 版本变更记录
 
+## 1.0.0-rc.3
+
+2026-10-09
+
+### 逻辑调整
+
+问题反馈联系邮箱更新为 `FengYinYH@icloud.com`，项目公开仓库统一使用 [FengYinYH/IdentityV-Launcher](https://github.com/FengYinYH/IdentityV-Launcher)。
+
 ## 1.0.0-rc.2
 
 2026-10-05
