@@ -1085,6 +1085,19 @@ private func availableCapacity(at directory: URL) throws -> Int64 {
     return capacity
 }
 
+private func prepareDefaultInstallDirectory(product: ProductID, destinationParent: String, userHome: URL) throws {
+    let defaultParent = userHome.appendingPathComponent("Library/Application Support/IdentityV", isDirectory: true)
+        .appendingPathComponent(product == .mainland ? "CN" : "Global", isDirectory: true)
+    // Compare filesystem paths, not URL directory hints: for a missing root,
+    // Foundation infers no trailing slash from the CLI string, while the
+    // explicit directory URL has one. URL equality skipped creation (#2).
+    if URL(fileURLWithPath: destinationParent).standardizedFileURL.path == defaultParent.standardizedFileURL.path {
+        // Called after migration under the operation lock; creating this in
+        // the UI could manufacture a competing migration destination.
+        try fileManager.createDirectory(at: defaultParent, withIntermediateDirectories: true)
+    }
+}
+
 private func directInstallWorkspace(product: ProductID, destinationParent rawParent: String) throws -> DirectInstallWorkspace {
     let parent = URL(fileURLWithPath: rawParent, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL
     guard (try? parent.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
@@ -2235,13 +2248,7 @@ private func run(_ command: String, product: ProductID) throws {
         guard let destinationParent = argument(after: "--destination-parent") else {
             throw ManagerError.message("安装游戏需要 --destination-parent <文件夹>。")
         }
-        let defaultParent = home.appendingPathComponent("Library/Application Support/IdentityV", isDirectory: true)
-            .appendingPathComponent(product == .mainland ? "CN" : "Global", isDirectory: true)
-        if URL(fileURLWithPath: destinationParent).standardizedFileURL == defaultParent.standardizedFileURL {
-            // Do this after the one-time migration, under the same lock. UI
-            // preparation must not pre-create a competing IdentityV root.
-            try fileManager.createDirectory(at: defaultParent, withIntermediateDirectories: true)
-        }
+        try prepareDefaultInstallDirectory(product: product, destinationParent: destinationParent, userHome: home)
         if product == .mainland {
             try installDirectMainland(item, state: &state, destinationParent: destinationParent, reporter: reporter)
         } else {
@@ -3197,6 +3204,29 @@ private func runSelfTest() throws {
           (try? fileManager.destinationOfSymbolicLink(atPath: staleControlFixture.path)) != nil,
           (try Data(contentsOf: foreignControlTarget)) == Data("foreign".utf8) else {
         throw ManagerError.message("foreign download control link was not rejected safely")
+    }
+
+    // Exercise the actual install preparation with a fresh home, not a
+    // pre-created destination: existing directories masked issue #2.
+    let freshHome = testRoot.appendingPathComponent("fresh-install-home", isDirectory: true)
+    for product: ProductID in [.mainland, .global] {
+        let destination = freshHome.appendingPathComponent("Library/Application Support/IdentityV/\(product == .mainland ? "CN" : "Global")", isDirectory: true)
+        try prepareDefaultInstallDirectory(product: product, destinationParent: destination.path, userHome: freshHome)
+        guard fileManager.fileExists(atPath: destination.path) else {
+            throw ManagerError.message("fresh default install directory was not created: \(product.rawValue)")
+        }
+        _ = try directInstallWorkspace(product: product, destinationParent: destination.path)
+        let sentinel = destination.appendingPathComponent("preserve.txt")
+        try Data("preserve".utf8).write(to: sentinel)
+        try prepareDefaultInstallDirectory(product: product, destinationParent: destination.path, userHome: freshHome)
+        guard try Data(contentsOf: sentinel) == Data("preserve".utf8) else {
+            throw ManagerError.message("default directory preparation changed existing content")
+        }
+    }
+    let customDestination = freshHome.appendingPathComponent("custom", isDirectory: true)
+    try prepareDefaultInstallDirectory(product: .global, destinationParent: customDestination.path, userHome: freshHome)
+    guard !fileManager.fileExists(atPath: customDestination.path) else {
+        throw ManagerError.message("default directory preparation created a non-default destination")
     }
 
     let requestedParent = testRoot.appendingPathComponent("chosen-parent", isDirectory: true)

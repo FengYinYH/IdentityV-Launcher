@@ -34,6 +34,14 @@
 
 ## 本仓实现
 
+### RC4 默认目录首次创建修复（issue #2）
+
+RC3 的安装入口用 `URL` 相等判断是否应自动创建默认目录。目标尚不存在时，从 CLI 路径构造的 URL 不带目录尾斜杠，而显式 `isDirectory: true` 的默认 URL 带尾斜杠；即使 `.path` 相同，URL 仍不相等。创建被跳过后，`directInstallWorkspace` 报“所选安装位置不可用”。两服共用此入口，已有目录会掩盖该缺陷。该失败发生在目录校验，不能归因于可选登录组件或磁盘容量。
+
+RC4 改为比较标准化后的文件系统路径，保留“仅默认目录自动创建”的边界。创建仍在既有迁移之后、同一操作锁内进行，不移回 UI，以免制造 RC1 迁移目标冲突。目录准备抽成实际安装入口与自检共用的函数，避免测试另写一套判断。
+
+回归使用独立临时 home，覆盖两服缺失目录的创建及工作区校验、重复准备保留已有文件、非默认目录不自动创建。旧判断在首个国服缺失目录用例上明确失败；2026-10-15 修复后 `productManager/selfTest.command` 完整通过，包括 RC1 迁移合成测试，`git diff --check` 通过。此验证不代表用户机器上的完整国际服下载已验收，也不能解释其他兼容工具中的 LoadingBay 按钮无响应。RC3 临时办法是先创建空的默认目录再重试，无需管理员权限或安装登录组件；见 [issue #2 回复](https://github.com/FengYinYH/IdentityV-Launcher/issues/2#issuecomment-6176307723)。
+
 国际服 adapter 继续负责从 `api.loadingbay.com` 获取并校验国际服清单，包括固定产品身份、版本、文件路径、大小、MD5、XXH64、CDN 地址和操作类型。首装和修复都把经过 adapter 校验的身份及 planner 所需字段转换为共同 manifest：国际服 app ID 40 作为分发 ID，`h55naxx2gb` 作为游戏 ID，`app_content_id` 作为内容 ID，文件 XXH64 用于计划和下载后的完整性验证。
 
 共同 planner 继续拒绝不安全路径、重复文件、不支持的操作、身份不匹配或无效校验值。共同 supervisor 在任务中显式设置 `oversea=true`，最终给 `downloadIPC.exe` 传 `--oversea:1`。国际服专用 prefix、游戏路径映射、运行中进程检查、Wine 生命周期和发布恢复标记仍由产品管理器控制，下载核心只获得该 prefix 与游戏目录需要的路径。此前 `globalAdapter/download.go` 的独立直连游戏文件下载及其 supervisor 已移除，避免继续维护第二套内容传输协议；`IdentityVGlobalAdapter` 保留为国际服清单与安装器地址解析器。
