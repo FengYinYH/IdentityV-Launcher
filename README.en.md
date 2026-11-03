@@ -46,7 +46,7 @@ We make no guarantees about stability, performance, or avoiding bans. The author
 
 ## Feedback and development
 
-Project chat group 1095147832 — you're welcome to join.
+QQ group 1095147832 — you're welcome to join.
 
 The launcher can create a sanitized diagnostic bundle locally and hand it to your email app. You can review it and send it yourself; the launcher does not upload it in the background.
 
