@@ -4,6 +4,18 @@
 
 2026-11-04
 
+### 调整
+
+- 简体、繁体与英文 README 增加 QQ 交流群。
+
+### 調整
+
+- 簡體、繁體與英文 README 新增 QQ 交流群。
+
+### Changed
+
+- QQ group added to the Simplified Chinese, Traditional Chinese and English READMEs.
+
 ### 修复
 
 - 首次安装时默认目录尚不存在，导致国服或国际服提示“所选安装位置不可用”（[#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)）。
