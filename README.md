@@ -46,6 +46,8 @@ IDV Login 是非必需的可选登录组件。没有安装它也可以下载、�
 
 ## 反馈与开发
 
+项目交流群 1095147832 欢迎来玩。
+
 启动器可在本地生成脱敏诊断包，再交给邮件客户端；你可以检查内容后自行发送，启动器不会在后台上传。
 
 维护项目请从[开发者指南](docs/developerGuide.md)进入；[项目地图](projectMap.md)列出目录和脚本职责，[工程取舍](docs/engineeringDecisions.md)解释设计原因。候选细节见[语言说明](docs/launcherLocalization.md)、[两服下载共链](docs/downloadCoreUnification.md)、[IDV Login 来源与策略](docs/idvLoginSourceAudit.md)和[音频设备跟随边界](docs/audioDefaultDeviceFollowing.md)。
