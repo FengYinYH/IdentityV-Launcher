@@ -1,19 +1,29 @@
 # 版本变更记录
 
-本文件按语言依次排列：简体中文、繁體中文、English。每个版本只分「新增 / 调整 / 修复」三类。
+## 1.0.0-rc.4
 
----
+2026-11-04
 
-## 简体中文
-
-### 1.0.0-rc.4
-
-2026-11-04 公开发布。
-
-#### 修复
+### 修复
 
 - 首次安装时默认目录尚不存在，导致国服或国际服提示“所选安装位置不可用”（[#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)）。
 - 下载核心返回辅助状态码 `304` 时不再被误判为未知错误并中断下载（[#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3)）。
+
+### 修正
+
+- 首次安裝時預設目錄尚不存在，導致國服或國際服提示「所選安裝位置無法使用」（[#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)）。
+- 下載核心回傳輔助狀態碼 `304` 時，不再被誤判為未知錯誤而中斷下載（[#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3)）。
+
+### Fixed
+
+- First install no longer fails with "the selected install location is unavailable" when the default directory does not exist yet ([#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)).
+- Auxiliary status code `304` from the download core is no longer treated as an unknown error that aborts the download ([#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3)).
+
+---
+
+## 历史版本
+
+## 简体中文
 
 ### 1.0.0-rc.3
 
@@ -56,19 +66,9 @@
 - Metal FX 超分插帧支持
 - 跟随系统设置的音频设备热切换
 - 游戏多开（后续计划，非优先项）
-
 ---
 
 ## 繁體中文
-
-### 1.0.0-rc.4
-
-2026-11-04 公開發布。
-
-#### 修正
-
-- 首次安裝時預設目錄尚不存在，導致國服或國際服提示「所選安裝位置無法使用」（[#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)）。
-- 下載核心回傳輔助狀態碼 `304` 時，不再被誤判為未知錯誤而中斷下載（[#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3)）。
 
 ### 1.0.0-rc.3
 
@@ -111,19 +111,9 @@
 - Metal FX 超解析與補幀支援
 - 跟隨系統設定的音訊裝置熱切換
 - 遊戲多開（後續計畫，非優先項）
-
 ---
 
 ## English
-
-### 1.0.0-rc.4
-
-Released 2026-11-04.
-
-#### Fixed
-
-- First install no longer fails with "the selected install location is unavailable" when the default directory does not exist yet ([#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)).
-- Auxiliary status code `304` from the download core is no longer treated as an unknown error that aborts the download ([#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3)).
 
 ### 1.0.0-rc.3
 
