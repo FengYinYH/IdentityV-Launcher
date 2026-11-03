@@ -269,7 +269,7 @@ func TestProgressProtocolRejectsMalformed(t *testing.T) {
 	if validState("101") || validState("206") || validState("-1") || validState("12") {
 		t.Fatal("failure or unknown state accepted")
 	}
-	if !auxiliaryState("10") || validState("10") {
+	if !auxiliaryState("10") || !auxiliaryState("304") || validState("10") {
 		t.Fatal("opaque control acknowledgement is not isolated")
 	}
 	if !auxiliaryState("2001") || !auxiliaryState("2002") || !auxiliaryState("2005") || !auxiliaryState("2006") || auxiliaryState("2003") {

@@ -6,6 +6,8 @@
 
 修复首次安装时默认目录尚不存在，导致国服或国际服提示“所选安装位置不可用”的问题（[#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)）。
 
+下载核心返回辅助状态码 `304` 时不再被误判为未知错误并中断下载（[#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3)）。
+
 ## 1.0.0-rc.3
 
 2026-10-09
@@ -51,3 +53,4 @@ IDV-Login 支持版本更新为 6.3.2 stable，更新由启动器维护，关闭
 - UI 重构
 - Metal FX 超分插帧支持
 - 跟随系统设置的音频设备热切换
+- 游戏多开（后续计划，非优先项）

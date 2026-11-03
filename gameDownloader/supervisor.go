@@ -617,7 +617,7 @@ func auxiliaryState(v string) bool {
 	// frames. idv-login 6.2.3 ignores them; retain only bounded metadata in our
 	// JSONL stream without accepting arbitrary unknown codes.
 	switch v {
-	case "10", "2001", "2002", "2005", "2006":
+	case "10", "304", "2001", "2002", "2005", "2006":
 		return true
 	}
 	return false
