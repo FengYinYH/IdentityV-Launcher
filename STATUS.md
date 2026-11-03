@@ -1,6 +1,6 @@
 # 项目状态
 
-更新：2026-11-04。本页是状态正本，只放当前问题、方向、进度与规划；技术细节、证据和历史放到专题文档，不在这里累积。规划正本见 [开发计划](docs/developmentPlan.md)，详细核对快照与能力分层见 [状态明细](docs/statusDetails.md)，已交付变化见 [CHANGELOG](CHANGELOG.md)（[繁中](CHANGELOG.zh-Hant.md) / [English](CHANGELOG.en.md)）。
+更新：2026-11-04。本页是状态正本，只放当前问题、方向、进度与规划；技术细节、证据和历史放到专题文档，不在这里累积。规划正本见 [开发计划](docs/developmentPlan.md)，详细核对快照与能力分层见 [状态明细](docs/statusDetails.md)，已交付变化见 [CHANGELOG](CHANGELOG.md)（简中、繁中、English）。
 
 ## 当前版本与进度
 
