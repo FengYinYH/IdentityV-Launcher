@@ -1,6 +1,8 @@
 # Changelog
 
-## 1.0.0-rc.4 (unreleased)
+## 1.0.0-rc.4
+
+Released 2026-11-04.
 
 ### Bug fixes
 
