@@ -1,5 +1,7 @@
 # 开发者指南：项目框架与维护入口
 
+接手开发先读[项目状态](../STATUS.md)和[开发计划](developmentPlan.md)：分别给出已实现/待验证/未知、近期需求/未决设计及下一步。窗口与登录问题从[调查汇总](windowAndLoginInvestigation.md)续接，不依赖仓外聊天或报告。任务结束同步上述正本与相关专题；本文继续负责模块关系与构建维护顺序。
+
 这是已有 macOS 开发基础的维护者接手本仓时的路径。玩家的安装与使用看[项目首页](../README.md)；逐个顶层对象及脚本副作用看[项目地图](../projectMap.md)。本页说明模块如何协作、从哪里改、如何验证，不重复目录清单。关键取舍与兼容原因在[工程边界](engineeringDecisions.md)和[第一方身份迁移](firstPartyIdentity.md)；发行材料与签名分别有[封包](../releasePackaging/README.md)、[签名](../signing/README.md)说明。
 
 ## 运行与构建关系

@@ -48,7 +48,7 @@ We make no guarantees about stability, performance, or avoiding bans. The author
 
 The launcher can create a sanitized diagnostic bundle locally and hand it to your email app. You can review it and send it yourself; the launcher does not upload it in the background.
 
-For maintenance, start with the [developer guide](docs/developerGuide.md). The [project map](projectMap.md) lists directories and script responsibilities, and [engineering decisions](docs/engineeringDecisions.md) explains the reasoning behind the design. Candidate details are in the [localization notes](docs/launcherLocalization.md), [shared game download flow](docs/downloadCoreUnification.md), [IDV Login source and policy](docs/idvLoginSourceAudit.md), and [audio device-following limits](docs/audioDefaultDeviceFollowing.md).
+For maintenance, read the [project status](STATUS.md) and [development plan](docs/developmentPlan.md), then follow the [developer guide](docs/developerGuide.md). The [project map](projectMap.md) lists directories and script responsibilities, and [engineering decisions](docs/engineeringDecisions.md) explains the reasoning behind the design. Candidate details are in the [localization notes](docs/launcherLocalization.md), [shared game download flow](docs/downloadCoreUnification.md), [IDV Login source and policy](docs/idvLoginSourceAudit.md), and [audio device-following limits](docs/audioDefaultDeviceFollowing.md).
 
 Original code is licensed under [GPL-3.0-or-later](LICENSE). The game and third-party components follow their own licenses; see [third-party notices](notices/README.md).
 

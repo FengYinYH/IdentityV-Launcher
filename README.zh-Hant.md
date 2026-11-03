@@ -48,7 +48,7 @@ IDV Login 是非必要的選用登入元件。沒有安裝它也可以下載、�
 
 啟動器可在本機產生已脫敏的診斷封包，再交給郵件用戶端；你可以檢查內容後自行寄出，啟動器不會在背景上傳。
 
-維護專案請從[開發者指南](docs/developerGuide.md)進入；[專案地圖](projectMap.md)列出目錄和指令碼職責，[工程取捨](docs/engineeringDecisions.md)解釋設計原因。候選細節見[語言說明](docs/launcherLocalization.md)、[兩服下載共鏈](docs/downloadCoreUnification.md)、[IDV Login 來源與策略](docs/idvLoginSourceAudit.md)和[音訊裝置跟隨邊界](docs/audioDefaultDeviceFollowing.md)。
+維護專案請先讀[專案狀態](STATUS.md)和[開發計畫](docs/developmentPlan.md)，再從[開發者指南](docs/developerGuide.md)進入；[專案地圖](projectMap.md)列出目錄和指令碼職責，[工程取捨](docs/engineeringDecisions.md)解釋設計原因。候選細節見[語言說明](docs/launcherLocalization.md)、[兩服下載共鏈](docs/downloadCoreUnification.md)、[IDV Login 來源與策略](docs/idvLoginSourceAudit.md)和[音訊裝置跟隨邊界](docs/audioDefaultDeviceFollowing.md)。
 
 原創程式碼採用 [GPL-3.0-or-later](LICENSE)；遊戲及第三方元件遵循各自授權，見[第三方說明](notices/README.md)。
 

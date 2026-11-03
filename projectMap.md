@@ -1,5 +1,7 @@
 # 项目地图：第五人格启动器 · IdentityV Launcher
 
+接手入口：[项目状态](STATUS.md) → [开发计划](docs/developmentPlan.md)；相关问题的证据从[窗口与登录调查](docs/windowAndLoginInvestigation.md)进入。状态/计划在仓内维护，不依赖容器报告或个人聊天。
+
 这是供维护者查找当前源码和命令职责的结构索引；建议从[开发者指南](docs/developerGuide.md)的模块关系和维护顺序开始，再按下表定位。玩家使用入口是[项目首页](README.md)，取舍看[工程边界](docs/engineeringDecisions.md)，版本变化看[变更记录](CHANGELOG.md)。根目录 `.command`、`.py` 是可执行操作，运行效果见下表；细节仍以脚本本身为准。
 
 ```mermaid
@@ -65,6 +67,9 @@ flowchart LR
 | --- | --- |
 | `README.md` | 给玩家的产品、支持范围、安装与使用入口。 |
 | `CHANGELOG.md` | 已知版本与候选的变化、当前验收边界；未发布内容有明确标记。 |
+| `STATUS.md` | 仓内项目状态与接手正本，区分已有源码、待验证、未决和工作树快照。 |
+| `docs/developmentPlan.md` | RC4/后续需求、优先级、实施边界、验收条件的规划正本。 |
+| `docs/windowAndLoginInvestigation.md` | 窗口与登录调查的脱敏工程证据、反证、未知及下一步。 |
 | `projectMap.md` | 本页，解释当前新仓结构；顶层对象变化时一起更新。 |
 | `AGENTS.md` | 本仓开发与地图维护约定。 |
 | `LICENSE` | 原创代码许可证。 |
