@@ -61,6 +61,14 @@ RC4 改为比较标准化后的文件系统路径，保留“仅默认目录自�
 
 验证使用不依赖真实 runtime 的临时目录布局：缺失变量时仍得到正确的 `lib64`、路径逃出 runtime/缺少 GnuTLS/外来 Wine 布局均被拒、终止性辅助帧触发失败且不刷新 idle、只有辅助帧时不延长进度期限。2026-11-04 `go test -count=1 ./...`（`gameDownloader/` 包 7.999s）与 `go vet ./...` 通过，`productManager/selfTest.command` 通过。这些是 Go 侧合约测试：本机没有据此重签名、公证或重装 App，也没有跑真实 17.6 GB 国际服首装，因此用户机器上的端到端验收仍待带新签名的候选完成。
 
+### RC5 国际服安装完成后启动预检失败（2026-11-05）
+
+在源码 `b27457c` 对应的 RC5 build 9 日用候选中，国际服安装完成并发布游戏/prefix 记录后，启动仍失败；已安装运行器的 `--preflight --product global` 返回 `prefix has an invalid volume UUID`，尚未进入 Wine。原因是产品管理器的 `ProductState.installations` 类型为 `[ProductID: Installation]`，其中 `ProductID` 是枚举。Swift Codable 对这种字典编码为交替键值数组，例如 `{"installations":["mainland",{…},"global",{…}]}`；运行器却把它当作对象，固定读取 `installations.global.prefix.volumeUUID` 等路径，结果全部为空。数组顺序由字典决定，不能固定为某个索引。安装成功与此启动失败并不矛盾：管理器自己用 Codable 解码能够读回记录，跨语言的 shell 消费者才发生不匹配。
+
+修复在两份 runner 模板共用的同内容脚本中解析产品记录：数组必须是至多两组有效产品键与字典值，拒绝奇数长度、未知键和重复键，查找目标产品后再读取其 prefix/gameRoot；同时保留原有对象表示的读取能力。后续磁盘 UUID、相对路径、runtime 摘要与 prefix/gameRoot 绑定检查照常执行。保持现有持久化格式，不迁移或重写用户配置，不重新下载游戏。
+
+`gameRunnerApp/tests/gameRootBinding.test.command` 增加真实 Swift 枚举键字典编码 fixture，并覆盖国际服在数组首位/末位、仅国际服、对象表示、缺失/重复/无效记录；该脚本已在玩家完整构建的自检列表内。针对性检查通过，修复后的源码运行器对现有国际服及国服分别预检成功。这里证明的是配置读取、现有资源绑定和启动前检查；完整 App 构建、更新日用候选及从日用入口启动游戏仍须另行验收。
+
 ## 结论状态与边界
 
 - **已证实**：指定上游提交把国际服元数据、内容 ID、分发 ID 和海外标志交给同一下载核心命令接口；本仓任务结构及 supervisor 已支持 `oversea` 参数。

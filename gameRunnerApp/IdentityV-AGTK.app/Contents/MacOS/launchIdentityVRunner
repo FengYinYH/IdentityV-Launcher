@@ -72,6 +72,33 @@ plist_raw() {
   print -r -- "$value"
 }
 
+# Swift Codable writes dictionaries keyed by ProductID (an enum) as alternating
+# key/value arrays, not JSON objects. Read that persisted schema without rewriting
+# user state; also accept the object representation used by older fixtures.
+product_installation_key_path() {
+  local file="$1" product="$2" kind count index key value_index found="" seen="|"
+  kind="$(/usr/bin/plutil -type installations "$file" 2>/dev/null)" || return 1
+  if [[ "$kind" == "dictionary" ]]; then
+    [[ "$(/usr/bin/plutil -type "installations.$product" "$file" 2>/dev/null)" == "dictionary" ]] || return 1
+    print -r -- "installations.$product"
+    return 0
+  fi
+  [[ "$kind" == "array" ]] || return 1
+  count="$(plist_raw "$file" installations)" || return 1
+  [[ "$count" == <-> ]] && (( count > 0 && count <= 4 && count % 2 == 0 )) || return 1
+  for (( index = 0; index < count; index += 2 )); do
+    key="$(plist_raw "$file" "installations.$index")" || return 1
+    [[ "$key" == "mainland" || "$key" == "global" ]] || return 1
+    [[ "$seen" != *"|$key|"* ]] || return 1
+    seen+="$key|"
+    value_index=$(( index + 1 ))
+    [[ "$(/usr/bin/plutil -type "installations.$value_index" "$file" 2>/dev/null)" == "dictionary" ]] || return 1
+    [[ "$key" != "$product" ]] || found="installations.$value_index"
+  done
+  [[ -n "$found" ]] || return 1
+  print -r -- "$found"
+}
+
 validate_relative_path() {
   local relative_path="$1"
   [[ -n "$relative_path" && "$relative_path" != /* ]] || return 1
@@ -177,10 +204,11 @@ esac
 if [[ "$PRODUCT" == "global" ]]; then
   [[ -r "$PRODUCTS_FILE" ]] || abort_launcher "products.json is missing; install the global client first"
   [[ "$(plist_raw "$PRODUCTS_FILE" schemaVersion || true)" == "1" ]] || abort_launcher "unsupported products schema"
-  PREFIX_VOLUME_UUID="$(plist_raw "$PRODUCTS_FILE" "installations.global.prefix.volumeUUID" || true)"
-  PREFIX_RELATIVE_PATH="$(plist_raw "$PRODUCTS_FILE" "installations.global.prefix.relativePath" || true)"
-  GAME_VOLUME_UUID="$(plist_raw "$PRODUCTS_FILE" "installations.global.gameRoot.volumeUUID" || true)"
-  GAME_RELATIVE_PATH="$(plist_raw "$PRODUCTS_FILE" "installations.global.gameRoot.relativePath" || true)"
+  GLOBAL_INSTALLATION_KEY="$(product_installation_key_path "$PRODUCTS_FILE" global)" || abort_launcher "global installation record is missing or invalid"
+  PREFIX_VOLUME_UUID="$(plist_raw "$PRODUCTS_FILE" "$GLOBAL_INSTALLATION_KEY.prefix.volumeUUID" || true)"
+  PREFIX_RELATIVE_PATH="$(plist_raw "$PRODUCTS_FILE" "$GLOBAL_INSTALLATION_KEY.prefix.relativePath" || true)"
+  GAME_VOLUME_UUID="$(plist_raw "$PRODUCTS_FILE" "$GLOBAL_INSTALLATION_KEY.gameRoot.volumeUUID" || true)"
+  GAME_RELATIVE_PATH="$(plist_raw "$PRODUCTS_FILE" "$GLOBAL_INSTALLATION_KEY.gameRoot.relativePath" || true)"
   WINDOWS_GAME_ROOT="IdentityVGlobal"
   GAME_LAUNCH_ARGUMENTS=()
 else
