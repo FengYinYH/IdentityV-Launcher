@@ -219,7 +219,7 @@ type Supervisor struct {
 	startupTimeout time.Duration
 	idleTimeout    time.Duration
 	command        func(string, ...string) *exec.Cmd
-	environment    func(Task) []string
+	environment    func(Task) ([]string, error)
 	started        func(int) // test-only observation hook; never set by production callers
 }
 
@@ -385,7 +385,11 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	if makeEnvironment == nil {
 		makeEnvironment = controlledWineEnv
 	}
-	cmd.Env = makeEnvironment(s.task)
+	coreEnvironment, err := makeEnvironment(s.task)
+	if err != nil {
+		return err
+	}
+	cmd.Env = coreEnvironment
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// The core's stderr is intentionally discarded: it can contain untrusted paths
 	// or tokens, while this helper's stderr is reserved for generic diagnostics.
@@ -471,6 +475,8 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		idleDeadline = idleTimer.C
 	}
 	var lastSeq uint64
+	var lastAuxState string
+	var lastAuxDigest [32]byte
 	var pending *control
 	finished := false
 	var finishDeadline <-chan time.Time
@@ -481,6 +487,9 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		case <-startupDeadline:
 			return errors.New("core did not establish progress channel")
 		case <-idleDeadline:
+			if lastAuxState != "" {
+				return fmt.Errorf("core progress timed out after auxiliary state %s (payload sha256 %x)", lastAuxState, lastAuxDigest)
+			}
 			return errors.New("core progress timed out")
 		case exitErr := <-coreDone:
 			coreExited = true
@@ -535,10 +544,25 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			}
 			state := string(msg.Frames[1])
 			if auxiliaryState(state) {
-				if err := s.emitAuxiliary(state, msg.Frames[2]); err != nil {
+				payload := msg.Frames[2]
+				digest := sha256.Sum256(payload)
+				if err := s.emitAuxiliary(state, payload); err != nil {
 					return err
 				}
-				noteCoreFrame(!pausedState)
+				// Some vendor notifications are warning/progress chatter, but
+				// others carry the reason a download stopped. Abort on an
+				// explicit failure instead of leaving the UI at 0 KB; the
+				// message carries the status code and a digest, never the
+				// untrusted payload itself.
+				if auxiliaryFrameFatal(payload) {
+					return fmt.Errorf("core reported terminal auxiliary state %s (payload %d bytes, sha256 %x)", state, len(payload), digest)
+				}
+				// Auxiliary frames are not download progress. Refreshing the
+				// idle deadline here would let a core that only repeats them
+				// hang the install forever; remember the newest one for the
+				// timeout diagnostic instead.
+				lastAuxState = state
+				lastAuxDigest = digest
 				continue
 			}
 			if state == "101" || state == "206" || state == "-1" {
@@ -580,7 +604,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		}
 	}
 }
-func controlledWineEnv(task Task) []string {
+func controlledWineEnv(task Task) ([]string, error) {
 	// Never forward the launcher's complete environment to a downloaded
 	// Windows helper. These are the only host/runtime fields Wine needs for the
 	// supported CodeWeavers/Sikarugir profiles. In particular, credentials,
@@ -596,12 +620,30 @@ func controlledWineEnv(task Task) []string {
 		"WINEDEBUG", "WINEDLLOVERRIDES", "MallocNanoZone",
 	}
 	out := make([]string, 0, len(allowed)+1)
+	inheritedFallback := false
 	for _, key := range allowed {
 		if value, present := os.LookupEnv(key); present && !strings.ContainsAny(value, "\x00\r\n") {
 			out = append(out, key+"="+value)
+			if key == "DYLD_FALLBACK_LIBRARY_PATH" && value != "" {
+				inheritedFallback = true
+			}
 		}
 	}
-	return append(out, "WINEPREFIX="+task.WinePrefix)
+	// A hardened supervisor never receives DYLD_* variables: macOS clears them
+	// at exec unless the binary carries allow-dyld-environment-variables. The
+	// launcher still arms Wine with the bundled GnuTLS from <runtime>/lib64, so
+	// rebuild that path from the selected runtime rather than starting a Wine
+	// that cannot load the TLS library and then failing only at the TLS layer.
+	// The task JSON is user-writable, so the layout is re-derived and checked
+	// here instead of trusting the path it names.
+	if !inheritedFallback {
+		libraryPath, err := runtimeFallbackLibraryPath(task.WineExecutable)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, "DYLD_FALLBACK_LIBRARY_PATH="+libraryPath)
+	}
+	return append(out, "WINEPREFIX="+task.WinePrefix), nil
 }
 
 func validState(v string) bool {
@@ -622,6 +664,106 @@ func auxiliaryState(v string) bool {
 	}
 	return false
 }
+
+// runtimeFallbackLibraryPath rebuilds the DYLD fallback directory for the
+// bundled Wine runtime. The supported layout is
+//
+//	<runtime>/lib/wine/<arch>-unix/wine
+//	<runtime>/lib64/libgnutls*.dylib
+//
+// and each hop is resolved and re-checked so a task that points somewhere else
+// (or a lib64 symlinked out of the runtime) is refused with a stable message
+// instead of being forwarded to the dynamic loader.
+func runtimeFallbackLibraryPath(wineExecutable string) (string, error) {
+	if !filepath.IsAbs(wineExecutable) {
+		return "", errors.New("wine executable path is not absolute")
+	}
+	resolved, err := filepath.EvalSymlinks(wineExecutable)
+	if err != nil {
+		return "", errors.New("wine executable is not readable")
+	}
+	archDirectory := filepath.Dir(resolved)
+	wineDirectory := filepath.Dir(archDirectory)
+	libDirectory := filepath.Dir(wineDirectory)
+	runtime := filepath.Dir(libDirectory)
+	if filepath.Base(wineDirectory) != "wine" || filepath.Base(libDirectory) != "lib" ||
+		!strings.HasSuffix(filepath.Base(archDirectory), "-unix") {
+		return "", errors.New("selected wine runtime layout is not supported")
+	}
+	libraryDirectory := filepath.Join(runtime, "lib64")
+	if !pathInside(runtime, libraryDirectory) {
+		return "", errors.New("runtime library path is outside the selected runtime")
+	}
+	resolvedLibrary, err := filepath.EvalSymlinks(libraryDirectory)
+	if err != nil {
+		return "", errors.New("runtime library directory is missing")
+	}
+	if !pathInside(runtime, resolvedLibrary) {
+		return "", errors.New("runtime library directory escapes the selected runtime")
+	}
+	matches, err := filepath.Glob(filepath.Join(resolvedLibrary, "libgnutls*.dylib"))
+	if err != nil || len(matches) == 0 {
+		return "", errors.New("runtime does not provide the bundled GnuTLS library")
+	}
+	for _, candidate := range matches {
+		if info, err := os.Lstat(candidate); err == nil && info.Mode().IsRegular() {
+			return resolvedLibrary, nil
+		}
+	}
+	return "", errors.New("bundled GnuTLS library is not a regular file")
+}
+
+// pathInside reports whether candidate stays within root after cleaning.
+func pathInside(root, candidate string) bool {
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
+	if err != nil {
+		return false
+	}
+	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+// auxiliaryFrameFatal reports whether an opaque auxiliary frame declares a
+// terminal error. The vendor payload schema is undocumented, so only explicit
+// failure markers count: a false success/ok flag, a non-empty error value, or
+// a message-like field that names an error/failure. Ambiguous frames stay
+// informational; a core that only repeats them is caught by the progress idle
+// timeout rather than being guessed at here.
+func auxiliaryFrameFatal(payload []byte) bool {
+	var object map[string]json.RawMessage
+	if json.Unmarshal(payload, &object) != nil {
+		return containsFailureWord(string(payload))
+	}
+	for key, raw := range object {
+		switch strings.ToLower(key) {
+		case "success", "ok":
+			var flag bool
+			if json.Unmarshal(raw, &flag) == nil && !flag {
+				return true
+			}
+		case "error", "err":
+			var text string
+			if json.Unmarshal(raw, &text) == nil && strings.TrimSpace(text) != "" {
+				return true
+			}
+			var flag bool
+			if json.Unmarshal(raw, &flag) == nil && flag {
+				return true
+			}
+		case "message", "msg", "reason", "detail", "errmsg", "errormessage":
+			var text string
+			if json.Unmarshal(raw, &text) == nil && containsFailureWord(text) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsFailureWord(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "error") || strings.Contains(lower, "fail")
+}
+
 func readControl(path string) (control, bool, error) {
 	info, e := os.Lstat(path)
 	if os.IsNotExist(e) {

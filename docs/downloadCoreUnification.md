@@ -48,6 +48,19 @@ RC4 改为比较标准化后的文件系统路径，保留“仅默认目录自�
 
 两服游戏内容首装与修复的传输、清单扫描和下载后复验已共用。各自的安装事务、恢复证据、prefix 和最终游戏链接仍分开，因为它们绑定的是不同产品路径。这个抽取复用了现有 task `oversea` 字段、Wine prefix 准备逻辑、manifest planner 和 supervisor，不改变发布状态机。
 
+### 国际服首装 TLS 库缺失与辅助状态静默修复（issue #4）
+
+国际服首装长时间停在 0 KB 时，下载核心 stderr 出现 `inherited fallback=(null)`、`gnutls_process_attach failed to load libgnutls` 与 `notify client error, code: 304`，而监督器既不失败也不推进。根因是两层叠加：`IdentityVProductManager` 通过 `process.environment` 把 `DYLD_FALLBACK_LIBRARY_PATH=<runtime>/lib64` 交给监督器，但监督器以 Hardened Runtime 构建且未携带 `com.apple.security.cs.allow-dyld-environment-variables`，macOS 在 exec 时清空 `DYLD_*`，该变量在监督器进程内已不存在；`controlledWineEnv` 又只做白名单转发，于是 Wine 继承的是空 fallback，加载不到随 runtime 分发的 `libgnutls.30.dylib`。同一路径上，`304` 这类辅助状态只被转发给 UI 并继续等待，未参与失败判定，也不会被 idle 超时说明，因此失败被降级成无期限的 0 KB。
+
+修复分两处，都在监督器内：
+
+- 环境重建：`controlledWineEnv` 在变量缺失时从任务里已验证的 Wine 可执行文件反推 runtime，按 `<runtime>/lib/wine/<arch>-unix/wine` 与 `<runtime>/lib64/libgnutls*.dylib` 重建 fallback。每一步 `EvalSymlinks` 后再用 `pathInside` 校验仍落在该 runtime 内，并要求 GnuTLS 是常规文件；不满足时返回固定文案（`runtime library directory escapes the selected runtime`、`runtime does not provide the bundled GnuTLS library` 等），不做静默降级。任务 JSON 是用户可写文件，因此其中的路径只作为线索，最终布局由监督器重新解析和校验后决定。
+- 辅助状态：`304` 等辅助帧不再刷新 idle deadline，只记录最新的状态码与 payload sha256；终止性帧（显式 `success/ok:false`、非空 `error`、message 类字段含 error/fail、非 JSON 文本含 error/fail）立即以 `core reported terminal auxiliary state …` 失败。错误只带状态码、payload 字节数和 sha256，不带原始 payload 或本地路径，沿袭监督器 stderr 的归一化约定；产品管理器在核心非零退出时把 stderr 交给 UI，因此失败可见。语义有歧义的帧仍交给 idle 超时兜底并附上最后的辅助状态，避免把正常告警误判为失败。
+
+没有采用给监督器加 `allow-dyld` 的路线：它需要重签名、扩大环境变量注入面，且仍要信任调用方传入的外部路径，只是把信任前移。重建加校验保持 Hardened Runtime 姿态，并能对不合法布局给出可诊断的错误。代价是重建逻辑只覆盖上述已证实的 runtime 布局；布局变化时会明确失败，需要随 runtime 升级另行验证，而不是靠猜测继续。
+
+验证使用不依赖真实 runtime 的临时目录布局：缺失变量时仍得到正确的 `lib64`、路径逃出 runtime/缺少 GnuTLS/外来 Wine 布局均被拒、终止性辅助帧触发失败且不刷新 idle、只有辅助帧时不延长进度期限。2026-11-04 `go test -count=1 ./...`（`gameDownloader/` 包 7.999s）与 `go vet ./...` 通过，`productManager/selfTest.command` 通过。这些是 Go 侧合约测试：本机没有据此重签名、公证或重装 App，也没有跑真实 17.6 GB 国际服首装，因此用户机器上的端到端验收仍待带新签名的候选完成。
+
 ## 结论状态与边界
 
 - **已证实**：指定上游提交把国际服元数据、内容 ID、分发 ID 和海外标志交给同一下载核心命令接口；本仓任务结构及 supervisor 已支持 `oversea` 参数。
@@ -55,6 +68,7 @@ RC4 改为比较标准化后的文件系统路径，保留“仅默认目录自�
 - **已证实**：2026-10-05，锁定 core 在独立 RC2 Wine prefix 中真实写入国际服官方清单的 `engine_version`，58 bytes，监督器约5.621秒成功结束并报告state8。MD5 `7a761a68666930bd586153564794b365` 和XXH64 `a3ef684994e09fd0` 均通过planner复验（1/1、repairs0）；不是以CDN直连替代核心执行。任务未调用登录安装器或登录启动流程。这只覆盖一个真实文件，不等同17.6GB全新安装或所有更新操作已验收。
 
 RC2最终核验另发现产品管理器验证国际服的 `C:\\Games\\IdentityVGlobal` 映射后，却向修复任务返回固定国服根。已改成沿已验证产品返回对应Windows根；两服实际修复路径解析函数的fixture先在旧实现上失败，再在修复后通过。共享下载核心不会因此借用另一服目录。
+- **已证实（2026-11-04）**：Hardened Runtime 下监督器收不到 `DYLD_*`，由监督器反推并校验 `<runtime>/lib64` 可恢复随 runtime 分发的 GnuTLS；终止性辅助状态（如 `304`）现在会让监督器以带状态码和 payload 摘要的错误结束，而不是停在 0 KB。Go 合约测试通过；真实签名候选的端到端首装尚未执行。
 - **已推翻**：本仓此前注释把国际服下载核心协议表述为不能与国服共用。该结论与上述上游源码不符；源码证据支持首装和修复都使用下载核心，因此本次移除了重复的 global 直连文件下载器，同时保留仍承担产品解析职责的 adapter。
 - **仍未知**：当前网易二进制对国际服所有更新操作、实时服务可用性、特定网络环境与 Wine 版本的实际兼容性。源码级协议证据和 Go/Swift 合约测试不替代真实国际服下载、更新或修复回归。
 
