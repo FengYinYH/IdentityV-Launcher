@@ -1,5 +1,26 @@
 # 版本变更记录
 
+## 1.0.0-rc.5
+
+2026-11-04
+
+### 修复
+
+- 国际服首次安装长时间停在 0 KB：下载核心监督器在 Hardened Runtime 下拿不到 Wine 的 DYLD 库搜索路径，现按已选 runtime 重建 `lib64` 并校验路径归属与 GnuTLS 文件（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
+- 下载核心报告的终止性辅助状态（如 `304`）不再被静默忽略，会明确失败并显示错误；这类状态也不再延长下载进度期限。
+
+### 修正
+
+- 國際服首次安裝長時間停在 0 KB：下載核心監督器在 Hardened Runtime 下取不到 Wine 的 DYLD 函式庫搜尋路徑，現改為依已選 runtime 重建 `lib64`，並驗證路徑歸屬與 GnuTLS 檔案（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
+- 下載核心回報的終止性輔助狀態（如 `304`）不再被靜默忽略，會明確失敗並顯示錯誤；這類狀態也不再延長下載進度期限。
+
+### Fixed
+
+- First install of the global build no longer stalls at 0 KB: under Hardened Runtime the download-core supervisor lost Wine's DYLD library path, so it now rebuilds `lib64` from the selected runtime and verifies the path stays inside that runtime and contains GnuTLS ([#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)).
+- Terminal auxiliary states reported by the download core (such as `304`) are no longer swallowed silently; they fail with a visible error and no longer extend the download progress deadline.
+
+---
+
 ## 1.0.0-rc.4
 
 2026-11-04

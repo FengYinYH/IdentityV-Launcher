@@ -27,13 +27,13 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
-	<string>8</string>
+	<string>9</string>
 	<key>IdentityVFeedbackEmail</key>
 	<string>FengYinYH@icloud.com</string>
 	<key>IdentityVFeedbackIssueURL</key>
 	<string></string>
 	<key>IdentityVReleaseVersion</key>
-	<string>1.0.0-rc.4</string>
+	<string>1.0.0-rc.5</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSArchitecturePriority</key>
