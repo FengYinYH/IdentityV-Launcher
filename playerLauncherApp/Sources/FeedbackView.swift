@@ -20,6 +20,7 @@ struct FeedbackView: View {
     @State private var description = ""
     @State private var attachLogs = true
     @State private var message: String?
+    @State private var showsDiscussionGroups = false
     @State private var mailService: NSSharingService?
 
     private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -87,7 +88,10 @@ struct FeedbackView: View {
                 Button("取消") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                     .disabled(model.feedbackIsSending)
-                Button("发送反馈") { send() }
+                Button("发送反馈") {
+                    showsDiscussionGroups = true
+                    send()
+                }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSend || model.feedbackIsSending)
@@ -100,6 +104,10 @@ struct FeedbackView: View {
         }
         .padding(24).frame(width: 520)
         .interactiveDismissDisabled(model.feedbackIsSending)
+        .sheet(isPresented: $showsDiscussionGroups) {
+            FeedbackDiscussionView()
+                .environment(\.locale, LauncherLanguage.current.locale)
+        }
     }
 
     private func send() {
@@ -139,5 +147,74 @@ struct FeedbackView: View {
         service.subject = FeedbackMailComposer.subject(title: trimmedTitle, version: LauncherRelease.displayVersion)
         service.perform(withItems: items)
         message = "已打开邮件草稿，请检查内容后点“发送”。"
+    }
+}
+
+
+/// A sheet deliberately has no independent title bar or window traffic lights.
+private struct FeedbackDiscussionView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var showsCopied = false
+    @State private var copiedTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("感谢你的建议与反馈，欢迎加入讨论组。")
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button("QQ") { copyQQ() }
+                Button("Discord") { copyAndOpen(FeedbackDestination.discordURL) }
+                Button("Telegram") { copyAndOpen(FeedbackDestination.telegramURL) }
+            }
+            .buttonStyle(.bordered)
+            .tint(.gray)
+            HStack(spacing: 12) {
+                if showsCopied {
+                    Text("QQ 群号已复制到剪贴板")
+                        .font(.callout)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(.regularMaterial, in: Capsule())
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+                Spacer(minLength: 0)
+                Button("好的") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .frame(minHeight: 40)
+        }
+        .padding(24)
+        .frame(width: 440)
+        .onDisappear {
+            copiedTask?.cancel()
+            copiedTask = nil
+            showsCopied = false
+        }
+    }
+
+    private func copy(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+    }
+
+    private func copyQQ() {
+        copy(FeedbackDestination.qqGroup)
+        copiedTask?.cancel()
+        showsCopied = true
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: LauncherLanguage.current.localizedMessage("QQ 群号已复制到剪贴板"),
+                                        .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+        copiedTask = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            withAnimation(.easeOut(duration: 0.3)) { showsCopied = false }
+        }
+    }
+
+    private func copyAndOpen(_ url: URL) {
+        copy(url.absoluteString)
+        NSWorkspace.shared.open(url)
     }
 }

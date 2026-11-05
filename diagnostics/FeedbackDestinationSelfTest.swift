@@ -3,6 +3,16 @@ import Foundation
 @main
 struct FeedbackDestinationSelfTest {
     static func main() throws {
+        // Keep shipped destinations aligned with owner-maintained documentation.
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        for name in ["README.md", "README.en.md", "README.zh-Hant.md"] {
+            let readme = try String(contentsOf: root.appendingPathComponent(name), encoding: .utf8)
+            for destination in [FeedbackDestination.qqGroup, FeedbackDestination.discordURL.absoluteString,
+                                FeedbackDestination.telegramURL.absoluteString] {
+                precondition(readme.contains(destination), "Discussion destination differs from README")
+            }
+        }
+
         let base = FeedbackDestination.validatedIssueURL("https://github.com/example/launcher/issues/new")!
         precondition(FeedbackDestination.validatedIssueURL("https://github.com//example/launcher/issues/new") == nil)
         precondition(FeedbackDestination.validatedIssueURL("https://github.com/example%2Fother/launcher/issues/new") == nil)

@@ -50,7 +50,11 @@ IDV Login 是非必要的選用登入元件。沒有安裝它也可以下載、�
 
 ## 意見回饋與開發
 
-QQ 交流群 1095147832 歡迎來玩。
+##### 歡迎加入討論組：
+
+- QQ：1095147832
+- Discord：https://discord.gg/MZUxvAsH7w
+- Telegram：https://t.me/+voQtPnOjZNpkOGI1
 
 啟動器可在本機產生已脫敏的診斷封包，再交給郵件用戶端；你可以檢查內容後自行寄出，啟動器不會在背景上傳。
 

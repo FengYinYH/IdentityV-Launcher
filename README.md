@@ -50,7 +50,11 @@ IDV Login 是非必需的可选登录组件。没有安装它也可以下载、�
 
 ## 反馈与开发
 
-QQ 交流群 1095147832 欢迎来玩。
+##### 欢迎加入讨论组：
+
+- QQ：1095147832
+- Discord：https://discord.gg/MZUxvAsH7w
+- Telegram：https://t.me/+voQtPnOjZNpkOGI1
 
 启动器可在本地生成脱敏诊断包，再交给邮件客户端；你可以检查内容后自行发送，启动器不会在后台上传。
 

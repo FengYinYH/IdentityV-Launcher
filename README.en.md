@@ -50,7 +50,11 @@ We make no guarantees about stability, performance, or avoiding bans. The author
 
 ## Feedback and development
 
-QQ group 1095147832 — you're welcome to join.
+##### Welcome to the discussion groups:
+
+- QQ：1095147832
+- Discord：https://discord.gg/MZUxvAsH7w
+- Telegram：https://t.me/+voQtPnOjZNpkOGI1
 
 The launcher can create a sanitized diagnostic bundle locally and hand it to your email app. You can review it and send it yourself; the launcher does not upload it in the background.
 

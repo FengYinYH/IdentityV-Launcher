@@ -29,6 +29,11 @@ struct FeedbackBundle: Decodable {
 }
 
 enum FeedbackDestination {
+    // Public discussion destinations mirror the three README translations.
+    static let qqGroup = "1095147832"
+    static let discordURL = URL(string: "https://discord.gg/MZUxvAsH7w")!
+    static let telegramURL = URL(string: "https://t.me/+voQtPnOjZNpkOGI1")!
+
     static var email: String {
         Bundle.main.object(forInfoDictionaryKey: "IdentityVFeedbackEmail") as? String ?? "FengYinYH@icloud.com"
     }
