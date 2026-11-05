@@ -594,7 +594,7 @@ private struct LauncherStatusWindow: View {
             } else if let loginPhase = model.loginInstallPhase {
                 activeTask(title: loginPhase, detail: concurrentProductDetail ?? loginDetail)
             } else if model.productActionIsBusy, let action = model.activeProductAction, let product = model.activeProductID {
-                activeTask(title: "正在\(action.localizedTitle)\(product.localizedName)…", detail: model.loginMutationIsBusy ? "同时正在处理 idv-login 后台；请保持启动器开启。" : "请保持启动器开启，完成后会自动刷新状态。")
+                activeTask(title: "正在\(productActionTitle(action, for: product))\(product.localizedName)…", detail: model.loginMutationIsBusy ? "同时正在处理 idv-login 后台；请保持启动器开启。" : "请保持启动器开启，完成后会自动刷新状态。")
             } else if model.loginMutationIsBusy {
                 activeTask(title: loginMutationTitle, detail: "正在处理 idv-login 组件或后台状态。")
             } else if let failure = model.lastLaunchFailure {
@@ -712,9 +712,15 @@ private struct LauncherStatusWindow: View {
         if let progress = model.loginInstallProgress { return "下载进度 \(Int((progress * 100).rounded()))%" }
         return "可能需要等待系统授权或组件验证完成。"
     }
+    private func productActionTitle(_ action: GameProductAction, for product: GameProductID) -> String {
+        if action == .repair, model.products.first(where: { $0.productId == product })?.baseManifestVerified != nil {
+            return "检查游戏"
+        }
+        return action.localizedTitle
+    }
     private var concurrentProductDetail: String? {
         guard model.productActionIsBusy, let action = model.activeProductAction, let product = model.activeProductID else { return nil }
-        return "同时正在\(action.localizedTitle)\(product.localizedName)。"
+        return "同时正在\(productActionTitle(action, for: product))\(product.localizedName)。"
     }
     private var loginMutationTitle: String {
         if model.loginUninstallIsRunning { return "正在卸载 idv-login…" }
