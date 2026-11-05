@@ -25,6 +25,18 @@
 
 验证边界：对 v6.3.2-stable 源码确认仍有 `handle_update()` 调用，且 `hotfixmgr.install_import_hook()` 先于 `initialize()`；`hotfixmgr.py` 与上一锁定版一致。更新策略合约测试实际执行从 Swift 源码提取的委派代码，覆盖云端版本不变、远程 hotfix 返回空、上游更新入口被替换，以及 6.3.1-beta/未知版本拒绝。真实 6.3.0→6.3.2 迁移的隔离 fixture 实际调用迁移函数，检查合成账号/配置/证书状态保留、旧 overlay 备份、五个 hotfix 字段清除和同版本重跑无变化；它不调用系统安装器。对官方锁定资产的 CArchive/PYZ 元数据只读检查确认 Python 3.12 标记、`buildinfo.VERSION == v6.3.2-stable`，且 PYZ 目录包含普通模块条目 `cloudRes`、`hotfixmgr`、`main` 与 `buildinfo`。这说明预期冻结模块和外置策略依赖存在且字节码版本标记与策略环境匹配；没有导入或执行任何归档代码，因此不构成真实运行时加载/登录回归。详细元数据证据留在私有外盘检查记录。资产另校验大小、官方 SHA-256 与 arm64 Mach-O 头；GitHub Release tag 没有签名，依赖 HTTPS 官方 API/Release 资产 digest 和精确 hash 锁，不声称做过源签名验证。真实账号、证书链、443/Hosts 和旧安装端到端回归仍未验证。
 
+## Issue #7：system job 首次 CA 授权失败（2026-11-05 审查）
+
+[Issue #7](https://github.com/FengYinYH/IdentityV-Launcher/issues/7) 报告 macOS 26.6.2、M5、RC4/6.3.2 全新状态中，system job 首次调用 `security add-trusted-cert` 因不能进行用户交互被拒，随后 `input()` 对 `/dev/null` 读取 EOF，启动器报 IDVL-START-103。该个例日志与代码吻合，应修复；不能从一个环境推成所有 macOS 26 全新安装必定失败。本机审查环境是 macOS 27.3，未执行真实证书导入或更改信任。
+
+固定源码 `3642748dcf82c326ddb5cb657714be9a0885d7fc` 的 [main.py](https://github.com/KKeygen/idv-login/blob/3642748dcf82c326ddb5cb657714be9a0885d7fc/src/main.py) 与 [certmgr.py](https://github.com/KKeygen/idv-login/blob/3642748dcf82c326ddb5cb657714be9a0885d7fc/src/certmgr.py) 提供以下依据：`generate_certificates_if_needed` 先写 CA 和 mitmproxy 文件，再调用导入；导入失败则调用 input 后退出。`certmgr.import_to_root` 在 macOS 实际启动的是 `sudo security add-trusted-cert` 子进程，不是 Python 直接调用 SecTrust API。现有 job 由 launchd system domain 启动且 StandardInPath=/dev/null。以 AST 提取该生成函数、替换全部证书/导入操作为临时合成实现，已重现首次 EOF、CA/mitm 文件留存，第二次跳过生成且不再次导入。这个实验没有真实密钥、信任设置或网络。第二次 skip 也不证明完整证书材料齐备：上游的服务器证书生成在成功导入之后，合成失败路径中该文件尚不存在，而其缺失检测返回“不算过期”；不能只凭 skip 日志宣称健康。
+
+本项目启动 helper 在 ready 后才调用 `ensure-idv-login-ca`，首次已退出时到不了这一步。`startup_observation` 通过轮询组件子树的 security 进程判断 authorization；短命失败可能漏采，`STARTUP_AUTHORIZATION_SEEN` 仍为 0，最终落入“查看日志或重装固定组件”的通用错误。本机纯字符串运行实际 `isWithdrawnAuthorization` 函数，no-user-interaction 文案返回 false，用户取消文案返回 true；若后续 ensure 路径遇到同样错误，也不能指望现有 75 分支自动兜住。现有 readiness/job fixtures 全部通过，只证明已定义的时序与 plist/锁，不覆盖系统授权 API 在 macOS 26 的行为。
+
+**推荐分期处理**：优先增加可恢复的“首次 CA 授权尚未完成”状态，并在组件明确退出、全新且本轮刚生成的 CA 经现有 PEM/所有权校验、观察到受限的本轮信任失败证据时，允许经用户交互完成信任后最多重试一次。不要仅搜整个旧日志的 error 字符串，不把所有 103 当授权问题，不自动循环重试用户取消。要考虑授权进程完全漏采，判定依赖本轮结果与证书状态，不能只依赖 SEEN 位。长期把证书准备/授权和常驻服务就绪拆为明确阶段，但不建议现在复制上游 CA 生成格式或移动整个代理出 system job；前者耦合密钥/文件版本，后者会扩大端口、身份与生命周期改动。
+
+关键验收仍缺：启动器 → sudo -n helper 的实际 audit/UI 上下文在 macOS 26 和当前系统上能否完成系统授权。sudo 的 -n 只禁止 sudo 自己的交互，不能单凭它证明 security 对话框一定可用或一定不可用。需在获授权的隔离测试环境验证首次允许、拒绝、取消、无交互、已有但不受信任 CA、文件中途变化、服务仍存活、仅第二次才能 ready 等路径，并核对 CA 的精确公钥指纹、信任与代理就绪；不能先删除用户现有证书来制造复现。若当前 helper 上下文不能交互，再设计由前台 UI 承接授权且 root-owned helper 使用已校验公钥快照的路径。本轮仅分析，未删除证书、操作 Keychain/hosts、bootstrap 服务、重装组件或替用户登录。
+
 ## 前一锁定版记录：v6.3.1-beta
 
 2026-10-03 的上一锁定版源提交为 [`116149162aecec41c1bfa95bed7a96a7f957da8e`](https://github.com/KKeygen/idv-login/tree/116149162aecec41c1bfa95bed7a96a7f957da8e)，macOS asset 为 197,556,448 bytes，SHA-256 `c789cc56f320052419a4367fcb87971c2dd907e6af37ed8b6b1f8adb17a7bd45`。其版本、源码和资产锁与本次不同；这些值仅作历史审计，不得用于 v6.3.2-stable。

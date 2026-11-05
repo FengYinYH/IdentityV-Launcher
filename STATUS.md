@@ -13,6 +13,8 @@
 | 问题 | 状态 | 入口 |
 | --- | --- | --- |
 | 国际服安装与启动 | 本机已完成安装→日用入口启动→官方首启热更新→重开→国际服公告及标题/登录场景；账号登录、大厅/对局及中断续传仍待独立实测 | [根因与验证](docs/downloadCoreUnification.md#rc5-国际服安装完成后启动预检失败2026-11-05) |
+| 仅国际服启动后误报 299（#6 附带） | 当前 launch/restart 仍依赖旧国服 legacyBinding，建议按产品 runtime 修复；尚未改代码 | [审查与方案](docs/downloadCoreUnification.md#两种下载修法的取舍与-6-复核2026-11-05) |
+| IDV Login 全新状态首次授权失败（#7） | 报告日志与上游/helper 顺序吻合；需可恢复授权流程，macOS 26 真实交互待验 | [来源与审查](docs/idvLoginSourceAudit.md#issue-7system-job-首次-ca-授权失败2026-11-05-审查) |
 | 游戏鼠标捕捉丢失 | 2026-10-28 首次出现；指针可自由移动、`CGCursorIsVisible` 为真，Wine 约束未生效；未复现 | 待复现后记录 |
 | 账号登录面板比例偏小 | 长期报告，根因未定 | [LOGIN-01](docs/windowAndLoginInvestigation.md#login-01账号登录面板偏小) |
 | 启动窗口变大/越屏 | 10-18 冷启动复现过，最近触发未知 | [WIN-01](docs/windowAndLoginInvestigation.md#win-01启动窗口变大与越屏) |
