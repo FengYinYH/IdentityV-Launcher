@@ -1,0 +1,68 @@
+name: RC5 international announcement observation
+on:
+  push:
+    branches: [ci/rc5-global-announcement-20261105]
+permissions:
+  contents: read
+concurrency:
+  group: rc5-server-observation
+  cancel-in-progress: false
+jobs:
+  server-observation:
+    runs-on: xcode-27
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        product: [global]
+    env:
+      RC5_CANDIDATE_COMMIT: a8d27ba67b813b9a9c44d7ec99db3861e3012268
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Graphics and supervisor checks
+        run: |
+          swiftc -O releasePackaging/ciScreenClassifier.swift -o "$RUNNER_TEMP/idv-screen-classifier"
+          "$RUNNER_TEMP/idv-screen-classifier" --self-test
+          swift releasePackaging/ciGraphicsProbe.swift > "$RUNNER_TEMP/graphics-preflight.json"
+          python3 -m unittest discover -s releasePackaging/tests -p 'test_ci_full_install.py'
+          python3 -c 'import json,os; assert json.load(open(os.environ["RUNNER_TEMP"]+"/graphics-preflight.json"))["usableForGameExperiment"]'
+      - name: Fresh install and bounded observation without account or input
+        run: >-
+          python3 releasePackaging/ciFullInstall.py
+          --candidate "$RC5_CANDIDATE_COMMIT"
+          --product '${{ matrix.product }}'
+          --observe-launch
+          --observation-seconds 2400
+          --install-timeout-seconds 2700
+          --screen-classifier "$RUNNER_TEMP/idv-screen-classifier"
+          --work-root "$RUNNER_TEMP/idv-first-install"
+          --report-root "$RUNNER_TEMP/idv-first-install-report"
+      - name: Require verified restart window and announcement candidate
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          r = json.load(open(os.environ['RUNNER_TEMP'] + '/idv-first-install-report/result.json'))
+          o = r.get('launchObservation', {})
+          if not (o.get('coreVerifiedRestartWindow') and o.get('postRestartAnnouncementCandidate')):
+              raise SystemExit('Announcement target not reached: ' + o.get('stopReason', o.get('observationError', 'unknown')))
+          print('Post-restart candidate saved; actual announcement still requires visual verification.')
+          PYCODE
+      - name: Upload bounded result and milestone screenshots only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: announcement-observation-${{ matrix.product }}
+          path: |
+            ${{ runner.temp }}/idv-first-install-report/result.json
+            ${{ runner.temp }}/idv-first-install-report/game-*.png
+            ${{ runner.temp }}/graphics-preflight.json
+          retention-days: 3

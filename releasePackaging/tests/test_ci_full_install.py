@@ -12,6 +12,15 @@ spec.loader.exec_module(ci)
 
 class CIInstallTests(unittest.TestCase):
 
+    def test_authentication_stops_before_restart_and_candidates_need_verified_window(self):
+        self.assertEqual(ci.screen_action({'authenticationRequired': True}, 2, False, True), 'stop_for_user')
+        self.assertEqual(ci.screen_action({'agreementRequiresUser': True}, 2, True, True), 'stop_for_user')
+        self.assertEqual(ci.screen_action({}, 1, False, True), 'observe')
+        self.assertEqual(ci.screen_action({}, 2, False, False), 'observe')
+        self.assertEqual(ci.screen_action({}, 2, False, True), 'restart')
+        self.assertEqual(ci.screen_action({}, 2, True, True), 'stop_after_restart_candidate')
+
+
     def test_game_process_pattern_accepts_windows_paths(self):
         # Python equivalent of pgrep's POSIX whitespace class.
         pattern = ci.GAME_PROCESS_PATTERN.replace('[[:space:]]', r'\s')

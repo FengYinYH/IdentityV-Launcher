@@ -25,7 +25,9 @@ ALLOWED_DIFF = {'.github/workflows/full-install.yml', 'releasePackaging/ciFullIn
                 'releasePackaging/tests/test_ci_full_install.py', 'docs/ciWorkflow.md',
                 'docs/developerGuide.md', 'projectMap.md', 'STATUS.md',
                 '.github/workflows/game-launch.yml', 'releasePackaging/ciGraphicsProbe.swift',
-                '.github/workflows/server-install.yml', 'gameDownloader/supervisor_test.go'}
+                '.github/workflows/server-install.yml', 'gameDownloader/supervisor_test.go',
+                '.github/workflows/global-announcement.yml', 'releasePackaging/ciScreenClassifier.swift',
+                '.github/workflows/graphics-matrix.yml'}
 
 
 class ExperimentError(Exception):
@@ -208,11 +210,19 @@ def stop_owned_product(agent, product, timeout=60):
     raise ExperimentError('product_stop_still_pending')
 
 
-def observe_launch(manager, env, game, product, work, reports, result):
+def screen_action(verdict, consecutive_candidates, restarted, core_window_ready):
+    if verdict.get('authenticationRequired') or verdict.get('agreementRequiresUser'):
+        return 'stop_for_user'
+    if consecutive_candidates >= 2 and core_window_ready:
+        return 'stop_after_restart_candidate' if restarted else 'restart'
+    return 'observe'
+
+
+def observe_launch(manager, env, game, product, work, reports, result, limit=480, classifier=None):
     # This is an observation, never a declaration that the announcement is visible.
     report = {'announcementVerified': False, 'hotUpdateVerified': False,
               'accountLoginAttempted': False, 'inputEventsSent': False,
-              'observationLimitSeconds': 480, 'samples': []}
+              'observationLimitSeconds': limit, 'sampleIntervalSeconds': 15, 'screenCheckIntervalSeconds': 30, 'samples': []}
     result['launchObservation'] = report
     report['gameTreeBefore'] = game_tree_summary(game)
     started = time.monotonic()
@@ -227,10 +237,15 @@ def observe_launch(manager, env, game, product, work, reports, result):
         receipt = agent('start', 'launch', '--product', product)
         task = str(uuid.UUID(receipt['taskId']))
         report['taskId'] = task
+        report['initialLaunchTaskId'] = task
         result['gameLaunchAttempted'] = True
         next_capture = 30
         captures = 0
-        while time.monotonic() - started < 480:
+        next_check = 30
+        candidates = 0
+        restarted = False
+        schedule = [30, 120, 300, 450] if limit <= 480 else [30, 120, 300, 450, 600, 900, 1200, 1500, 1800, 2100, 2300, 2380]
+        while time.monotonic() - started < limit:
             elapsed = round(time.monotonic() - started, 2)
             free = shutil.disk_usage(work).free
             if free < 6 * GIB:
@@ -239,6 +254,9 @@ def observe_launch(manager, env, game, product, work, reports, result):
             state = agent('task', task)
             report['taskState'] = state.get('state')
             report['taskExitCode'] = state.get('exitCode')
+            if state.get('state') == 'succeeded' and state.get('exitCode') == 0:
+                report['coreVerifiedRestartWindow' if restarted else 'coreVerifiedGameWindow'] = True
+                result['gameLaunched'] = True
             if state.get('error'):
                 report['errorSummary'] = safe_text(str(state['error']))[:2048]
             pids = subprocess.run(['/usr/bin/pgrep', '-f', GAME_PROCESS_PATTERN],
@@ -247,21 +265,55 @@ def observe_launch(manager, env, game, product, work, reports, result):
                       'taskState': state.get('state')}
             report['samples'].append(sample)
             print(json.dumps({'event': 'ci-game-observation', 'product': product, **sample}), flush=True)
-            if elapsed >= next_capture and captures < 4:
-                captures += 1
-                name = 'game-' + product + '-' + str(captures) + '.png'
-                capture = subprocess.run(['/usr/sbin/screencapture', '-x', str(reports / name)],
+            if elapsed >= next_check:
+                screen = work / 'current-screen.png'
+                capture = subprocess.run(['/usr/sbin/screencapture', '-x', str(screen)],
                                          stdin=subprocess.DEVNULL, capture_output=True, timeout=15)
                 sample['screenshotExitCode'] = capture.returncode
-                if capture.returncode == 0:
+                terminal = False
+                if capture.returncode != 0 and classifier:
+                    report['stopReason'] = 'screen_observation_unavailable'
+                    break
+                if classifier and capture.returncode == 0:
+                    checked = subprocess.run([classifier, str(screen)], capture_output=True, check=True, timeout=20)
+                    verdict = json.loads(checked.stdout)
+                    sample['screen'] = verdict
+                    candidates = candidates + 1 if verdict.get('announcementCandidate') else 0
+                    action = screen_action(verdict, candidates, restarted, state.get('state') == 'succeeded' and state.get('exitCode') == 0)
+                    if action == 'stop_for_user':
+                        report['stopReason'] = 'user_authentication_or_agreement_required'
+                        terminal = True
+                    if action in ('restart', 'stop_after_restart_candidate') and not terminal:
+                        if not restarted:
+                            # A candidate is evidence to inspect, never a CI declaration of success.
+                            shutil.copyfile(screen, reports / ('game-' + product + '-before-restart.png'))
+                            report['preRestartAnnouncementCandidate'] = True
+                            receipt = agent('start', 'restart', '--product', product)
+                            task = str(uuid.UUID(receipt['taskId']))
+                            report['taskId'] = task
+                            report['restartTaskId'] = task
+                            report['restartAttempted'] = True
+                            restarted, candidates = True, 0
+                        else:
+                            report['stopReason'] = 'post_restart_announcement_candidate_requires_visual_verification'
+                            report['postRestartAnnouncementCandidate'] = True
+                            terminal = True
+                if capture.returncode == 0 and (elapsed >= next_capture or terminal):
+                    captures += 1
+                    name = 'game-' + product + '-' + str(captures) + '.png'
+                    shutil.copyfile(screen, reports / name)
                     sample['screenshot'] = name
-                next_capture = [30, 120, 300, 450][min(captures, 3)]
+                    next_capture = schedule[captures] if captures < len(schedule) else float('inf')
+                next_check = elapsed + 30
+                if terminal:
+                    break
             if state.get('state') in TERMINAL and state.get('state') != 'succeeded' and not pids and elapsed >= 30:
                 report['stopReason'] = 'launch_failed_and_no_game_process'
                 break
             time.sleep(15)
-        report['coreVerifiedGameWindow'] = report.get('taskState') == 'succeeded' and report.get('taskExitCode') == 0
-        result['gameLaunched'] = report['coreVerifiedGameWindow']
+        report.setdefault('coreVerifiedGameWindow', False)
+        report.setdefault('coreVerifiedRestartWindow', False)
+        report.setdefault('stopReason', 'observation_time_limit')
     except Exception as error:
         report['observationError'] = safe_text(str(error))[:2048]
     finally:
@@ -358,7 +410,7 @@ def experiment(args, result, checkpoint=lambda: None):
     receipt = agent('start', 'install', '--product', args.product, '--destination-parent', str(destination))
     task_id = str(uuid.UUID(receipt['taskId']))
     result['taskId'] = task_id
-    supervise(agent, task_id, disk, tasks / task_id.upper() / 'events.jsonl', result)
+    supervise(agent, task_id, disk, tasks / task_id.upper() / 'events.jsonl', result, timeout=args.install_timeout_seconds)
     result['stage'] = 'published-state'
     # Status is a small JSON document. Query the same core after the task's verified finish.
     status = subprocess.run([manager, 'status', '--json'], env=env, capture_output=True, check=True, timeout=30)
@@ -367,7 +419,7 @@ def experiment(args, result, checkpoint=lambda: None):
     result['success'] = True
     result['fullBaseManifestVerification'] = 'performed_by_successful_install_core'
     if args.observe_launch:
-        observe_launch(manager, env, game, args.product, work, Path(args.report_root), result)
+        observe_launch(manager, env, game, args.product, work, Path(args.report_root), result, args.observation_seconds, args.screen_classifier)
     disk.sample()
 
 
@@ -376,9 +428,16 @@ def main():
     parser.add_argument('--candidate', required=True)
     parser.add_argument('--product', choices=['mainland', 'global'], default='mainland')
     parser.add_argument('--observe-launch', action='store_true')
+    parser.add_argument('--observation-seconds', type=int, default=480)
+    parser.add_argument('--install-timeout-seconds', type=int, default=7200)
+    parser.add_argument('--screen-classifier')
     parser.add_argument('--work-root', required=True)
     parser.add_argument('--report-root', required=True)
     args = parser.parse_args()
+    if not 60 <= args.observation_seconds <= 2400 or not 60 <= args.install_timeout_seconds <= 7200:
+        parser.error('observation must be 60..2400 seconds and install 60..7200 seconds')
+    if args.observation_seconds > 480 and not args.screen_classifier:
+        parser.error('extended observation requires the authentication/announcement screen classifier')
     result = {'schemaVersion': 1, 'success': False, 'product': args.product,
               'gameLaunched': False, 'accountLoginAttempted': False, 'payloadUploaded': False}
     start = time.monotonic()

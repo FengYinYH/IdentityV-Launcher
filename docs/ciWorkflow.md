@@ -143,3 +143,28 @@ run42000828792驱动开始（已完成checkout、setup-go和图形检查，尚�
 两服均调用自身停止接口后结束临时job，runner按托管机制回收；没有本机删除游戏、修改日用App、main/设置/Release或上传游戏/runtime/prefix。附件只有限量结果/已过滤日志尾/四张临时游戏画面，保留3天；原始结果和截图本地留私人证据，未提交截图。风栈缓存及BWH不再准备、部署或测试，本任务此前也没有部署这些服务，不撤销用户既有配置或数据。所有本轮运行已终态，不再触发重复测试。
 
 交接：独立产品补丁global-manifest-routing-fix.patch只含一行分流修复、实际CLI正/负夹具和接口文档；另有supervisor-fixture-timing-fix.patch仅修改测试时序，两者曾在共享整合树0eef2de上git apply --check通过，未修改共享树。完整CI实验增量另行提供，正式整合时应更新冻结candidate到整合后的真实SHA，不直接照抄旧实验SHA；不把整合后不同源码视为已经获得同一次验收。
+
+
+## 国际服长观察与重启公告目标（所有者追加授权）
+
+上一轮所有job已结束，先核验无重复任务。新独立分支ci/rc5-global-announcement-20261105仅跑macOS27国际服，生产基线仍a8d27ba。job总上限120分钟，完整构建上限20分钟，首装上限45分钟，启动/热更新/一次重启观察合计上限40分钟，余量供setup/收尾；空间仍保留6GiB停止底线。不是循环运行，不新增风栈/BWH或付费runner，不修改main/发布。
+
+ciScreenClassifier.swift使用CPU Vision OCR，不控制输入。合成CAPTCHA与分类正/负自检、上一轮实际补丁截图识别已通过；沙箱不能访问Vision服务时按环境不可用处理。每30秒尝试取临时屏幕，分类调用有20秒上限，低空间、OCR/截屏不可用、账号/密码/CAPTCHA、需用户同意协议时保存现有画面并停止本产品；绝不代登录、解验证码或同意条款。只保存约12个进度里程碑及必要终态/重启前画面，重复检测图在临时目录覆盖，原始OCR文本不导出，只保留命中的固定标记。
+
+连续两次公告候选且核心确认窗口后，先保存重启前证据，只调用一次共享Agent restart；新的restart任务也必须成功验证窗口，连续两次重启后公告候选才停止。OCR只决定候选取证，不把announcementVerified设true，最终逐图视觉核验。若40分钟内无可靠完成/公告证据或出现用户交互，则报告未完成，不将超时、图形能力不足或OCR误判冒称游戏崩溃。热更新可能卡死，不能用进程存在或第一次窗口出现作为终点。
+
+### 未来四项矩阵与跨系统构建
+
+明确矩阵：macOS27/国服、macOS27/国际服、macOS15/国际服、macOS26/国际服。官方标准arm64标签为xcode-27、macos-15、macos-26；不能拿本机VM无Metal推断托管机。先用graphics-matrix.yml在15/26各跑5分钟内的Metal真实命令、display、截屏授权、CPU OCR及Rosetta探针，无游戏下载；27已有真实渲染证据，长观察仍重复前置验证。未来完整矩阵max-parallel=1，每项独立runner和新HOME/任务目录，统一目标为基础首装校验、热更新完成候选、一次重启、重启后公告截图，登录/CAPTCHA/协议即停止。
+
+15/26不能直接拿其默认旧编译器构建这份Xcode27源码并将编译失败算OS兼容问题。建议在27冻结源码构建一次，审计所有Mach-O部署目标，再共享同一SHA256和provenance的线上App构建产物给15/26执行；必须先审计归档无OfflinePayloads、游戏下载、完整Wine运行时、prefix或秘密，无法确认不上传。只传项目App及随包维护组件，游戏和运行时在各runner独立获取，不能以打包zip替代实际兼容验证。这个跨job打包步骤仍属待整合方案，尚未宣称四项完整游戏测试已执行。
+
+### 临时磁盘、缓存和产物配额
+
+[官方runner参考](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)说明标准job使用新VM，公开仓库标准runner计算免费，所列SSD规格14GB；我们的实际可用约34–35GiB不是每次容量保证。job结束临时磁盘回收，各job不累计同一游戏目录，无需人工先删国服才能给国际服腾盘。仍应每项df/实际空间门槛，不因串行就假设复用同一机器或数据。
+
+[Actions计费](https://docs.github.com/en/billing/concepts/product-billing/github-actions)区分持久存储：Artifacts与GitHub Packages共享所有者的套餐池（Free500MB、Pro1GB等），缓存另按仓库默认10GB，不是同一池；[缓存规则](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)规定7天未访问清理及容量淘汰。产物不会随job结束立刻消失，本轮设置3天后过期；删除只减少以后占用/计费，不抵消过去累计。未修改设置、额度或账单，也不删除用户其他产物。
+
+只读API本次查得本仓库1个cache共46,817,029 bytes，11个未过期artifact合计2,149,354 bytes，主要是JSON和限量截图，不含17GB游戏。当前OAuth未暴露账号plan名称，未查得账号其余仓库/Packages总量，不能以本仓库2MB断言所有者套餐剩余额度。就本轮本仓库内容无需手工释放；如账号池被其他项目占满，应由所有者在Billing核实后明确指定清理对象，不擅自删其他数据。
+
+长观察工作流另有明确目标检查：必须得到restart核心窗口成功及重启后公告候选，否则此检查步失败并保留停止原因；基础首装success字段继续单独解释。即使候选检查通过也仍须逐图视觉核验，OCR不替代公告证明。

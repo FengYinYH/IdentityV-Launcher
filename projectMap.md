@@ -145,3 +145,6 @@ flowchart LR
 - `releasePackaging/ciGraphicsProbe.swift`：托管Mac的Metal/display只读能力探针；由隔离游戏启动实验工作流调用，无游戏下载或输入操作。
 
 - `.github/workflows/server-install.yml`：隔离分支两服串行首装与有界无输入启动观察；驱动参数及验收边界见CI专题。
+
+- `releasePackaging/ciScreenClassifier.swift`、`.github/workflows/global-announcement.yml`：有界OCR登录/验证码停止与一次重启前后公告候选取证，最终仍需视觉验收。
+- `.github/workflows/graphics-matrix.yml`：macOS15/26轻量托管图形、OCR、Rosetta和磁盘探针，无游戏下载。

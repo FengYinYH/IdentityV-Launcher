@@ -1,0 +1,38 @@
+name: RC5 macOS 15 and 26 graphics readiness
+on:
+  push:
+    branches: [ci/rc5-graphics-matrix-20261105]
+permissions:
+  contents: read
+jobs:
+  readiness:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        runner: [macos-15, macos-26]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read OS disk graphics and CPU OCR capability without game downloads
+        run: |
+          mkdir "$RUNNER_TEMP/readiness"
+          sw_vers > "$RUNNER_TEMP/readiness/os.txt"
+          xcodebuild -version >> "$RUNNER_TEMP/readiness/os.txt"
+          df -k "$RUNNER_TEMP" > "$RUNNER_TEMP/readiness/disk-before.txt"
+          swift -module-cache-path "$RUNNER_TEMP/ci-module-cache" releasePackaging/ciGraphicsProbe.swift > "$RUNNER_TEMP/readiness/graphics.json"
+          swiftc -module-cache-path "$RUNNER_TEMP/ci-module-cache" -O releasePackaging/ciScreenClassifier.swift -o "$RUNNER_TEMP/ci-screen-classifier"
+          "$RUNNER_TEMP/ci-screen-classifier" --self-test > "$RUNNER_TEMP/readiness/ocr.json"
+          python3 -c 'import json,subprocess,os; r=subprocess.run(["/usr/bin/arch","-x86_64","/usr/bin/true"],timeout=5); json.dump({"rosettaProbeExitCode":r.returncode},open(os.environ["RUNNER_TEMP"]+"/readiness/intel.json","w"))'
+          du -sk "$RUNNER_TEMP/ci-module-cache" > "$RUNNER_TEMP/readiness/probe-cache-kib.txt"
+          df -k "$RUNNER_TEMP" > "$RUNNER_TEMP/readiness/disk-after.txt"
+      - name: Preserve capability facts only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graphics-readiness-${{ matrix.runner }}
+          path: ${{ runner.temp }}/readiness/
+          retention-days: 3
