@@ -32,6 +32,7 @@ trap cleanup EXIT
 /bin/cp "$CATALOG" "$TEST_BIN/products.json"
 "$MANAGER" self-test
 HOME="$TEST_HOME" "$MANAGER" status --json | /usr/bin/plutil -extract schemaVersion raw - | /usr/bin/grep -qx '1'
+HOME="$TEST_HOME" IDENTITYV_AGENT_TASK_ROOT="$TEST_ROOT/tasks" python3 "$SCRIPT_DIR/tests/managerAgent.test.py" "$MANAGER"
 # Do not exercise `select` here: it correctly refuses while a real game is
 # running, which would make this otherwise offline self-test host-dependent.
 [[ ! -e "$TEST_HOME/Library/Application Support/IdentityVOnMac/active-installation.json" ]]

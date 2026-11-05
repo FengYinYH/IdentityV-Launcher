@@ -65,3 +65,5 @@ Agent 的 `remove` 在执行核心前显示原生对话框：**「你的 Agent �
 `productManager/agentSelfTest.command` 用独立 fixture 验证运输层成功、错误/子退出码、后台进度、取消、重复 worker、UUID、日志过滤和失联状态；fixture 没有实际安装行为。`productManager/selfTest.command` 验证真实管理器与原业务回归，完整玩家构建包含新源码。真实安装/修复、控制台删除的确认/取消、无图形会话失败，以及终端退出/睡眠恢复仍须集成机验收；不以 fixture 冒充实机。GUI 当前不自动生成这些 taskId，可在下一步将其调度接入本任务协议。
 
 本轮本地验证：运输层 fixture、真实 ProductManager 自检与隔离 HOME 的 status JSON、三语237键资源、shell语法和工作流 YAML解析均通过。首次默认 sandbox 的编译缓存路径被拒绝后，将缓存放到任务临时目录重跑通过；完整构建首次在 Documents 内继承 File Provider/Finder 元数据导致 codesign 拒绝，改用无扩展属性的独立临时副本验证。没有修改已有 App 签名策略来绕过此问题。
+
+最终验证：无扩展属性的隔离副本完整玩家构建通过，包含六个 Go 模块 test/vet（按原构建覆盖）、管理器/下载核心/诊断导出/权限与来源合约、签名树验证、31枚包内 Mach-O 的14.0目标审计以及 Agent fixture；这不等于下载 runtime 或整个产品已支持 macOS14。已有登录下载器合成映像测试首次遇 hdiutil「资源暂时不可用」，单独重跑通过，随后完整构建通过，未跳过测试。对完成包的真实 ProductManager 再运行隔离 HOME 的 Agent status/JSON输出与 inspect缺参数错误/日志测试通过（`tests/managerAgent.test.py`，也纳入管理器自检入口）。构建保留原 hang-recovery 源码的 actor-isolation warnings，本轮未触碰该并行功能。候选未安装、未公证、未做真实会话删除/全量安装验收；是隔离 dirty-source 开发候选，不作为发行来源凭证。

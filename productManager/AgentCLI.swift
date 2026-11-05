@@ -87,7 +87,7 @@ enum AgentCLI {
         worker.arguments = ["agent", "worker", id]
         worker.standardInput = FileHandle.nullDevice; worker.standardOutput = FileHandle.nullDevice; worker.standardError = FileHandle.nullDevice
         do { try worker.run() }
-        catch { var record = try read(dir); record["state"] = "failed"; record["error"] = error.localizedDescription; try save(record, dir); throw error }
+        catch { var record = try read(dir); record["state"] = "failed"; record["exitCode"] = 1; record["error"] = error.localizedDescription; try save(record, dir); throw error }
         try output(["schemaVersion": 1, "taskId": id, "state": "accepted"]); return 0
     }
     static func execute(_ dir: URL, stream: Bool) throws -> Int32 {
@@ -106,13 +106,17 @@ enum AgentCLI {
         }
         func state(_ value: String) throws {
             record["state"] = value; record["updatedAt"] = Date().timeIntervalSince1970
-            try save(record, dir); try event("state", ["state": value])
+            try save(record, dir)
+            var payload: [String: Any] = ["state": value]
+            if let code = record["exitCode"] { payload["exitCode"] = code }
+            if let error = record["error"] { payload["error"] = error }
+            try event("state", payload)
         }
         let cancel = dir.appendingPathComponent("cancel-requested")
         if operation == "remove" {
             try state("awaiting_confirmation")
             guard let session = CGSessionCopyCurrentDictionary() as? [String: Any], session[kCGSessionOnConsoleKey as String] as? Bool == true else {
-                record["error"] = "confirmation_unavailable"; try state("failed"); return 1
+                record["error"] = "confirmation_unavailable"; record["exitCode"] = 1; try state("failed"); return 1
             }
             let app = NSApplication.shared; app.setActivationPolicy(.accessory); app.activate(ignoringOtherApps: true)
             let alert = NSAlert(); alert.messageText = "你的 Agent 似乎在删除游戏，确认这样操作吗？"
@@ -132,7 +136,7 @@ enum AgentCLI {
         let sources = [SIGTERM, SIGINT].map { DispatchSource.makeSignalSource(signal: $0, queue: .global()) }
         for source in sources { source.setEventHandler { try? Data().write(to: cancel, options: .atomic) }; source.resume() }
         defer { sources.forEach { $0.cancel() }; signal(SIGTERM, oldTerm); signal(SIGINT, oldInt) }
-        do { try child.run() } catch { record["error"] = error.localizedDescription; try state("failed"); return 1 }
+        do { try child.run() } catch { record["error"] = error.localizedDescription; record["exitCode"] = 1; try state("failed"); return 1 }
         try state("running")
         let reader = try FileHandle(forReadingFrom: stderrURL); defer { try? reader.close() }
         var buffer = Data(), sentCancel = false

@@ -545,6 +545,7 @@ python3 "$PROJECT_ROOT/signing/verifyFirstPartyIdentity.py" launcher "$APP_PATH"
 /bin/rm -f "$LAUNCHER_HANG_SELF_CHECK"
 
 "$PRODUCT_MANAGER_DESTINATION" self-test
+"$PROJECT_ROOT/productManager/agentSelfTest.command"
 "$DOWNLOAD_SUPERVISOR_DESTINATION" self-test
 "$MANIFEST_PLANNER_DESTINATION" self-test
 "$CORE_BOOTSTRAP_DESTINATION" self-test
