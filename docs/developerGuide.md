@@ -50,13 +50,27 @@ RC1 升级时，ProductManager 的状态/操作入口在空闲状态执行[默�
 
 第一方 bundle ID、Developer ID 签名、TCC、Keychain service/account 与用户运行数据目录分别是兼容契约。改源码目录名不自动迁移它们；需要改变身份时按[身份方案](firstPartyIdentity.md)核旧数据与恢复。已有本地候选不等于可公开发布：公开前还要审查拟推 Git refs、隐私、许可证、最终包和真实安装/游戏结果。
 
-### 自定义安装与已有目录检测（RC5 build 10 候选）
+### 自定义安装与已有目录检测（RC5）
 
-安装入口选择默认或任意可写位置，不要求空目录。检测所选根目录或 game/DWRG/IdentityV 子目录中的 dwrg.exe；存在时进入只读检测和导入确认，同步产品状态，原文件不交给下载器。非游戏的兄弟文件保留；已有非受管 game/.staging/work 事务目录不覆盖。导入按钮位于游戏位置右侧，caption 字号与 small 控件不增加主操作行。文件选择器选取 dwrg.exe 后以其父目录检测；两服现有启动契约及官方海外 startup_path 均为 dwrg.exe，不通过安装器文件名判断本体。
+游戏地址行右侧的「自定义游戏位置」复用页面其他操作按钮的 capsule/large 控件。选择器接受文件或目录：文件取所在目录（包括 dwrg.exe 和其他文件），目录取本身；共享管理核心检查该目录及 game/DWRG/IdentityV 子目录中可读取、带 MZ 头的 dwrg.exe。检测存在不代表服务器或完整性已确认。找到新位置后按所选服的官方基础清单只读检测并登记；基础清单不符仍可登记，状态明确标为完整性待确认，不修复或覆盖热更新。选择已登记的同一位置仅刷新状态（prefix 缺失仍保留受管所有权，并继续显示需要修复），保留所有权和兼容环境。
 
-`IdentityVProductManager inspect --product mainland|global --path <客户端根目录>` 按该服官方基础清单执行只读 XXH64 扫描。检测与导入仍区分基础清单不符和游戏热更新；需要确认后登记，不覆盖原文件。externalGameRoot 保留用户所有权，卸载只移除记录/prefix。路径检测 fixture、管理器的非空目录 sentinel 与事务子目录保护回归通过，完整构建最终检查通过；GUI 最终行高/文件选择器实机验收由 RC5 集成轮完成。
+未找到时显示「当前位置没有找到第五人格，是否安装」及实际 game 子目录目标；「好的」进入正常安装，「取消」不创建目录、不变更记录。默认目录初次不存在仍交给管理器完成 RC1 迁移与创建，避免 GUI 提前制造迁移冲突。安装目标可有无关兄弟文件，受保护的 game/.staging/work 事务目录不覆盖。外部导入保留 externalGameRoot 语义，卸载不删除原游戏文件，修复不降级覆盖它。
+
+共享接口 `IdentityVProductManager resolve-location --json --product mainland|global --path <现存文件或目录>` 为只读、离线位置解析，返回 schemaVersion、productId、selectedPath、selectionKind、installDirectory、found、可选 gameRoot 和 alreadyRegistered；只解析位置，不下载清单、不创建目录。`inspect --json --product … --path <直接含 dwrg.exe 的目录>` 执行官方基础清单 XXH64 校验；检测范围不包含全部热更新、账号或登录状态。Agent 调用同一核心，见 [CLI契约](agentCLI.md)。文件/目录、其他文件父目录、无游戏、坏头、另一服与同路径绑定、缺失位置及 sentinel 不变更均纳入管理器自检；GUI 选择取消、安装确认和最终三语言布局由整体验收验证。
 
 
 ### macOS 14 与部署目标审计
 
 第一方 App 的构建通过不涵盖首次下载的 runtime；完整槽须用 `runtimeManifest/auditMachODeploymentTargets.command` 单独扫描。该命令解析输入根的符号链接并拒绝零文件，symlink/empty-root 回归已纳入玩家 App 构建。当前 DXMT Unixlib 仍为 macOS15，因此不能仅修改 Info.plist 或 runtime minimumMacOS 来宣称14支持。独立重建与VM/真实GPU验收矩阵见 [DXMT兼容专题](../runtimeManifest/dxmt080MacOS14Compatibility.md)。
+
+### Agent 与自动化入口
+
+`productManager/AgentCLI.swift` 为同一 ProductManager 可执行文件的 `agent` 子命令，管理任务记录/事件/输出并重新进入原核心操作；不另写安装器。`productManager/agentSelfTest.command` 用无副作用 fixture 验证运输层。完整构建编译新源码；CI workflow 保留在独立候选，因权限阻碍未纳入本轮接口整合，不发布 App。操作示例、真实日志/历史诊断区别及未接入能力看[CLI契约](agentCLI.md)，runner资源与协作流程看[CI调查](ciWorkflow.md)。集成时先核对本轮候选分支与并行 RC5 文件改动，禁止直接覆盖他人源码或正本记录。
+
+RC5交付必须同时包含Agent接口和本版文档；完整构建将`docs/agentCLI.md`放入App Resources的`agent-cli.md`，`agent help`给出实际路径/可读性，`agent docs`直接返回Markdown文本。以后新增业务功能同步接口/状态/错误/文档及验证，遵循AGENTS的新规范。CI工作流调整单独推进，不把首次远端CI配置列为RC5的额外发布门。
+
+首次托管CI试验可用临时ci/**分支push自动触发，无需预注册workflow_dispatch或持久runner；具体远端操作先报告。模块`productManager/selfTest.command --network-smoke`会在默认离线合约后，经同一核心请求两服官方安装器地址的小型元数据，不下载载荷；不带该选项仍不请求官方网络。初次检查只读API确认Actions已启用、默认token只读，尚未实际推送/运行托管job。
+
+IDV Login 的固定清单用于下载校验；安装状态、可选版本更新和 helper 修复独立判断。状态工具启动准备会移除历史项目禁更新记录，保留其他上游记录，见[来源审计](idvLoginSourceAudit.md#取消强制更新与历史更新阻断2026-11-05)。
+
+玩家帮助菜单可读取随包 Agent 文档和复制 `Contents/Resources/idv help` 命令；`productManager/idv` 由玩家构建按755复制。它只添加 agent 前缀，不执行全局安装。删除确认展示核心预检的真实游戏位置及删除项，核心在修改锁内验证预览指纹后才停止进程/删除，避免确认期间绑定变化。CLI和GUI共用位置解析；更改这些契约时同时跑管理器与Agent自检。

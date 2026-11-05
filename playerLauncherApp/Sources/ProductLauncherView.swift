@@ -234,13 +234,14 @@ struct ProductLauncherView: View {
                 loginStatus
             }
             HStack(spacing: 10) {
-                if !model.loginComponentIsInstalled {
-                    Button(model.loginComponentNeedsUpdate ? "更新" : "安装", action: model.installLoginComponent)
+                if !model.loginComponentIsInstalled || model.loginComponentNeedsUpdate || model.loginHelperNeedsRepair {
+                    Button(model.loginComponentIsInstalled ? (model.loginHelperNeedsRepair ? "修复" : "更新") : "安装", action: model.installLoginComponent)
                         .buttonStyle(.borderedProminent)
                         .buttonBorderShape(.capsule)
                         .controlSize(.large)
                         .disabled(model.loginMutationIsBusy)
-                } else {
+                }
+                if model.loginComponentIsInstalled || model.runtimeStatus.loginIsActive {
                     Button("启动", action: model.openLogin)
                         .buttonStyle(.borderedProminent)
                         .buttonBorderShape(.capsule)
@@ -273,7 +274,7 @@ struct ProductLauncherView: View {
                     .foregroundStyle(model.loginComponentIsInstalled ? Color.primary : Color.secondary)
                 Spacer(minLength: 12)
                 Toggle("跟随游戏启动", isOn: Binding(
-                    get: { model.loginComponentNeedsUpdate ? model.idvLoginEnabled : (model.loginComponentIsInstalled ? model.idvLoginEnabled : false) },
+                    get: { model.loginComponentIsInstalled ? model.idvLoginEnabled : false },
                     set: setFollowGameEnabled
                 ))
                 .labelsHidden()
@@ -282,7 +283,7 @@ struct ProductLauncherView: View {
                 .disabled(model.loginComponentIsInstalled && model.loginMutationIsBusy)
                 .help(model.loginComponentIsInstalled
                     ? LauncherLanguage.current.localized("启动或重启游戏时先准备 idv-login")
-                    : (model.loginComponentNeedsUpdate ? LauncherLanguage.current.localized("更新 idv-login 后恢复跟随启动") : LauncherLanguage.current.localized("安装 idv-login 后即可启用")))
+                    : LauncherLanguage.current.localized("安装 idv-login 后即可启用"))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
@@ -322,8 +323,11 @@ struct ProductLauncherView: View {
         }
     }
     private var loginStatusPresentation: (title: String, symbol: String, color: Color) {
-        if model.loginComponentNeedsUpdate { return ("需要更新", "arrow.triangle.2.circlepath.circle.fill", .orange) }
-        if model.runtimeStatus.loginIsActive { return ("运行中", "checkmark.circle.fill", .green) }
+        if model.runtimeStatus.loginReadinessProblem { return ("配置异常", "exclamationmark.triangle.fill", .orange) }
+        if model.runtimeStatus.loginProxyReady { return ("运行中", "checkmark.circle.fill", .green) }
+        if model.runtimeStatus.loginProcessStarting { return ("正在启动", "hourglass", .blue) }
+        if model.loginHelperNeedsRepair { return ("需要修复", "exclamationmark.triangle.fill", .orange) }
+        if model.loginComponentNeedsUpdate { return ("可更新", "arrow.triangle.2.circlepath.circle.fill", .orange) }
         if model.loginComponentIsInstalled { return ("已安装", "checkmark.circle.fill", .blue) }
         return ("未安装", "arrow.down.circle.fill", .secondary)
     }
@@ -444,15 +448,7 @@ private struct ProductPanel: View {
                     .textSelection(.enabled)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                if GameProductActionPolicy.actions(for: product.state, product: product.productId, canRemove: product.canRemove).contains(.importExisting) {
-                    Button { action(.importExisting) } label: {
-                        Text(LocalizedStringKey(LauncherLanguage.current.localized("导入已有客户端")))
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(isAnyActionBusy || isBusy(.importExisting))
-                }
+                actionButton(.importExisting)
             }
         }
         .padding(14)

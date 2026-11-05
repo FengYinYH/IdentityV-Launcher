@@ -358,7 +358,19 @@ private func supervisorManifestFraction(
 
 private enum ManagerError: LocalizedError {
     case message(String)
-    var errorDescription: String? { if case .message(let text) = self { return text }; return nil }
+    case cancelled(String)
+    var errorDescription: String? {
+        switch self {
+        case .message(let text), .cancelled(let text): return text
+        }
+    }
+}
+
+/// Exit 130 is reserved for an explicitly observed interruption after waiting
+/// for the exact child. It describes cancellation, not an installation rollback.
+private func managerExitCode(for error: Error) -> Int32 {
+    if let managerError = error as? ManagerError, case .cancelled = managerError { return 130 }
+    return 1
 }
 
 private let fileManager = FileManager.default
@@ -685,6 +697,48 @@ private func gameExecutable(in root: URL, validateHeader: Bool = false) -> URL? 
     }.first
 }
 
+/// Location selection is read-only and shared by GUI and Agent. Detection is
+/// existence/header checking, not a claim about server or content integrity.
+private struct GameLocationResolution: Codable {
+    let schemaVersion: Int
+    let productId: ProductID
+    let selectedPath: String
+    let selectionKind: String
+    let installDirectory: String
+    let found: Bool
+    let gameRoot: String?
+    let alreadyRegistered: Bool
+}
+
+private func registeredGameRoot(_ root: URL, product: ProductID, state: ProductState) -> Bool {
+    guard let installation = state.installations[product],
+          let recorded = installation.gameRoot.flatMap(resolve),
+          recorded.resolvingSymlinksInPath().standardizedFileURL == root.resolvingSymlinksInPath().standardizedFileURL else { return false }
+    return true
+}
+
+private func resolveGameLocation(path: String, product: ProductID, state: ProductState) throws -> GameLocationResolution {
+    let selected = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+    let values = try selected.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+    guard values.isDirectory == true || values.isRegularFile == true,
+          fileManager.isReadableFile(atPath: selected.path) else {
+        throw ManagerError.message("请选择可读取的文件或目录。")
+    }
+    let directory = values.isDirectory == true ? selected : selected.deletingLastPathComponent()
+    guard fileManager.isReadableFile(atPath: directory.path) else { throw ManagerError.message("所选位置的目录不可读取。") }
+    var found: URL?
+    for relative in ["", "game", "DWRG", "IdentityV"] {
+        let root = (relative.isEmpty ? directory : directory.appendingPathComponent(relative, isDirectory: true)).resolvingSymlinksInPath().standardizedFileURL
+        if let executable = gameExecutable(in: root, validateHeader: true), executable.deletingLastPathComponent() == root {
+            found = root; break
+        }
+    }
+    return GameLocationResolution(schemaVersion: 1, productId: product, selectedPath: selected.path,
+        selectionKind: values.isDirectory == true ? "directory" : "file", installDirectory: directory.path,
+        found: found != nil, gameRoot: found?.path,
+        alreadyRegistered: found.map { registeredGameRoot($0, product: product, state: state) } ?? false)
+}
+
 private func status(for product: CatalogProduct, state: ProductState) -> StatusProduct {
     guard let installation = state.installations[product.id] else {
         return StatusProduct(productId: product.id, state: "not-installed", installedVersion: nil, detail: "未安装；可下载官方游戏内容。", canRemove: false)
@@ -942,6 +996,65 @@ private func removalItems(for product: ProductID, state: ProductState) throws ->
         items.append(ManagedRemovalItem(kind: .installer, url: installer))
     }
     return items
+}
+
+private struct RemovalPreview: Codable {
+    struct Target: Codable {
+        let kind: String
+        let path: String
+    }
+    let schemaVersion: Int
+    let productId: ProductID
+    let gamePath: String?
+    let externalGameRoot: Bool
+    let targets: [Target]
+    let removalToken: String
+
+    /// The token binds the confirmation to these displayed addresses and
+    /// ownership semantics, never to mutable file contents or a process PID.
+    struct Fingerprint: Encodable {
+        let schemaVersion: Int
+        let productId: ProductID
+        let gamePath: String?
+        let externalGameRoot: Bool
+        let targets: [Target]
+    }
+}
+
+/// A read-only view of the same preflight used by removal. This is display
+/// data, not authorization: remove resolves and validates its targets again.
+private func removalPreview(for product: ProductID, state: ProductState) throws -> RemovalPreview {
+    let items = try removalItems(for: product, state: state)
+    guard !items.isEmpty else {
+        throw ManagerError.message("没有可验证的受管游戏文件；未执行清除。")
+    }
+    let targets = items.map { item -> RemovalPreview.Target in
+        let kind: String
+        switch item.kind {
+        case .gameRoot: kind = "gameRoot"
+        case .prefix: kind = "prefix"
+        case .installer: kind = "installer"
+        }
+        return RemovalPreview.Target(kind: kind, path: item.url.resolvingSymlinksInPath().standardizedFileURL.path)
+    }
+    let installation = state.installations[product]
+    let gamePath = installation?.gameRoot.flatMap(resolve)?.resolvingSymlinksInPath().standardizedFileURL.path
+    let external = installation?.externalGameRoot == true
+    let content = RemovalPreview.Fingerprint(schemaVersion: 1, productId: product,
+        gamePath: gamePath, externalGameRoot: external, targets: targets)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let token = SHA256.hash(data: try encoder.encode(content)).map { String(format: "%02x", $0) }.joined()
+    return RemovalPreview(schemaVersion: 1, productId: product, gamePath: gamePath,
+        externalGameRoot: external, targets: targets, removalToken: token)
+}
+
+/// Called under the product mutation lock before stopping a process or moving
+/// files. A confirmation for an old binding must never authorize a new path.
+private func validateRemovalToken(_ expected: String, product: ProductID, state: ProductState) throws {
+    guard expected.count == 64, expected == (try removalPreview(for: product, state: state)).removalToken else {
+        throw ManagerError.message("删除目标已变化或确认标记无效；未结束游戏或清除文件，请重新确认。")
+    }
 }
 
 private func installerRemovalURL(for product: ProductID, installation: Installation) throws -> URL? {
@@ -1600,7 +1713,7 @@ private func runSupervisorStreaming(
     let trailingErrors = stderr.fileHandleForReading.readDataToEndOfFile()
     if !trailingErrors.isEmpty { lock.lock(); appendBounded(trailingErrors, to: &diagnostics, limit: 256 * 1_024); lock.unlock() }
     interruptLock.lock(); let wasInterrupted = interrupted; interruptLock.unlock()
-    if wasInterrupted { throw ManagerError.message("游戏下载已取消；已请求收束下载进程。") }
+    if wasInterrupted { throw ManagerError.cancelled("游戏下载已取消。") }
     guard process.terminationStatus == 0 else {
         lock.lock(); let text = String(decoding: diagnostics, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines); lock.unlock()
         throw ManagerError.message(text.isEmpty ? "游戏下载核心未正常完成。" : text)
@@ -2038,7 +2151,7 @@ private func runRuntimeBootstrapStreaming(_ bootstrap: URL, manifest: URL, desti
     stdout.fileHandleForReading.readabilityHandler = nil
     _ = stdout.fileHandleForReading.readDataToEndOfFile()
     interruptLock.lock(); let wasInterrupted = interrupted; interruptLock.unlock()
-    if wasInterrupted { throw ManagerError.message("Wine 运行时准备已取消；临时下载与挂载已收束。") }
+    if wasInterrupted { throw ManagerError.cancelled("Wine 运行时准备已取消。") }
     guard process.terminationStatus == 0 else {
         lock.lock(); let text = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines); lock.unlock()
         throw ManagerError.message(text.isEmpty ? "Wine 运行时准备失败。" : text)
@@ -2294,6 +2407,13 @@ private func run(_ command: String, product: ProductID) throws {
         print("\(item.displayName)游戏本体已安装并校验完成。")
     case "import":
         guard let raw = argument(after: "--path") else { throw ManagerError.message("导入需要 --path <客户端目录>。") }
+        let selected = try resolveGameLocation(path: raw, product: product, state: state)
+        if selected.alreadyRegistered {
+            // Re-selecting the managed root must not turn launcher-owned bytes
+            // into an external import or replace its working Wine prefix.
+            print("当前位置已登记，保留现有游戏与兼容环境；完整性状态不变。")
+            return
+        }
         let checked = try inspectExistingGame(item, path: raw)
         guard checked.summary.valid || CommandLine.arguments.contains("--accept-base-mismatch") else { throw ManagerError.message(inspectionDescription(checked)) }
         for (otherProduct, other) in state.installations where otherProduct != product {
@@ -2394,6 +2514,12 @@ private func run(_ command: String, product: ProductID) throws {
         let result = try stopManagedGame(for: product, state: state)
         print(result.isEmpty ? "已结束\(item.displayName)游戏进程；IDV Login 保持运行。" : result)
     case "remove":
+        if CommandLine.arguments.contains("--expected-removal-token") {
+            guard let expected = argument(after: "--expected-removal-token") else {
+                throw ManagerError.message("删除确认标记缺失；未结束游戏或清除文件。")
+            }
+            try validateRemovalToken(expected, product: product, state: state)
+        }
         // An unverified product has no trusted process identity yet.  It may
         // still have downloaded/imported files that the player wants removed;
         // do not turn that cleanup into a false claim over the other product's
@@ -2942,6 +3068,47 @@ private func writeLittleEndianUInt32(_ value: UInt32, to data: inout Data, at of
 }
 
 private func runSelfTest() throws {
+    guard managerExitCode(for: ManagerError.cancelled("fixture cancellation")) == 130,
+          ManagerError.cancelled("fixture cancellation").localizedDescription == "fixture cancellation",
+          managerExitCode(for: ManagerError.message("游戏下载已取消。")) == 1,
+          managerExitCode(for: NSError(domain: "cancelled", code: 130)) == 1 else {
+        throw ManagerError.message("typed cancellation exit-code contract failed")
+    }
+    let locationFixture = fileManager.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("identityv-location-\(UUID().uuidString)", isDirectory: true)
+    try fileManager.createDirectory(at: locationFixture, withIntermediateDirectories: false)
+    defer { try? fileManager.removeItem(at: locationFixture) }
+    let unrelated = locationFixture.appendingPathComponent("keep.txt")
+    try Data("unchanged".utf8).write(to: unrelated)
+    for product in ProductID.allCases {
+        let empty = try resolveGameLocation(path: unrelated.path, product: product, state: ProductState())
+        guard !empty.found, empty.selectionKind == "file", empty.installDirectory == locationFixture.path else { throw ManagerError.message("non-game file resolution failed") }
+    }
+    let gameFolder = locationFixture.appendingPathComponent("game", isDirectory: true)
+    try fileManager.createDirectory(at: gameFolder, withIntermediateDirectories: false)
+    let exe = gameFolder.appendingPathComponent("dwrg.exe")
+    try Data("invalid".utf8).write(to: exe)
+    guard try !resolveGameLocation(path: locationFixture.path, product: .global, state: ProductState()).found else { throw ManagerError.message("invalid game header accepted") }
+    try Data("MZfixture".utf8).write(to: exe)
+    let sibling = gameFolder.appendingPathComponent("settings.ini")
+    try Data("keep".utf8).write(to: sibling)
+    let prefix = locationFixture.appendingPathComponent("prefix", isDirectory: true)
+    try fileManager.createDirectory(at: prefix, withIntermediateDirectories: false)
+    var installation = Installation(gameRoot: try makeLocation(gameFolder), prefix: try makeLocation(prefix))
+    installation.externalGameRoot = false
+    let registered = ProductState(installations: [.global: installation])
+    let registrationBefore = try JSONEncoder.pretty.encode(registered)
+    for selected in [locationFixture, gameFolder, exe, sibling] {
+        let result = try resolveGameLocation(path: selected.path, product: .global, state: registered)
+        guard result.found, result.gameRoot == gameFolder.path, result.alreadyRegistered else { throw ManagerError.message("file/directory registered game resolution failed") }
+        guard try !resolveGameLocation(path: selected.path, product: .mainland, state: registered).alreadyRegistered else { throw ManagerError.message("other product registration leaked") }
+    }
+    var missingPrefix = installation
+    missingPrefix.prefix = nil
+    let missingPrefixState = ProductState(installations: [.global: missingPrefix])
+    guard try resolveGameLocation(path: gameFolder.path, product: .global, state: missingPrefixState).alreadyRegistered else { throw ManagerError.message("missing prefix lost managed ownership") }
+    var rejectedMissing = false
+    do { _ = try resolveGameLocation(path: locationFixture.appendingPathComponent("missing").path, product: .global, state: ProductState()) } catch { rejectedMissing = true }
+    guard rejectedMissing, try JSONEncoder.pretty.encode(registered) == registrationBefore, registered.installations[.global]?.externalGameRoot == false, try Data(contentsOf: unrelated) == Data("unchanged".utf8), try Data(contentsOf: sibling) == Data("keep".utf8) else { throw ManagerError.message("location detection changed files or accepted missing path") }
     let legacyWineA = URL(fileURLWithPath: "/fixture/runtime-A/bin/wine")
     let sharedWineB = URL(fileURLWithPath: "/fixture/runtime-B/bin/wine")
     let installationFixture = Installation()
@@ -3268,6 +3435,51 @@ private func runSelfTest() throws {
           removal.contains(where: { $0.kind == .prefix }),
           try Data(contentsOf: preserved) == Data("private fixture".utf8) else {
         throw ManagerError.message("Imported tree ownership boundary failed")
+    }
+
+    let externalPreview = try removalPreview(for: .global, state: importState)
+    guard externalPreview.schemaVersion == 1, externalPreview.productId == .global,
+          externalPreview.gamePath == externalRoot.resolvingSymlinksInPath().standardizedFileURL.path,
+          externalPreview.externalGameRoot, externalPreview.targets.count == 1,
+          externalPreview.targets.first?.kind == "prefix",
+          externalPreview.targets.first?.path == externalPrefix.resolvingSymlinksInPath().standardizedFileURL.path else {
+        throw ManagerError.message("external removal preview ownership boundary failed")
+    }
+    var managedPreviewState = importState
+    managedPreviewState.installations[.global]?.externalGameRoot = false
+    let managedPreviewBefore = try JSONEncoder.pretty.encode(managedPreviewState)
+    let managedPreview = try removalPreview(for: .global, state: managedPreviewState)
+    guard !managedPreview.externalGameRoot,
+          Set(managedPreview.targets.map(\.kind)) == Set(["gameRoot", "prefix"]),
+          managedPreview.targets.first(where: { $0.kind == "gameRoot" })?.path == externalRoot.resolvingSymlinksInPath().standardizedFileURL.path,
+          try JSONEncoder.pretty.encode(managedPreviewState) == managedPreviewBefore,
+          try Data(contentsOf: preserved) == Data("private fixture".utf8) else {
+        throw ManagerError.message("managed removal preview changed state or targets")
+    }
+    guard managedPreview.removalToken.count == 64,
+          managedPreview.removalToken == (try removalPreview(for: .global, state: managedPreviewState)).removalToken,
+          managedPreview.removalToken != externalPreview.removalToken else {
+        throw ManagerError.message("removal token stability/ownership binding failed")
+    }
+    try validateRemovalToken(managedPreview.removalToken, product: .global, state: managedPreviewState)
+    let replacementPrefix = testRoot.appendingPathComponent("replacement-prefix", isDirectory: true)
+    try fileManager.createDirectory(at: replacementPrefix, withIntermediateDirectories: false)
+    var changedTargetState = managedPreviewState
+    changedTargetState.installations[.global]?.prefix = try makeLocation(replacementPrefix)
+    let otherProductState = ProductState(installations: [.mainland: managedPreviewState.installations[.global]!])
+    for (testProduct, changedState) in [(ProductID.global, importState), (.global, changedTargetState), (.mainland, otherProductState)] {
+        var stoppedOrMoved = false
+        var rejectedToken = false
+        do {
+            try validateRemovalToken(managedPreview.removalToken, product: testProduct, state: changedState)
+            stoppedOrMoved = true // Represents the mutation reached only after validation.
+        } catch { rejectedToken = true }
+        guard rejectedToken, !stoppedOrMoved else { throw ManagerError.message("stale removal token reached mutation") }
+    }
+    for unavailableState in [ProductState(), ProductState(installations: [.global: Installation()])] {
+        var refusedPreview = false
+        do { _ = try removalPreview(for: .global, state: unavailableState) } catch { refusedPreview = true }
+        guard refusedPreview else { throw ManagerError.message("empty removal preview accepted") }
     }
 
     // This fixture writes far beyond the usual pipe capacity on *both* file
@@ -3894,6 +4106,24 @@ private func runMain() throws {
         print(String(decoding: try JSONEncoder.pretty.encode(document), as: UTF8.self))
         return
     }
+    if command == "remove-preview" {
+        guard args.contains("--json"), let rawProduct = argument(after: "--product"),
+              let product = ProductID(rawValue: rawProduct) else {
+            throw ManagerError.message("remove-preview 需要 --json --product mainland|global。")
+        }
+        let preview = try removalPreview(for: product, state: loadState())
+        print(String(decoding: try JSONEncoder.pretty.encode(preview), as: UTF8.self))
+        return
+    }
+    if command == "resolve-location" {
+        guard args.contains("--json"), let rawProduct = argument(after: "--product"),
+              let product = ProductID(rawValue: rawProduct), let path = argument(after: "--path") else {
+            throw ManagerError.message("resolve-location 需要 --json --product mainland|global --path <文件或目录>。")
+        }
+        let result = try resolveGameLocation(path: path, product: product, state: loadState())
+        print(String(decoding: try JSONEncoder.pretty.encode(result), as: UTF8.self))
+        return
+    }
     if command == "inspect" {
         guard let rawProduct = argument(after: "--product"), let product = ProductID(rawValue: rawProduct), let path = argument(after: "--path") else { throw ManagerError.message("inspect 需要 --product 和 --path。") }
         guard let item = try loadCatalog().products.first(where: { $0.id == product }) else { throw ManagerError.message("未知产品。") }
@@ -3947,6 +4177,9 @@ private func runMain() throws {
 @main
 private enum IdentityVProductManagerEntry {
     static func main() {
-        do { try runMain() } catch { fputs("\(error.localizedDescription)\n", stderr); exit(1) }
+        if CommandLine.arguments.dropFirst().first == "agent" {
+            exit(AgentCLI.main(Array(CommandLine.arguments.dropFirst(2))))
+        }
+        do { try runMain() } catch { fputs("\(error.localizedDescription)\n", stderr); exit(managerExitCode(for: error)) }
     }
 }

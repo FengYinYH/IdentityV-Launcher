@@ -14,7 +14,8 @@
 
 ### 新增
 
-- 自定义安装目录、已有客户端只读检测与明确确认导入；外部游戏目录保留原文件，卸载不删除它们。
+- 统一“自定义游戏位置”入口，可选择文件或目录，找到已有游戏就检测并同步状态，未找到则询问是否安装；外部游戏目录保留原文件，卸载不删除它们。
+- Agent/CLI 可调用游戏安装、检测、修复与运行管理，提供任务 ID、结构化状态、进度和日志；命令文档随 App 提供，Agent 删除游戏前询问用户确认。
 
 ### 修正
 
@@ -26,7 +27,8 @@
 
 ### 新增功能
 
-- 自訂安裝目錄、既有客戶端唯讀檢查與明確確認匯入；外部遊戲檔案不會因解除安裝而刪除。
+- 統一「自訂遊戲位置」入口，可選擇檔案或目錄，找到既有遊戲便檢查並同步狀態，未找到則詢問是否安裝；外部遊戲檔案不會因解除安裝而刪除。
+- Agent/CLI 可呼叫遊戲安裝、檢查、修復與執行管理，提供工作 ID、結構化狀態、進度及日誌；指令文件隨 App 提供，Agent 刪除遊戲前會請使用者確認。
 
 ### Fixed
 
@@ -38,7 +40,8 @@
 
 ### Added
 
-- Custom installation folders and read-only inspection/import of existing clients with explicit confirmation. Imported game files remain user-owned and are preserved during removal.
+- A unified “Custom Game Location” button accepts files or folders, checks and registers an existing client, or asks to install if none is found. Imported game files remain user-owned and are preserved during removal.
+- Agent/CLI access to game installation, inspection, repair and runtime control, with task IDs, structured status, progress and logs. Command documentation ships with the App; Agent game removal asks the user to confirm.
 
 ---
 

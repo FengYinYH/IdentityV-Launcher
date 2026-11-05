@@ -38,3 +38,7 @@ PR #5 与 #6 已获所有者授权真实合入 GitHub main，merge commit 分别
 ## 后续方向与接手
 
 窗口/跨平台UI、登录健康、可选预启动、Metal FX及游戏多开仍按[开发计划](docs/developmentPlan.md)原有边界推进。先读[AGENTS](AGENTS.md)，核对工作树和并行状态，再从[开发者指南](docs/developerGuide.md)、[地图](projectMap.md)与专题续接；不要用reset/clean清理他人的工作。
+
+## Agent接口RC5整合（审查中）
+
+从独立候选95efed9纳入AgentCLI运输层与文档，保留main427d1e3中的近期修复和真实PR历史。CI workflow留独立候选，权限阻碍不影响本地整合；反馈补丁未触碰。已修复删除确认取消阻塞、日志回执竞态、错误摘要，并整合自定义位置及idv-login可选更新候选。位置解析、删除目标预览和确认指纹复用共享核心；短入口随App，不安装全局PATH。当前正在最终构建/界面验收，既有build14仍为日用版本；不把fixture或旧构建游戏验收当新包完成。

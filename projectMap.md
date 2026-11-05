@@ -41,7 +41,7 @@ flowchart LR
 | `functionKeyController/` | F 键控制辅助程序源码。 |
 | `mouseAccelerationController/` | 鼠标加速度控制辅助程序源码。 |
 | `inputLatencyProbe/` | 开发者输入延迟探针源码，不是玩家功能。 |
-| `privilegedHelpers/` | 需要管理员授权的辅助程序及测试；运行/安装时可能改系统状态。原生状态工具在受管启动前维护登录配置及固定版本更新策略（见 `docs/idvLoginSourceAudit.md`），构建不执行真实状态更改。 |
+| `privilegedHelpers/` | 需要管理员授权的辅助程序及测试；运行/安装时可能改系统状态。原生状态工具在受管启动前维护登录配置并移除历史禁更新策略（见 `docs/idvLoginSourceAudit.md`），构建不执行真实状态更改。 |
 | `uninstaller/` | 产品卸载逻辑；执行时会改变用户安装数据，先读脚本。 |
 | `denseMetrics/` | 高密度性能采样器源码；真实采样结果存于仓外私人目录。 |
 | `wineAudioInterposer/` | Wine 音频接口补丁/插桩源码与测试。 |
@@ -119,3 +119,15 @@ flowchart LR
 | `captureIdentityVDenseMetrics.command` | 采集活动游戏的高密度性能指标并写私人文件；不安装玩家 App。 |
 
 本页只列**现行产品仓**的对象。退出根目录的旧浮窗构建器与独立 runner 安装器及其原因见[历史命令](docs/legacyCommands.md)；历史源码可从 Git 提交读取，不把过期安装器继续当成现役入口。私人项目档案可保存原始现场，本仓文档不依赖其原文或本机路径。新增、删除、改名顶层对象或改变脚本副作用时，同一变更更新本页、首页与开发者指南的相关链接；生成目录只解释用途，不逐个列缓存。发布前复核顶层覆盖、相对链接与清单中的实际构建/安装行为。
+
+### Agent 与本地验证新入口（2026-11-05）
+
+- `productManager/AgentCLI.swift`：ProductManager 的 agent 命令运输层；任务 UUID、JSON状态/事件、精确子进程取消、任务日志及删除确认；业务仍由原管理器执行。
+- `productManager/agentSelfTest.command` 与 `productManager/tests/`：仅编译/运行隔离 fixture 测试，不安装或启动真实游戏。
+- `docs/agentCLI.md` / `docs/ciWorkflow.md`：已实现命令协议、未实现能力、日志来源与 CI/实机/release 分工。
+
+玩家构建同时复制`docs/agentCLI.md`为App内`Contents/Resources/agent-cli.md`；Agent无需查仓库也可通过`agent help/docs`取得对应版本的调用文档。RC5须交付接口与文档，未来功能同步要求见AGENTS；CI调整不阻挡本版本。
+
+`productManager/selfTest.command --network-smoke` 显式启用 `tests/officialNetworkSmoke.test.py`，请求真实两服官方resolver的小型元数据，不下载/安装载荷；默认自检不联网。CI草案保留在独立候选，workflow权限阻碍不影响这些本地入口。
+
+`productManager/idv` 随包复制至 Resources，提供 `idv help/docs/run/start/...` 短入口，仅转交同包管理器的 agent 子命令。帮助菜单提供文档及复制命令，不安装全局命令、不修改 PATH。删除地址预览和自定义位置解析由同一管理核心提供。

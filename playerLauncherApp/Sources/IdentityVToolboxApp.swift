@@ -73,6 +73,20 @@ struct IdentityVToolboxApp: App {
                     }
                 }
             }
+            CommandGroup(replacing: .help) {
+                Button(LocalizedStringKey(selectedLanguage.localized("Agent / CLI 文档"))) {
+                    if let url = Bundle.main.url(forResource: "agent-cli", withExtension: "md") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                Button(LocalizedStringKey(selectedLanguage.localized("复制 Agent 命令"))) {
+                    if let path = Bundle.main.resourceURL?.appendingPathComponent("idv").path {
+                        let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "' help"
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(quoted, forType: .string)
+                    }
+                }
+            }
             CommandGroup(replacing: .appTermination) {
                 Button(LocalizedStringKey(selectedLanguage.localized("退出"))) { NSApplication.shared.terminate(nil) }
                     .keyboardShortcut("q", modifiers: .command)

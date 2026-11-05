@@ -575,7 +575,7 @@ final class ToolboxViewModel: ObservableObject {
                     && self.operationMessage == "IDV Login 已就绪；本机登录代理可用。" {
                     self.showOperation("IDV Login 已停止。")
                 } else if processExists && readiness == "helper-update-required" {
-                    self.showOperation("已安装的 IDV Login helper 版本过旧；请重新安装 IDV Login 组件后再启动游戏。", isError: true)
+                    self.showOperation("IDV Login 辅助程序需要修复；可关闭“跟随游戏启动”后直接启动游戏。", isError: true)
                 }
             }
         }
@@ -765,33 +765,25 @@ final class ToolboxViewModel: ObservableObject {
                 directory = selected
             default: return
             }
-            // Detect both a client root and the launcher's game subfolder.
-            // Existing bytes go through inspection/import, never the downloader.
-            if let existing = Self.existingClientDirectory(in: directory) {
-                inspectAndImportClient(at: existing, productID: productID, manager: manager)
-                return
+            // Leave a missing default root to the manager: it migrates RC1
+            // before creation. Existing locations use the shared resolver.
+            if FileManager.default.fileExists(atPath: directory.path) {
+                resolveSelectedGameLocation(directory, productID: productID, manager: manager, confirmInstallation: false)
+            } else {
+                startInstallerDownload(productID: productID, manager: manager, destinationParent: directory)
             }
-            // The manager migrates RC1 before creating the new default root;
-            // creating it here would manufacture a migration target conflict.
-            startInstallerDownload(productID: productID, manager: manager, destinationParent: directory)
             return
         }
         if action == .importExisting {
             let panel = NSOpenPanel()
-            panel.message = LauncherLanguage.current.localized("选择游戏本体 dwrg.exe")
-            panel.prompt = LauncherLanguage.current.localized("导入")
+            panel.message = LauncherLanguage.current.localized("选择游戏文件或目录")
+            panel.prompt = LauncherLanguage.current.localized("选择")
             panel.canChooseFiles = true
-            panel.canChooseDirectories = false
+            panel.canChooseDirectories = true
+            panel.canCreateDirectories = true
             panel.allowsMultipleSelection = false
-            guard panel.runModal() == .OK, let executable = panel.url else {
-                showOperation("未选择要导入的游戏本体。")
-                return
-            }
-            guard executable.lastPathComponent.lowercased() == "dwrg.exe" else {
-                showOperation("请选择游戏本体 dwrg.exe。", isError: true)
-                return
-            }
-            inspectAndImportClient(at: executable.deletingLastPathComponent(), productID: productID, manager: manager)
+            guard panel.runModal() == .OK, let selected = panel.url else { return }
+            resolveSelectedGameLocation(selected, productID: productID, manager: manager)
             return
         }
         if (action == .launch || action == .restart), idvLoginEnabled {
@@ -814,14 +806,43 @@ final class ToolboxViewModel: ObservableObject {
         }
     }
 
-    nonisolated static func existingClientDirectory(in directory: URL) -> URL? {
-        for relative in ["", "game", "DWRG", "IdentityV"] {
-            let root = relative.isEmpty ? directory : directory.appendingPathComponent(relative, isDirectory: true)
-            let executable = root.appendingPathComponent("dwrg.exe")
-            if FileManager.default.isReadableFile(atPath: executable.path),
-               (try? executable.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true { return root }
+    private func resolveSelectedGameLocation(_ selected: URL, productID: GameProductID, manager: URL, confirmInstallation: Bool = true) {
+        activeProductAction = .importExisting
+        activeProductID = productID
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Self.runProductManager(manager, arguments: ["resolve-location", "--json", "--product", productID.rawValue, "--path", selected.path])
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.activeProductAction = nil; self.activeProductID = nil
+                guard result.status == 0 else { self.showOperation(result.output, isError: true); return }
+                guard let resolution = try? JSONDecoder().decode(GameLocationResolution.self, from: Data(result.output.utf8)),
+                      resolution.schemaVersion == 1, resolution.productId == productID.rawValue,
+                      ["file", "directory"].contains(resolution.selectionKind),
+                      resolution.found == (resolution.gameRoot != nil),
+                      resolution.installDirectory.hasPrefix("/") else {
+                    self.showOperation("客户端检测结果格式无效，未导入。", isError: true); return
+                }
+                if let root = resolution.gameRoot {
+                    if resolution.alreadyRegistered {
+                        self.showOperation("当前位置已登记，保留现有游戏与兼容环境；完整性状态不变。")
+                        self.refreshProductStatus()
+                    } else {
+                        self.inspectAndImportClient(at: URL(fileURLWithPath: root, isDirectory: true), productID: productID, manager: manager)
+                    }
+                    return
+                }
+                if confirmInstallation {
+                    let confirmation = NSAlert()
+                    confirmation.messageText = LauncherLanguage.current.localized("当前位置没有找到第五人格，是否安装")
+                    confirmation.informativeText = String(format: LauncherLanguage.current.localized("游戏将安装到：%@"), URL(fileURLWithPath: resolution.installDirectory).appendingPathComponent("game").path)
+                    confirmation.addButton(withTitle: LauncherLanguage.current.localized("好的"))
+                    confirmation.addButton(withTitle: LauncherLanguage.current.localized("取消"))
+                    guard confirmation.runModal() == .alertFirstButtonReturn else { return }
+                }
+                self.startInstallerDownload(productID: productID, manager: manager,
+                    destinationParent: URL(fileURLWithPath: resolution.installDirectory, isDirectory: true))
+            }
         }
-        return nil
     }
 
     private func inspectAndImportClient(at directory: URL, productID: GameProductID, manager: URL) {
@@ -838,16 +859,8 @@ final class ToolboxViewModel: ObservableObject {
                       report.schemaVersion == 1, report.productId == productID.rawValue else {
                     self.showOperation("客户端检测结果格式无效，未导入。", isError: true); return
                 }
-                let confirmation = NSAlert()
-                confirmation.messageText = LauncherLanguage.current.localized("客户端检测完成")
-                confirmation.informativeText = String(format: LauncherLanguage.current.localized("官方版本：%@\n检查文件数：%ld\n缺失或不匹配：%ld"), report.versionCode, report.filesTotal, report.repairs)
-                    + "\n" + LauncherLanguage.current.localized(report.valid
-                        ? "官方基础清单一致。导入保留原文件，并建立独立兼容环境。"
-                        : "无法确认完整性或服务器；可能包含游戏内更新。仍导入只登记原目录，不修复或覆盖文件。")
-                confirmation.alertStyle = report.valid ? .informational : .warning
-                confirmation.addButton(withTitle: LauncherLanguage.current.localized(report.valid ? "导入" : "仍导入（保留原文件）"))
-                confirmation.addButton(withTitle: LauncherLanguage.current.localized("取消"))
-                guard confirmation.runModal() == .alertFirstButtonReturn else { return }
+                // Choosing an existing client requests registration. Keep the
+                // official base-manifest result as state, never repair bytes.
                 var arguments = ["--path", directory.path]
                 if !report.valid { arguments.append("--accept-base-mismatch") }
                 self.runProductAction(.importExisting, productID: productID, manager: manager, extraArguments: arguments)
@@ -1288,7 +1301,7 @@ final class ToolboxViewModel: ObservableObject {
             return
         }
         guard loginComponentIsInstalled else {
-            showOperation("请先安装固定的 IDV Login \(IdvLoginRelease.version) 组件。", isError: true)
+            showOperation("请先安装 IDV Login 组件。", isError: true)
             return
         }
         // This ordinary file inspection is deliberately before *every* start
@@ -1372,15 +1385,17 @@ final class ToolboxViewModel: ObservableObject {
     }
 
     var loginComponentIsInstalled: Bool {
-        IdvLoginRelease.isCurrent(
-            installedVersion: runtimeStatus.loginComponentVersion,
-            helperIsCurrent: FileManager.default.isExecutableFile(atPath: ToolboxPath.startLoginHelper.path)
-                && Self.loginHelperContainsCurrentStatusContract(at: ToolboxPath.startLoginHelper))
+        // Installation and update availability are independent. An older
+        // component must retain its controls and follow-game preference.
+        runtimeStatus.loginComponentVersion != nil
     }
 
     var loginComponentNeedsUpdate: Bool {
-        runtimeStatus.loginComponentVersion != nil
-            && !loginComponentIsInstalled
+        IdvLoginRelease.updateAvailable(installedVersion: runtimeStatus.loginComponentVersion)
+    }
+
+    var loginHelperNeedsRepair: Bool {
+        loginComponentIsInstalled && !Self.loginHelperContainsCurrentStatusContract(at: ToolboxPath.startLoginHelper)
     }
 
     @Published var shouldOfferIdvLoginPrompt: Bool = false
@@ -1547,8 +1562,8 @@ final class ToolboxViewModel: ObservableObject {
 
     func installLoginComponent() {
         guard !loginMutationIsBusy else { return }
-        guard !loginComponentIsInstalled else {
-            showOperation("固定的 IDV Login 组件已安装；可直接启动后台。")
+        guard !loginComponentIsInstalled || loginComponentNeedsUpdate || loginHelperNeedsRepair else {
+            showOperation("IDV Login 组件已安装；可直接启动后台。")
             return
         }
         // Runtime status refresh is asynchronous; immediately reinstalling
@@ -1996,7 +2011,7 @@ final class ToolboxViewModel: ObservableObject {
     func restartLoginBackground() {
         guard !loginMutationIsBusy else { return }
         guard loginComponentIsInstalled else {
-            showOperation("请先安装固定的 IDV Login \(IdvLoginRelease.version) 组件。", isError: true)
+            showOperation("请先安装 IDV Login 组件。", isError: true)
             return
         }
         guard runtimeStatus.loginIsActive else {
@@ -2705,7 +2720,10 @@ final class ToolboxViewModel: ObservableObject {
               values.isRegularFile == true, values.isSymbolicLink != true,
               let size = values.fileSize, size > 0, size <= 256 * 1_024,
               let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
-        return text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"10\"")
+        // 8–10 share the bounded status/start protocol. Later revisions add
+        // certificate recovery and update policy changes, not a new IPC shape.
+        // Keep unknown and pre-status helpers blocked at the execution boundary.
+        return [8, 9, 10].contains { text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"\($0)\"") }
     }
 
     nonisolated private static func gamePID(in snapshot: String) -> Int32? {
@@ -2752,21 +2770,13 @@ struct ToolboxProcessMatcherSelfTest {
         try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"10\"\n".utf8).write(to: helperFixture)
         let compatibleHelper = ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
         try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"8\"\n".utf8).write(to: helperFixture)
-        let rejectedV3Helper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
+        let compatibleOlderHelper = ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
         try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"9\"\n".utf8).write(to: helperFixture)
-        let rejectedPreviousHelper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
+        let compatiblePreviousHelper = ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
         try Data("#!/bin/zsh\n# legacy helper\n".utf8).write(to: helperFixture)
         let rejectedLegacyHelper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
-        let pathFixture = FileManager.default.temporaryDirectory.appendingPathComponent("idv-path-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: pathFixture) }
-        try FileManager.default.createDirectory(at: pathFixture, withIntermediateDirectories: true)
-        try Data("unrelated".utf8).write(to: pathFixture.appendingPathComponent("keep.txt"))
-        guard ToolboxViewModel.existingClientDirectory(in: pathFixture) == nil else { fatalError("unrelated file detected as game") }
-        let gameFolder = pathFixture.appendingPathComponent("game")
-        try FileManager.default.createDirectory(at: gameFolder, withIntermediateDirectories: true)
-        try Data("MZfixture".utf8).write(to: gameFolder.appendingPathComponent("dwrg.exe"))
-        guard ToolboxViewModel.existingClientDirectory(in: pathFixture)?.path == gameFolder.path,
-              ToolboxViewModel.existingClientDirectory(in: gameFolder)?.path == gameFolder.path else { fatalError("existing game location not detected") }
+        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"7\"\n".utf8).write(to: helperFixture)
+        let rejectedPreStatusHelper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
         let game = "C:\\Games\\IdentityV\\dwrg.exe --start_from_launcher=1"
         let quotedLogin = "\"/Library/Application Support/IdentityVOnMac/Components/idv-login/current/idv-login\" --uri idvlogin://start?game_id=h55"
         let unquotedLogin = "/Library/Application Support/IdentityVOnMac/Components/idv-login/current/idv-login --uri idvlogin://start?game_id=h55"
@@ -2794,17 +2804,18 @@ struct ToolboxProcessMatcherSelfTest {
         )
 
         let checks = [
-            IdvLoginRelease.isCurrent(installedVersion: IdvLoginRelease.version, helperIsCurrent: true),
-            !IdvLoginRelease.isCurrent(installedVersion: "6.2.3", helperIsCurrent: true),
-            !IdvLoginRelease.isCurrent(installedVersion: IdvLoginRelease.version, helperIsCurrent: false),
-            !IdvLoginRelease.isCurrent(installedVersion: nil, helperIsCurrent: true),
+            !IdvLoginRelease.updateAvailable(installedVersion: IdvLoginRelease.version),
+            IdvLoginRelease.updateAvailable(installedVersion: "6.2.3"),
+            !IdvLoginRelease.updateAvailable(installedVersion: "6.10.0"),
+            !IdvLoginRelease.updateAvailable(installedVersion: nil),
             LoginStartupResult.fromHelper(status: 75, output: "IDV_LOGIN_AUTHORIZATION=waiting\n") == .waitingForAuthorization,
             LoginStartupResult.fromHelper(status: 1, output: "IDV_LOGIN_AUTHORIZATION=waiting\n").code == "IDVL-START-103",
             LoginStartupResult.fromHelper(status: 75, output: "unrelated failure").code == "IDVL-START-103",
             LoginStartupResult.fromHelper(status: 0, output: "") == .ready,
             compatibleHelper,
-            rejectedV3Helper,
-            rejectedPreviousHelper,
+            compatibleOlderHelper,
+            compatiblePreviousHelper,
+            rejectedPreStatusHelper,
             rejectedLegacyHelper,
             leader.isLeader,
             !follower.isLeader,

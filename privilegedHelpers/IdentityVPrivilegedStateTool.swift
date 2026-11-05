@@ -17,54 +17,6 @@ private let managedDomains = [
 private let hostsTag = "identityv-on-mac-compat"
 private let longMainlandGameID = "aecfrt3rmaaaaajl-g-h55"
 private let maximumStateBytes = 8 * 1_024 * 1_024
-// The pinned upstream has no disable-update flag. Its documented macOS
-// overlay hook runs before CloudRes is imported. Delegate all login/catalog
-// behavior to the original frozen module, suppress only release/hotfix offers.
-// Revalidate this hook whenever the pinned component changes (see docs).
-private let idvLoginUpdatePolicy = #"""
-# Project-owned policy for the unmodified idv-login v6.3.3-beta binary.
-import importlib.util
-import sys
-from envmgr import genv
-
-if str(genv.get("VERSION", "")) not in ("v6.3.3-beta", "v6.3.3", "6.3.3-beta", "6.3.3"):
-    raise RuntimeError("Unsupported IDV Login version for launcher update policy")
-
-# Skip only upstream's overlay finder; the PyInstaller finder must load the
-# original module. Do not use PathFinder: frozen modules are not filesystem .py.
-_spec = None
-for _finder in sys.meta_path:
-    if type(_finder).__name__ == "_HotfixOverlayFinder":
-        continue
-    _find = getattr(_finder, "find_spec", None)
-    if _find is not None:
-        _spec = _find("cloudRes", None)
-        if _spec is not None:
-            break
-if _spec is None or _spec.loader is None or _spec.origin == __file__:
-    raise ImportError("Original pinned cloudRes module unavailable")
-_original = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_original)
-globals().update({k: v for k, v in vars(_original).items() if not k.startswith("__")})
-
-def _pinned_version(self):
-    return genv.get("VERSION")
-
-def _no_hotfixes(self):
-    return []
-
-def _launcher_manages_updates():
-    print("IDV Login updates are managed by the pinned launcher component.")
-
-CloudRes.get_version = _pinned_version
-CloudRes.get_hotfixes = _no_hotfixes
-# main.initialize imports us before its later handle_update call. Replace that
-# exact entry point as well: no release comparison or Qt update dialog runs.
-_main = sys.modules.get("__main__")
-if _main is None or not callable(getattr(_main, "handle_update", None)):
-    raise RuntimeError("Pinned IDV Login update entry point unavailable")
-_main.handle_update = _launcher_manages_updates
-"""#
 private let idvLoginSystemCAStatePath = "/Library/Application Support/IdentityVOnMac/idv-login-system-ca.json"
 private let systemKeychainPath = "/Library/Keychains/System.keychain"
 private let idvLoginCAPEMRelativePaths = [
@@ -260,30 +212,14 @@ private func prepareConfig(home: String, staffGID: gid_t, enforceUserRoot: Bool 
     ]
     object = rewrittenValue(object, replacements: oldLaunchers) as! [String: Any]
     object["proxy_mode"] = "compat"
-    let policyPath = stateDirectory + "/launcher-cloudRes-policy.py"
-    let previousRecords = object["hotfix_records"] as? [String: Any] ?? [:]
-    if existing != nil && previousRecords["launcher-pinned-update-policy"] == nil {
-        // Preserve the first pre-policy config privately, not in build logs or
-        // the repository. It may contain account credentials like config.json.
-        let backupPath = stateDirectory + "/config-before-launcher-update-policy.json"
-        if lstatMetadata(backupPath) == nil {
-            let original = try readRegular(configPath)
-            try atomicWrite(original.0, to: backupPath,
-                            metadata: FileMetadata(uid: metadata.uid, gid: metadata.gid, mode: 0o600))
-        } else {
-            _ = try readRegular(backupPath)
-        }
+    // Remove only our former update blocker. Keep upstream/user overlays,
+    // pending validation and private pre-policy backups intact.
+    var records = object["hotfix_records"] as? [String: Any] ?? [:]
+    records.removeValue(forKey: "launcher-pinned-update-policy")
+    object["hotfix_records"] = records
+    if let pending = object["hotfix_pending_validate"] as? [String] {
+        object["hotfix_pending_validate"] = pending.filter { $0 != "launcher-pinned-update-policy" }
     }
-    try atomicWrite(Data(idvLoginUpdatePolicy.utf8), to: policyPath,
-                    metadata: FileMetadata(uid: metadata.uid, gid: metadata.gid, mode: 0o600))
-    // Only the managed policy may be active. Historical user/cloud overlays
-    // could otherwise change pinned behavior; version migration retains them
-    // in recoverable backups rather than silently applying them to a new pin.
-    object["hotfix_records"] = ["launcher-pinned-update-policy": [
-        "target_kind": "overlay_py", "status": "applied",
-        "target_module": "cloudRes", "target_path": policyPath
-    ]]
-    object["hotfix_pending_validate"] = [String]()
 
     var games = object["game_settings"] as? [String: Any] ?? [:]
     let key = games.keys.first(where: { $0 == "h55" || $0.hasSuffix("-h55") }) ?? longMainlandGameID
@@ -783,6 +719,8 @@ private func runSelfTest() throws {
     let config = state.appendingPathComponent("config.json")
     let secret = "do-not-change"
     let fixture: [String: Any] = [
+        "hotfix_records": ["launcher-pinned-update-policy": ["target_module": "cloudRes"], "upstream": ["keep": "yes"]],
+        "hotfix_pending_validate": ["launcher-pinned-update-policy", "upstream"],
         "account_records": [["token": secret]],
         "nested": ["launcher": "/Applications/第五人格启动器.app/Contents/Helpers/IdentityVGameRunner.app/Contents/MacOS/launchIdentityV"],
         "proxy_mode": "global",
@@ -816,17 +754,8 @@ private func runSelfTest() throws {
         ]
     ]
     try JSONSerialization.data(withJSONObject: fixture).write(to: config)
-    let prePolicyConfig = try Data(contentsOf: config)
     try prepareConfig(home: home.path, staffGID: getgid(), enforceUserRoot: false)
-    let policyBackup = state.appendingPathComponent("config-before-launcher-update-policy.json")
-    guard try Data(contentsOf: policyBackup) == prePolicyConfig,
-          (lstatMetadata(policyBackup.path)?.st_mode ?? 0) & 0o777 == 0o600 else {
-        throw StateError.message("更新策略首份私有配置备份自检失败。")
-    }
     try prepareConfig(home: home.path, staffGID: getgid(), enforceUserRoot: false)
-    guard try Data(contentsOf: policyBackup) == prePolicyConfig else {
-        throw StateError.message("重复准备不得覆盖原始更新策略备份。")
-    }
     let migrated = try JSONSerialization.jsonObject(with: Data(contentsOf: config)) as! [String: Any]
     let accounts = migrated["account_records"] as! [[String: String]]
     let games = migrated["game_settings"] as! [String: [String: Any]]
@@ -834,8 +763,9 @@ private func runSelfTest() throws {
     guard accounts.first?["token"] == secret,
           (migrated["nested"] as? [String: String])?["launcher"] == gameBridge,
           migrated["proxy_mode"] as? String == "compat",
-          (migrated["hotfix_records"] as? [String: Any])?.count == 1,
-          try String(contentsOfFile: home.path + "/Library/Application Support/idv-login/launcher-cloudRes-policy.py", encoding: .utf8) == idvLoginUpdatePolicy,
+          (migrated["hotfix_records"] as? [String: Any])?["launcher-pinned-update-policy"] == nil,
+          ((migrated["hotfix_records"] as? [String: Any])?["upstream"] as? [String: String])?["keep"] == "yes",
+          migrated["hotfix_pending_validate"] as? [String] == ["upstream"],
           game["path"] as? String == gameBridge,
           game["should_auto_start"] as? Bool == false,
           (((game["installation_state_v1"] as? [String: Any])?["installations"] as? [String: [String: Any]])?["modern"]?["settings"] as? [String: Any])?["auto_start"] as? Bool == false,

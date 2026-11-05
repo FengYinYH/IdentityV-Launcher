@@ -6,8 +6,9 @@ enum IdvLoginRelease {
     static let version = "6.3.3"
     static let assetName = "idv-login-v\(version)-beta-mac"
 
-    static func isCurrent(installedVersion: String?, helperIsCurrent: Bool) -> Bool {
-        installedVersion == version && helperIsCurrent
+    static func updateAvailable(installedVersion: String?) -> Bool {
+        guard let installedVersion else { return false }
+        return installedVersion.compare(version, options: .numeric) == .orderedAscending
     }
 }
 
@@ -473,6 +474,17 @@ struct GameProductPresentation: Equatable, Identifiable {
     }
 }
 
+struct GameLocationResolution: Decodable {
+    let schemaVersion: Int
+    let productId: String
+    let selectedPath: String
+    let selectionKind: String
+    let installDirectory: String
+    let found: Bool
+    let gameRoot: String?
+    let alreadyRegistered: Bool
+}
+
 struct ExistingClientInspectionReport: Decodable {
     let schemaVersion: Int
     let productId: String
@@ -499,7 +511,7 @@ enum GameProductAction: String, CaseIterable, Identifiable {
         switch self {
         case .select: return "选择此版本"
         case .install: return "安装游戏"
-        case .importExisting: return "导入已有客户端"
+        case .importExisting: return "自定义游戏位置"
         case .launch: return "启动游戏"
         case .restart: return "重启游戏"
         case .stop: return "结束游戏"

@@ -245,3 +245,37 @@
 "未选择要导入的游戏本体。" = "No game executable selected.";
 
 "请选择游戏本体 dwrg.exe。" = "Select the game executable dwrg.exe.";
+
+"自定义游戏位置" = "Custom Game Location";
+
+"选择游戏文件或目录" = "Select a game file or folder";
+
+"选择" = "Select";
+
+"当前位置没有找到第五人格，是否安装" = "Identity V was not found here. Install it?";
+
+"游戏将安装到：%@" = "The game will be installed in: %@";
+
+"当前位置已登记，保留现有游戏与兼容环境；完整性状态不变。" = "This location is already registered. The game, compatibility environment, and integrity status are unchanged.";
+
+"可更新" = "Update Available";
+
+"需要修复" = "Repair Needed";
+
+"正在启动" = "Starting";
+
+"Agent / CLI 文档" = "Agent / CLI Documentation";
+
+"复制 Agent 命令" = "Copy Agent Command";
+
+"你的 Agent 似乎在删除游戏，确认这样操作吗？" = "Your Agent is about to remove the game. Continue?";
+
+"游戏位置：" = "Game location:";
+
+"当前游戏目录不可用" = "The current game folder is unavailable";
+
+"外部游戏文件保留，仅清除以下受管项目。" = "External game files are preserved. Only the managed items below will be removed.";
+
+"将移入废纸篓：" = "Will be moved to Trash:";
+
+"确认删除" = "Confirm Removal";

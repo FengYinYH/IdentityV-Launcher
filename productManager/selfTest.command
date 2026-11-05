@@ -24,13 +24,20 @@ trap cleanup EXIT
   -target arm64-apple-macos14.0 \
   -sdk "$SDK_PATH" \
   "$SOURCE" \
+  "$SCRIPT_DIR/AgentCLI.swift" \
   "$SCRIPT_DIR/LegacyDefaultPathMigration.swift" \
   "$SCRIPT_DIR/LegacyDefaultPathMigrationSelfTest.swift" \
   "$SCRIPT_DIR/../playerLauncherApp/Sources/LauncherLanguage.swift" \
   -o "$MANAGER"
 /bin/cp "$CATALOG" "$TEST_BIN/products.json"
+/bin/cp "$PROJECT_ROOT/docs/agentCLI.md" "$TEST_BIN/agent-cli.md"
+/usr/bin/install -m 755 "$SCRIPT_DIR/idv" "$TEST_BIN/idv"
 "$MANAGER" self-test
 HOME="$TEST_HOME" "$MANAGER" status --json | /usr/bin/plutil -extract schemaVersion raw - | /usr/bin/grep -qx '1'
+HOME="$TEST_HOME" IDENTITYV_AGENT_TASK_ROOT="$TEST_ROOT/tasks" python3 "$SCRIPT_DIR/tests/managerAgent.test.py" "$MANAGER"
+if [[ "${1:-}" == "--network-smoke" ]]; then
+  HOME="$TEST_HOME" IDENTITYV_AGENT_TASK_ROOT="$TEST_ROOT/tasks" python3 "$SCRIPT_DIR/tests/officialNetworkSmoke.test.py" "$MANAGER"
+fi
 # Do not exercise `select` here: it correctly refuses while a real game is
 # running, which would make this otherwise offline self-test host-dependent.
 [[ ! -e "$TEST_HOME/Library/Application Support/IdentityVOnMac/active-installation.json" ]]

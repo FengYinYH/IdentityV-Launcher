@@ -140,7 +140,6 @@ for runner_source in "$PROJECT_ROOT/gameRunnerApp/IdentityV-Mac.app" "$PROJECT_R
   /usr/bin/codesign --force --deep --sign - "$runner_source"
 done
 "$PROJECT_ROOT/privilegedHelpers/buildIdentityVPrivilegedStateTool.command"
-/usr/bin/python3 "$PROJECT_ROOT/idvLoginComponent/updatePolicy.test.py"
 /bin/zsh "$PROJECT_ROOT/privilegedHelpers/idvLoginReadiness.test.command"
 /bin/zsh "$PROJECT_ROOT/privilegedHelpers/idvLoginJob.test.command"
 
@@ -268,11 +267,14 @@ done
   -target arm64-apple-macos14.0 \
   -sdk "$SDK_PATH" \
   "$PRODUCT_MANAGER_SOURCE" \
+  "$PROJECT_ROOT/productManager/AgentCLI.swift" \
   "$PROJECT_ROOT/productManager/LegacyDefaultPathMigration.swift" \
   "$PROJECT_ROOT/productManager/LegacyDefaultPathMigrationSelfTest.swift" \
   "$SOURCE_ROOT/Sources/LauncherLanguage.swift" \
   -o "$PRODUCT_MANAGER_DESTINATION"
 /bin/cp "$PRODUCT_MANAGER_WRAPPER" "$PRODUCT_MANAGER_WRAPPER_DESTINATION"
+/bin/cp "$PROJECT_ROOT/docs/agentCLI.md" "$RESOURCES_DIR/agent-cli.md"
+/usr/bin/install -m 755 "$PROJECT_ROOT/productManager/idv" "$RESOURCES_DIR/idv"
 /bin/cp "$PRODUCT_CATALOG" "$PRODUCT_CATALOG_DESTINATION"
 /bin/cp "$RUNTIME_BOOTSTRAP_MANIFEST_SOURCE" "$RUNTIME_BOOTSTRAP_MANIFEST_DESTINATION"
 /bin/cp "$RUNTIME_CATALOG_SOURCE" "$RUNTIME_CATALOG_DESTINATION"
@@ -544,6 +546,7 @@ python3 "$PROJECT_ROOT/signing/verifyFirstPartyIdentity.py" launcher "$APP_PATH"
 /bin/rm -f "$LAUNCHER_HANG_SELF_CHECK"
 
 "$PRODUCT_MANAGER_DESTINATION" self-test
+"$PROJECT_ROOT/productManager/agentSelfTest.command"
 "$DOWNLOAD_SUPERVISOR_DESTINATION" self-test
 "$MANIFEST_PLANNER_DESTINATION" self-test
 "$CORE_BOOTSTRAP_DESTINATION" self-test

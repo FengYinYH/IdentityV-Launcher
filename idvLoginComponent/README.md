@@ -4,7 +4,7 @@
 
 唯一发行清单是 `../idvLoginComponent.json`；Go 下载器、Swift UI/cache、离线准备入口与许可来源同步锁定。维护者可运行 `./stageIdvLoginReleasePayload.command /绝对路径/idv-login-v6.3.3-beta-mac` 校验大小、哈希与架构，写入忽略的 `releaseCache/6.3.3/`，构建不需要此缓存。
 
-helper 合约为 10，精确版本门改为 6.3.3 beta。受管 cloudRes 委派保留原冻结模块及其新增的云配置签名校验，只关闭组件自行更新和远程 hotfix 供给。跨版本安装继续隔离旧 overlay、保存账号、配置和证书，并原子切换版本槽；安装前退出活动代理。兼容性检查与真实测试边界见 [来源审计](../docs/idvLoginSourceAudit.md#633-beta-来源与兼容性2026-11-05)。
+helper 合约为 10，精确版本门改为 6.3.3 beta。启动准备移除历史 launcher-pinned-update-policy 记录，保留上游更新和其他 overlay；版本提示不再作为已安装或可操作条件。跨版本安装继续隔离旧 overlay、保存账号、配置和证书，并原子切换版本槽；安装前退出活动代理。兼容性检查与真实测试边界见 [来源审计](../docs/idvLoginSourceAudit.md#633-beta-来源与兼容性2026-11-05)。
 
 ## 升级、回退与用户侧下载缓存
 
