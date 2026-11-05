@@ -131,7 +131,7 @@ idv run login-admin-open
 
 ## 暂停和恢复安装下载
 
-对 `idv start install ...` 返回的任务执行 `idv pause '<taskId>'` 或 `idv resume '<taskId>'`。命令仅控制仍在运行的该 Agent 安装任务；须已进入下载核心阶段。返回 `status: observed` 表示收到目标核心状态，暂停为 `6` 或 `7`，恢复为 `1` 至 `5`；核心协议不提供带请求编号的确认。超时、任务结束或阶段变化返回 `unknown`，应检查任务事件和实际状态。任务被取消或进程失联时不可依据控制文件推断下载状态。
+对 `idv start install ...` 返回的任务执行 `idv pause '<taskId>'` 或 `idv resume '<taskId>'`。命令仅控制仍在运行的该 Agent 安装任务；须已进入下载核心阶段。返回 `status: observed` 表示收到目标核心状态，暂停为 `6` 或 `7`，恢复为 `1` 至 `5`；核心协议不提供带请求编号的确认。超时、任务结束或阶段变化返回 `unknown`，应检查任务事件和实际状态。任务被取消或进程失联时不可依据控制文件推断下载状态。 build22独立国际服真实任务已观察核心状态2→3→6→2→3，pause/resume均返回observed，随后取消终态130；这是单次实测，协议仍无请求编号，不代表所有网络或竞态条件均通过。
 
 ## 安装或更新 IDV Login
 
