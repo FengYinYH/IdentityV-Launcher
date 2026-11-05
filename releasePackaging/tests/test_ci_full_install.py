@@ -40,7 +40,7 @@ class CIInstallTests(unittest.TestCase):
             self.assertNotIn('private-value', diagnostic)
 
     def test_resource_budget_and_cancellation(self):
-        self.assertEqual(ci.required_space(17_602_266_736), 34 * ci.GIB)
+        self.assertEqual(ci.required_space(17_602_266_736), 31 * ci.GIB)
         for size in (0, -1, True, '17000'):
             with self.assertRaises(ci.ExperimentError):
                 ci.required_space(size)

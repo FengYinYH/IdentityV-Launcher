@@ -35,7 +35,9 @@ class ExperimentError(Exception):
 def required_space(game_bytes):
     if not isinstance(game_bytes, int) or isinstance(game_bytes, bool) or game_bytes <= 0:
         raise ExperimentError('invalid_manifest_size')
-    return (math.ceil(game_bytes / GIB) + 17) * GIB
+    # Measured mainland footprint is base data + about 2GiB. Reserve 4GiB
+    # runtime/prefix/transients, 4GiB hot updates and the 6GiB stop floor.
+    return (math.ceil(game_bytes / GIB) + 14) * GIB
 
 
 def safe_text(text):
@@ -343,6 +345,8 @@ def experiment(args, result, checkpoint=lambda: None):
     result['manifest'] = {'versionCode': manifest['versionCode'], 'totalByteCount': total,
                           'fileCount': len(manifest['files']),
                           'sha256': hashlib.sha256(manifest_file.read_bytes()).hexdigest()}
+    result['stage'] = 'space-preflight'
+    result['spaceReserveGiB'] = {'runtimeAndTransient': 4, 'hotUpdate': 4, 'stopFloor': 6}
     result['requiredFreeBeforeInstallBytes'] = required_space(total)
     result['freeBeforeInstallBytes'] = disk.sample()
     if result['freeBeforeInstallBytes'] < required_space(total):
