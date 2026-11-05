@@ -102,3 +102,6 @@ The Xcode 26.3 retry (run 41990357203) also stopped before downloads: the frozen
 报告独立记录安装成功和launchObservation；CI任务完成不等于公告页通过。coreVerifiedGameWindow只采用原核心进程/窗口验证结果；hotUpdateVerified/announcementVerified保持false直到后续日志/画面得到明确人工或Agent验收。安装前后文件计数/总字节变化仅是辅助事实，不能单独证明热更新成功。仅上传结果JSON、图形能力JSON及至多四张游戏截图；不上传游戏/prefix/runtime。失败日志尾部经过长度限制及敏感字段过滤。
 
 [GitHub附加产品条款](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features)将托管Actions限制于关联软件项目的生产、测试、部署或发布，并禁止负担与用户收益不成比例的活动。对启动器安装/启动链路执行有限次数候选验收与该项目测试直接相关；这是基于条款的适用判断，并非GitHub对具体用量预先批准或保证不受限制。这里不配置周期循环、CDN、游戏下载分发或游戏托管；两服各一次、串行、限时、仅短期元数据/画面。如遇上游或GitHub限流/拒绝则停下报告，不换账号或规避限制。标准公开仓库runner免费不代表任意使用无限制。
+
+
+两服首轮run41994337182都在构建测试阶段失败，均未解析基础清单或下载游戏。相同失败为TestAuxiliaryFramesDoNotExtendIdleDeadline的2001诊断断言，driver分别266.08/270.37秒，非游戏启动/热更新结果。本机该项连续五次通过，冷托管环境两次失败；夹具先发送常规进度，然后持续约3.2秒辅助帧，原300ms窗口易受调度影响。仅将该测试idle窗口改为1500ms并保留超时及2001断言，仍短于持续辅助流：若辅助帧错误重置deadline，夹具先结束，测试仍失败。生产超时和业务源码保持9760550；精确checkout另行记录，差异白名单显式增加此测试文件，不把测试调整称为字节一致源码。修正后仅再执行一次两服验收，不无界重试。

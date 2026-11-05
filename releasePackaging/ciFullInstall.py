@@ -24,7 +24,7 @@ ALLOWED_DIFF = {'.github/workflows/full-install.yml', 'releasePackaging/ciFullIn
                 'releasePackaging/tests/test_ci_full_install.py', 'docs/ciWorkflow.md',
                 'docs/developerGuide.md', 'projectMap.md', 'STATUS.md',
                 '.github/workflows/game-launch.yml', 'releasePackaging/ciGraphicsProbe.swift',
-                '.github/workflows/server-install.yml'}
+                '.github/workflows/server-install.yml', 'gameDownloader/supervisor_test.go'}
 
 
 class ExperimentError(Exception):
