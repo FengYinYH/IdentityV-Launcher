@@ -10,6 +10,12 @@
 
 现场提示与一次性HOME真实管理器复现均指向操作锁忙碌；299是项目通用分类，不是网易299。候选增加205、状态区说明和随包错误码表，最终源码的进程/启动分类自检及349个三语键检查通过；完整构建仍运行，尚未整合或更新日用App。日用build22在短canonical HOME的全新国际服首装已进入官方核心下载（清单17,602,266,736字节）；安装、热更新和登录页尚未完成本轮验收。见[调查证据与边界](docs/downloadCoreUnification.md#外置位置导入后的-299-与错误来源2026-11-05)。
 
+## RC5 文案与公证检查进展
+
+所有者决定CHANGELOG仅保留简体中文；RC5 Release说明采用简中、繁中、英文，简中草稿正由所有者编辑，不覆盖，待定稿后同步翻译。最终正式版若相对最后RC变化不大，不重复介绍项目；CLI手册随App提供，不单独作为Release附件。所有者README/CHANGELOG修改留在工作树未提交，未覆盖。
+
+只读 notarytool history 通过仓库默认profile验证；这不保证未来提交或审核成功，未创建凭据、提交公证或发布。独立build25从先前文档快照构建并完成签名/headless自检及32个Mach-O审计；该快照早于后续详细CHANGELOG及语言方案，不是最终发行源码或可交付正式包。
+
 ## RC5 发布前定向复核
 
 三语资源357键与反馈邮件目标/正文纯函数检查通过；日用build24的Developer ID签名有效，Gatekeeper对未公证包返回Unnotarized Developer ID。发行脚本要求可用的notarytool profile，对App及DMG分别公证、staple并复验；本次执行环境未设置IDENTITYV_NOTARY_PROFILE，不代表钥匙串中没有凭据。本轮未提交公证或发布。已安装idv-login与随包均6.3.3、helper合约10；实际日用Agent login-install确认alreadyInstalled=true，不下载或修改组件，不能替代真实首次安装授权。
