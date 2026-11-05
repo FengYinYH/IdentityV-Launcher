@@ -226,6 +226,8 @@ struct ProductManagerProductDocument: Decodable, Equatable {
     /// Optional for compatibility with an older bundled manager.  A missing
     /// field must never invent a destructive action in the UI.
     let canRemove: Bool
+    let gamePath: String?
+    let baseManifestVerified: Bool?
 
     enum CodingKeys: String, CodingKey {
         case productId
@@ -237,6 +239,8 @@ struct ProductManagerProductDocument: Decodable, Equatable {
         case message
         case idvLoginVersion
         case canRemove
+        case gamePath
+        case baseManifestVerified
     }
 
     init(from decoder: Decoder) throws {
@@ -251,6 +255,8 @@ struct ProductManagerProductDocument: Decodable, Equatable {
         detail = try container.decodeIfPresent(String.self, forKey: .detail)
             ?? container.decodeIfPresent(String.self, forKey: .message)
         idvLoginVersion = try container.decodeIfPresent(String.self, forKey: .idvLoginVersion)
+        gamePath = try container.decodeIfPresent(String.self, forKey: .gamePath)
+        baseManifestVerified = try container.decodeIfPresent(Bool.self, forKey: .baseManifestVerified)
         canRemove = try container.decodeIfPresent(Bool.self, forKey: .canRemove) ?? false
     }
 }
@@ -436,6 +442,8 @@ struct GameProductPresentation: Equatable, Identifiable {
     let idvLoginVersion: String?
     let canRemove: Bool
     let isSelected: Bool
+    var gamePath: String? = nil
+    var baseManifestVerified: Bool? = nil
 
     var id: GameProductID { productId }
 
@@ -452,10 +460,21 @@ struct GameProductPresentation: Equatable, Identifiable {
                 detail: record?.detail,
                 idvLoginVersion: record?.idvLoginVersion,
                 canRemove: record?.canRemove ?? false,
-                isSelected: (selectedProductID ?? document?.selectedProductId) == productId
+                isSelected: (selectedProductID ?? document?.selectedProductId) == productId,
+                gamePath: record?.gamePath, baseManifestVerified: record?.baseManifestVerified
             )
         }
     }
+}
+
+struct ExistingClientInspectionReport: Decodable {
+    let schemaVersion: Int
+    let productId: String
+    let valid: Bool
+    let description: String
+    let versionCode: String
+    let filesTotal: Int
+    let repairs: Int
 }
 
 enum GameProductAction: String, CaseIterable, Identifiable {
@@ -489,7 +508,7 @@ enum GameProductActionPolicy {
         var actions: [GameProductAction]
         switch state {
         case .notInstalled: actions = [.install, .importExisting]
-        case .available: actions = [.launch, .stop, .restart, .repair]
+        case .available: actions = [.launch, .stop, .restart, .repair, .importExisting]
         case .needsRepair: actions = [.repair, .importExisting]
         case .updating: actions = []
         case .error: actions = [.repair, .importExisting]
@@ -853,7 +872,7 @@ struct ProductManagerModelSelfTest {
             global?.canRemove == true,
             global?.isSelected == true,
             GameProductActionPolicy.actions(for: .notInstalled) == [.install, .importExisting],
-            GameProductActionPolicy.actions(for: .available, canRemove: true) == [.launch, .stop, .restart, .repair, .remove],
+            GameProductActionPolicy.actions(for: .available, canRemove: true) == [.launch, .stop, .restart, .repair, .importExisting, .remove],
             GameProductActionPolicy.actions(for: .needsRepair, canRemove: true) == [.repair, .importExisting, .remove],
             GameProductActionPolicy.actions(for: .notInstalled, canRemove: true) == [.install, .importExisting, .remove],
             GameProductActionPolicy.actions(for: .updating).isEmpty,

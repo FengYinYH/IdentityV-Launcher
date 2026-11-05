@@ -227,6 +227,8 @@ private struct StatusProduct: Codable {
     /// intentionally still `not-installed`, while a disconnected disk is
     /// `needs-repair` but should still offer the player a cleanup path.
     let canRemove: Bool
+    var gamePath: String? = nil
+    var baseManifestVerified: Bool? = nil
 }
 private struct StatusDocument: Codable { let schemaVersion: Int; let selectedProductId: ProductID; let products: [StatusProduct] }
 private struct LegacyRuntimeCatalog: Decodable {
@@ -703,7 +705,7 @@ private func status(for product: CatalogProduct, state: ProductState) -> StatusP
     if let root = installation.gameRoot, let prefix = installation.prefix,
        let rootURL = resolve(root), gameExecutable(in: rootURL) != nil, resolve(prefix) != nil,
        runtimeReady {
-        return StatusProduct(productId: product.id, state: "ready", installedVersion: installation.installedVersion, detail: "游戏文件与独立兼容环境已就绪。", canRemove: true)
+        return StatusProduct(productId: product.id, state: "ready", installedVersion: installation.installedVersion, detail: installation.externalGameRoot == true && installation.installedVersion == nil ? "外部客户端已登记；未确认官方基础清单完整性，原文件保留。" : "游戏文件与独立兼容环境已就绪。", canRemove: true, gamePath: rootURL.path, baseManifestVerified: installation.externalGameRoot == true ? installation.installedVersion != nil : nil)
     }
     if installation.installer != nil {
         return StatusProduct(productId: product.id, state: "not-installed", installedVersion: nil, detail: "官方安装器已下载；请在维护窗口完成安装并导入客户端。", canRemove: true)
@@ -1106,6 +1108,12 @@ private func directInstallWorkspace(product: ProductID, destinationParent rawPar
     guard (try? parent.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
         throw ManagerError.message("所选安装位置不可用。")
     }
+    guard fileManager.isWritableFile(atPath: parent.path) else {
+        throw ManagerError.message("所选安装位置不可写；请检查文件夹权限或选择其他位置。")
+    }
+    // Reject volumes that cannot preserve the launcher's stable path identity
+    // before downloading any game bytes (for example unsupported network mounts).
+    _ = try makeLocation(parent)
     // Never use a selected volume/root itself as gameRoot.  Keep every
     // download-owned item beneath one root so managed Y: can expose precisely that
     // root, rather than a broad parent directory or a developer prefix.
@@ -1868,7 +1876,10 @@ private func repairExecutionDecision(summary: RepairPlanSummary, repairList: URL
     if summary.repairs == 0, summary.valid { return .noDownload }
     let text = try String(contentsOf: repairList, encoding: .utf8)
     let paths = text.split(whereSeparator: \.isNewline).map(String.init)
-    if product == .mainland, hasValidGameHotUpdateMarker(gameRoot: gameRoot, repairPaths: paths) {
+    // Both official clients use release_YYYY_NNNN:<40-hex> markers.
+    // Observed Global post-update bytes differ from the base manifest too;
+    // running the base repair would silently roll that live update back.
+    if hasValidGameHotUpdateMarker(gameRoot: gameRoot, repairPaths: paths) {
         return .blockForGameHotUpdate
     }
     return .download
@@ -2264,24 +2275,46 @@ private func run(_ command: String, product: ProductID) throws {
     case "import":
         guard let raw = argument(after: "--path") else { throw ManagerError.message("导入需要 --path <客户端目录>。") }
         let checked = try inspectExistingGame(item, path: raw)
-        guard checked.summary.valid else { throw ManagerError.message(inspectionDescription(checked)) }
+        guard checked.summary.valid || CommandLine.arguments.contains("--accept-base-mismatch") else { throw ManagerError.message(inspectionDescription(checked)) }
         for (otherProduct, other) in state.installations where otherProduct != product {
             if let location = other.gameRoot, let otherRoot = resolve(location), pathsOverlap(checked.root, otherRoot) {
                 throw ManagerError.message("所选目录与另一服务器的记录重叠，未导入。")
             }
         }
         guard !gameIsRunningForDirectoryMigration() else { throw ManagerError.message("请先结束正在运行的游戏再导入；未修改游戏文件。") }
+        guard fileManager.isWritableFile(atPath: checked.root.path) else {
+            throw ManagerError.message("客户端可读取但目录不可写；无法保存游戏自身的更新，未导入。")
+        }
         let runtime = try selectedRuntimeForDirectInstall()
         let prefix = supportDirectory.appendingPathComponent("Prefixes/\(product.rawValue)-import-\(UUID().uuidString)", isDirectory: true)
         var committed = false
-        defer { if !committed { try? fileManager.removeItem(at: prefix) } }
+        let previousLegacy = product == .mainland && fileManager.fileExists(atPath: legacyURL.path) ? try Data(contentsOf: legacyURL) : nil
+        var legacyChanged = false
+        // Snapshot only small records, never duplicate the user's game tree.
+        let backup = supportDirectory.appendingPathComponent("products-before-import-\(product.rawValue)-\(UUID().uuidString).json")
+        try JSONEncoder.pretty.encode(state).write(to: backup, options: [.atomic])
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+        defer {
+            if !committed {
+                if legacyChanged {
+                    if let previousLegacy { try? previousLegacy.write(to: legacyURL, options: [.atomic]) }
+                    else { try? fileManager.removeItem(at: legacyURL) }
+                }
+                try? fileManager.removeItem(at: prefix)
+            }
+        }
         try prepareDirectInstallPrefix(prefix, runtime: runtime, installRoot: checked.root, gameRoot: checked.root, product: product, allowExistingPrefix: false)
-        if product == .mainland { try publishMainlandRunnerBinding(gameRoot: try makeLocation(checked.root), prefix: try makeLocation(prefix)) }
-        var installation = Installation(gameRoot: try makeLocation(checked.root), prefix: try makeLocation(prefix), installedVersion: checked.manifest.versionCode)
+        if product == .mainland {
+            legacyChanged = true
+            try publishMainlandRunnerBinding(gameRoot: try makeLocation(checked.root), prefix: try makeLocation(prefix))
+        }
+        var installation = Installation(gameRoot: try makeLocation(checked.root), prefix: try makeLocation(prefix), installedVersion: checked.summary.valid ? checked.manifest.versionCode : nil)
         installation.externalGameRoot = true
         state.installations[product] = installation
         try save(state); committed = true
-        print("官方基础清单校验通过，已登记客户端并建立独立兼容环境；原游戏文件保留，卸载只移除启动器记录与兼容环境。")
+        print(checked.summary.valid
+            ? "官方基础清单校验通过，已登记客户端并建立独立兼容环境；原游戏文件保留。"
+            : "已按明确确认登记外部客户端；未确认官方基础清单一致性，未覆盖原文件。")
     case "prepare-launch":
         try validateProductReadyForLaunch(item, product: product, state: state)
         let app = try embeddedGameRunnerApp()
@@ -3146,6 +3179,25 @@ private func runSelfTest() throws {
     try fileManager.createDirectory(at: testRoot, withIntermediateDirectories: true)
     defer { try? fileManager.removeItem(at: testRoot) }
 
+    let occupiedRoot = testRoot.appendingPathComponent("occupied-install", isDirectory: true)
+    try fileManager.createDirectory(at: occupiedRoot, withIntermediateDirectories: false)
+    let untouched = occupiedRoot.appendingPathComponent("keep.txt")
+    try Data("keep".utf8).write(to: untouched)
+    var refusedOccupied = false
+    do { _ = try directInstallWorkspace(product: .global, destinationParent: occupiedRoot.path) }
+    catch { refusedOccupied = true }
+    guard refusedOccupied, try Data(contentsOf: untouched) == Data("keep".utf8) else {
+        throw ManagerError.message("Occupied custom installation root was modified")
+    }
+    let readOnlyRoot = testRoot.appendingPathComponent("readonly-install", isDirectory: true)
+    try fileManager.createDirectory(at: readOnlyRoot, withIntermediateDirectories: false)
+    try fileManager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: readOnlyRoot.path)
+    var refusedReadOnly = false
+    do { _ = try directInstallWorkspace(product: .mainland, destinationParent: readOnlyRoot.path) }
+    catch { refusedReadOnly = true }
+    try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: readOnlyRoot.path)
+    guard refusedReadOnly else { throw ManagerError.message("Read-only custom installation root was accepted") }
+
     // Imported trees remain user-owned even when their launcher record is removed.
     let externalRoot = testRoot.appendingPathComponent("existing-game", isDirectory: true)
     let externalPrefix = testRoot.appendingPathComponent("import-prefix", isDirectory: true)
@@ -3497,8 +3549,8 @@ private func runSelfTest() throws {
     guard try repairExecutionDecision(summary: RepairPlanSummary(repairs: 2, valid: false), repairList: hotUpdateRepairList, gameRoot: testRoot) == .blockForGameHotUpdate else {
         throw ManagerError.message("game hot-update marker must block downloader execution")
     }
-    guard try repairExecutionDecision(summary: RepairPlanSummary(repairs: 2, valid: false), repairList: hotUpdateRepairList, gameRoot: testRoot, product: .global) == .download else {
-        throw ManagerError.message("global repair must preserve its existing hot-update behavior")
+    guard try repairExecutionDecision(summary: RepairPlanSummary(repairs: 2, valid: false), repairList: hotUpdateRepairList, gameRoot: testRoot, product: .global) == .blockForGameHotUpdate else {
+        throw ManagerError.message("global hot-update marker must block base-manifest rollback")
     }
 
     var signedPE = Data(repeating: 0, count: 1_024)
@@ -3790,6 +3842,12 @@ private func runMain() throws {
         guard let rawProduct = argument(after: "--product"), let product = ProductID(rawValue: rawProduct), let path = argument(after: "--path") else { throw ManagerError.message("inspect 需要 --product 和 --path。") }
         guard let item = try loadCatalog().products.first(where: { $0.id == product }) else { throw ManagerError.message("未知产品。") }
         let result = try inspectExistingGame(item, path: path)
+        if args.contains("--json") {
+            let report: [String: Any] = ["schemaVersion": 1, "productId": product.rawValue, "valid": result.summary.valid, "description": inspectionDescription(result), "versionCode": result.manifest.versionCode, "filesTotal": result.manifest.files.count, "repairs": result.summary.repairs]
+            let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
+            print(String(decoding: data, as: UTF8.self))
+            return
+        }
         print(inspectionDescription(result))
         if !result.summary.valid { throw ManagerError.message("检测完成：未达到当前官方基础清单的一致性要求，原文件未修改。") }
         return

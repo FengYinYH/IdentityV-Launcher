@@ -750,10 +750,10 @@ final class ToolboxViewModel: ObservableObject {
             var directory = Self.defaultInstallDirectory(for: productID)
             let choice = NSAlert()
             choice.messageText = LauncherLanguage.current.localized("选择安装位置")
-            choice.informativeText = "默认位置：\(directory.path)\n也可选择一个专用空文件夹；游戏文件会放在其中的 game 文件夹。已有客户端请使用导入检测。"
-            choice.addButton(withTitle: "默认位置")
-            choice.addButton(withTitle: "自定义位置")
-            choice.addButton(withTitle: "取消")
+            choice.informativeText = String(format: LauncherLanguage.current.localized("默认位置：%@\n也可选择专用空文件夹，游戏放在其中的 game 文件夹。已有客户端请使用导入检测。"), directory.path)
+            choice.addButton(withTitle: LauncherLanguage.current.localized("默认位置"))
+            choice.addButton(withTitle: LauncherLanguage.current.localized("自定义位置"))
+            choice.addButton(withTitle: LauncherLanguage.current.localized("取消"))
             switch choice.runModal() {
             case .alertFirstButtonReturn: break
             case .alertSecondButtonReturn:
@@ -785,18 +785,28 @@ final class ToolboxViewModel: ObservableObject {
             activeProductID = productID
             showOperation("正在只读检测所选客户端与官方基础清单，原文件不会修改…")
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let result = Self.runProductManager(manager, arguments: ["inspect", "--product", productID.rawValue, "--path", directory.path])
+                let result = Self.runProductManager(manager, arguments: ["inspect", "--json", "--product", productID.rawValue, "--path", directory.path])
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.activeProductAction = nil; self.activeProductID = nil
                     guard result.status == 0 else { self.showOperation(result.output, isError: true); return }
+                    guard let report = try? JSONDecoder().decode(ExistingClientInspectionReport.self, from: Data(result.output.utf8)),
+                          report.schemaVersion == 1, report.productId == productID.rawValue else {
+                        self.showOperation("客户端检测结果格式无效，未导入。", isError: true); return
+                    }
                     let confirmation = NSAlert()
                     confirmation.messageText = LauncherLanguage.current.localized("客户端检测完成")
-                    confirmation.informativeText = result.output + "\n导入只登记目录并建立兼容环境，保留原游戏文件。"
-                    confirmation.addButton(withTitle: "导入")
-                    confirmation.addButton(withTitle: "取消")
+                    confirmation.informativeText = String(format: LauncherLanguage.current.localized("官方版本：%@\n检查文件数：%ld\n缺失或不匹配：%ld"), report.versionCode, report.filesTotal, report.repairs)
+                        + "\n" + LauncherLanguage.current.localized(report.valid
+                            ? "官方基础清单一致。导入保留原文件，并建立独立兼容环境。"
+                            : "无法确认完整性或服务器；可能包含游戏内更新。仍导入只登记原目录，不修复或覆盖文件。")
+                    confirmation.alertStyle = report.valid ? .informational : .warning
+                    confirmation.addButton(withTitle: LauncherLanguage.current.localized(report.valid ? "导入" : "仍导入（保留原文件）"))
+                    confirmation.addButton(withTitle: LauncherLanguage.current.localized("取消"))
                     guard confirmation.runModal() == .alertFirstButtonReturn else { return }
-                    self.runProductAction(action, productID: productID, manager: manager, extraArguments: ["--path", directory.path])
+                    var arguments = ["--path", directory.path]
+                    if !report.valid { arguments.append("--accept-base-mismatch") }
+                    self.runProductAction(action, productID: productID, manager: manager, extraArguments: arguments)
                 }
             }
             return
@@ -2681,7 +2691,7 @@ final class ToolboxViewModel: ObservableObject {
               values.isRegularFile == true, values.isSymbolicLink != true,
               let size = values.fileSize, size > 0, size <= 256 * 1_024,
               let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
-        return text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"8\"")
+        return text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"9\"")
     }
 
     nonisolated private static func gamePID(in snapshot: String) -> Int32? {
@@ -2725,9 +2735,9 @@ struct ToolboxProcessMatcherSelfTest {
     static func main() throws {
         let helperFixture = FileManager.default.temporaryDirectory.appendingPathComponent("idv-helper-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: helperFixture) }
-        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"8\"\n".utf8).write(to: helperFixture)
+        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"9\"\n".utf8).write(to: helperFixture)
         let compatibleHelper = ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
-        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"7\"\n".utf8).write(to: helperFixture)
+        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"8\"\n".utf8).write(to: helperFixture)
         let rejectedV3Helper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
         try Data("#!/bin/zsh\n# legacy helper\n".utf8).write(to: helperFixture)
         let rejectedLegacyHelper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)

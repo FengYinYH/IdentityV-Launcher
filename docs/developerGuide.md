@@ -6,7 +6,7 @@
 
 ## 运行与构建关系
 
-本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper 合约为 8；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。
+本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper 合约为 9；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。
 
 IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精确字节锁和许可来源；当前锁定官方 `v6.3.2-stable`，标签与资产以实际 Release 核验，不能由版本号猜测通道。通常先退出游戏再运行安装器。已明确安排保留活动游戏的维护更新，可先停止登录代理，再使用安装器的 `--allow-running-game-with-stopped-proxy`；此参数仍要求代理进程和托管 hosts 均已消失，不提供活动代理绕过。具体证据与回退见[组件说明](../idvLoginComponent/README.md)。
 
@@ -52,4 +52,4 @@ RC1 升级时，ProductManager 的状态/操作入口在空闲状态执行[默�
 
 ### 自定义安装与已有目录检测（RC5 build 10 候选）
 
-安装入口先选默认位置或专用空文件夹，管理器仍拒绝覆盖非受管非空目录；默认位置不存在时由原有迁移之后的目录准备负责创建。`IdentityVProductManager inspect --product mainland|global --path <客户端根目录>` 从该服官方基础清单执行只读 XXH64 扫描，临时 manifest/repair-list 在系统临时目录，绝不下载修复。当前仅完整匹配基础清单的已有目录可导入，游戏内热更新可能导致不一致，不能据此声称损坏。导入创建独立 prefix 并登记原路径；`externalGameRoot` 保留用户所有权，卸载不删除外部目录，外部目录也不自动进入修复下载。导入按钮在未安装/需修复状态提供。最终构建、全量下载和日用入口验收另记状态。
+安装入口先选默认位置或专用空文件夹，管理器仍拒绝覆盖非受管非空目录；默认位置不存在时由原有迁移之后的目录准备负责创建。`IdentityVProductManager inspect --product mainland|global --path <客户端根目录>` 从该服官方基础清单执行只读 XXH64 扫描，临时 manifest/repair-list 在系统临时目录，绝不下载修复。完整匹配基础清单的目录可直接确认导入；不匹配时显示差异与热更新/服务器不确定性，只有显式确认后才允许以未验证状态登记（CLI 对应 `--accept-base-mismatch`），不自动修复或声称损坏。导入创建独立 prefix 并登记原路径；`externalGameRoot` 保留用户所有权，卸载不删除外部目录，外部目录也不自动进入修复下载。导入按钮在未安装/需修复状态提供。最终构建、全量下载和日用入口验收另记状态。

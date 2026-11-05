@@ -16,6 +16,8 @@ The launcher continuously monitors for possible hangs while it is running. Closi
 
 Native-resolution rendering and macOS Game Mode in full screen are supported.
 
+Choose the default location or a dedicated empty folder during installation. Import an existing client to inspect it against the official base manifest without changing its files. In-game updates may differ from that manifest; unverified imports require explicit confirmation and are not automatically repaired. Removing an imported client preserves its external game files.
+
 ## Download and installation
 
 1. Open the downloaded disk image and drag “第五人格启动器.app” into Applications.

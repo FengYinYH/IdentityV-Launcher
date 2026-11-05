@@ -56,7 +56,11 @@ struct ProductLauncherView: View {
         .alert("卸载\(removalTarget?.productId.localizedName ?? "此版本")？", isPresented: Binding(get: { removalTarget != nil }, set: { if !$0 { removalTarget = nil } }), presenting: removalTarget) { product in
             Button("卸载", role: .destructive) { removalTarget = nil; model.performProductAction(.remove, for: product.productId) }
             Button("取消", role: .cancel) { removalTarget = nil }
-        } message: { _ in Text("会结束该版本的游戏，并将其游戏文件与独立兼容环境移入废纸篓；不会影响另一服务器或启动器。") }
+        } message: { product in
+            Text(LocalizedStringKey(LauncherLanguage.current.localized(product.baseManifestVerified != nil
+                ? "移除启动器记录与兼容环境，保留外部游戏文件。"
+                : "会结束该版本的游戏，并将其游戏文件与独立兼容环境移入废纸篓；不会影响另一服务器或启动器。")))
+        }
         .alert("启用 idv-login？", isPresented: $model.shouldOfferIdvLoginPrompt) {
             Button("是", action: model.acceptInitialIdvLoginOffer)
             Button("否", role: .cancel, action: model.declineInitialIdvLoginOffer)
@@ -155,7 +159,7 @@ struct ProductLauncherView: View {
             product: product,
             isRunning: model.runtimeStatus.runningProductIDs.contains(product.productId),
             isWindowReady: model.runtimeStatus.windowReadyProductIDs.contains(product.productId),
-            defaultInstallPath: ToolboxViewModel.defaultInstallPath(for: product.productId),
+            defaultInstallPath: product.gamePath ?? ToolboxViewModel.defaultInstallPath(for: product.productId),
             action: { model.performProductAction($0, for: product.productId) },
             requestRemoval: { removalTarget = product },
             isBusy: { model.productActionIsRunning($0, productID: product.productId) },
@@ -433,7 +437,7 @@ private struct ProductPanel: View {
                     .background(installationStatusColor.opacity(0.13), in: Capsule())
                     .overlay { Capsule().stroke(installationStatusColor.opacity(0.32), lineWidth: 1) }
             }
-            Text(String(format: LauncherLanguage.current.localized("默认安装位置：%@"), locale: LauncherLanguage.current.locale, defaultInstallPath))
+            Text(String(format: LauncherLanguage.current.localized(product.gamePath == nil ? "默认安装位置：%@" : "游戏位置：%@"), locale: LauncherLanguage.current.locale, defaultInstallPath))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
@@ -492,7 +496,8 @@ private struct ProductPanel: View {
         .fixedSize(horizontal: true, vertical: false)
     }
     private var installationStatusTitle: String {
-        LauncherLanguage.current.localized(ProductRuntimeStatusLabel.localizationKey(
+        if product.baseManifestVerified == false && !isRunning && !isBusy(.launch) { return LauncherLanguage.current.localized("已登记，完整性待确认") }
+        return LauncherLanguage.current.localized(ProductRuntimeStatusLabel.localizationKey(
             isInstalled: product.state != .notInstalled,
             processExists: isRunning,
             windowReady: isWindowReady,

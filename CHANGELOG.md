@@ -6,18 +6,39 @@
 
 ### 修复
 
-- 国际服首次安装长时间停在 0 KB：下载核心监督器在 Hardened Runtime 下拿不到 Wine 的 DYLD 库搜索路径，现按已选 runtime 重建 `lib64` 并校验路径归属与 GnuTLS 文件（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
-- 下载核心报告的终止性辅助状态（如 `304`）不再被静默忽略，会明确失败并显示错误；这类状态也不再延长下载进度期限。
+- 国际服首次安装长时间停在 0 KB：下载核心监督器在 Hardened Runtime 下拿不到 Wine 的 DYLD 库搜索路径，现按已选 Wine 的固定布局恢复 `lib64`，拒绝无效搜索路径并保留缺库诊断（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
+- 下载核心的辅助通知或重复速率不再无限延长进度期限；已知失败和超时显示受限诊断，不再根据任意 304 文本猜测终止。
+- 修复仅安装国际服时的启动确认误报，以及 IDV Login 首次 CA 导入无法交互后的有界恢复。
+
+- 国际服游戏内更新后，基础清单修复也会保护有效热更新，避免回退正常客户端。
+
+### 新增
+
+- 自定义安装目录、已有客户端只读检测与明确确认导入；外部游戏目录保留原文件，卸载不删除它们。
 
 ### 修正
 
-- 國際服首次安裝長時間停在 0 KB：下載核心監督器在 Hardened Runtime 下取不到 Wine 的 DYLD 函式庫搜尋路徑，現改為依已選 runtime 重建 `lib64`，並驗證路徑歸屬與 GnuTLS 檔案（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
-- 下載核心回報的終止性輔助狀態（如 `304`）不再被靜默忽略，會明確失敗並顯示錯誤；這類狀態也不再延長下載進度期限。
+- 國際服首次安裝長時間停在 0 KB：下載核心監督器在 Hardened Runtime 下取不到 Wine 的 DYLD 函式庫搜尋路徑，現改為依已選 runtime 重建 `lib64`，拒絕無效搜尋路徑並保留缺庫診斷（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
+- 輔助通知或重複速率不再無限延長進度期限；已知失敗與逾時會顯示受限診斷，不根據任意 304 文字猜測終止。
+- 修復僅安裝國際服時的啟動確認誤報，並為 IDV Login 首次 CA 授權失敗加入有界恢復。
+
+- 國際服遊戲內更新後，基礎清單修復也會保護有效熱更新，避免回退正常客戶端。
+
+### 新增功能
+
+- 自訂安裝目錄、既有客戶端唯讀檢查與明確確認匯入；外部遊戲檔案不會因解除安裝而刪除。
 
 ### Fixed
 
-- First install of the global build no longer stalls at 0 KB: under Hardened Runtime the download-core supervisor lost Wine's DYLD library path, so it now rebuilds `lib64` from the selected runtime and verifies the path stays inside that runtime and contains GnuTLS ([#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)).
-- Terminal auxiliary states reported by the download core (such as `304`) are no longer swallowed silently; they fail with a visible error and no longer extend the download progress deadline.
+- First install of the global build no longer stalls at 0 KB: under Hardened Runtime the download-core supervisor lost Wine's DYLD library path, so it now rebuilds `lib64` from the selected runtime and rejects invalid search paths and reports missing libraries ([#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)).
+- Auxiliary notifications and changing rates no longer extend stalled transfers indefinitely. Known failures and timeouts show bounded diagnostics; opaque 304 text is not guessed to be terminal.
+- Fixed global-only launch confirmation errors and added bounded recovery when the initial IDV Login CA authorization cannot interact with the user.
+
+- Global in-game hot updates now receive the same base-repair rollback protection as the mainland client.
+
+### Added
+
+- Custom installation folders and read-only inspection/import of existing clients with explicit confirmation. Imported game files remain user-owned and are preserved during removal.
 
 ---
 
