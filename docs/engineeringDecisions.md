@@ -81,3 +81,7 @@ App 的 Bundle ID、精确发行号、约定入口和当前架构须匹配；全
 助手的所有成功/失败输出均给出`targetState`与三态`targetReplaced`、`startupConfirmed`、`recoveryRequired`和`cleanupComplete`。兼容字段installed仅是startupConfirmed别名，绝不是磁盘状态。实际swap返回成功立即记replacement；活新版无回执仍保留这个true，另外标记未确认启动及需要恢复。回执通过但清理失败保持replacement/confirmed并要求收尾。回退之后再验证旧项目签名、发行号和build，才能记original/false；回退或验证失败记unknown/null并保留恢复信息。初期未验证目标或无效调用也不猜磁盘状态。
 
 需要手动恢复/收尾时返回已知target与事务根，backupPath仅在备份实际存在时输出，不承诺已删备份可用。状态单测覆盖预替换失败、活新App无回执、确认后清理失败、已验证回退、回退不确定及成功结果；它验证共享状态投影，不是实际NSWorkspace启动/故障验收。原有假App rename/回退检查仍运行，本补充未替换任何真实App或显示窗口。
+
+### build20 实际签名副本事务验收
+
+无GUI隔离测试将实际项目Developer ID签名的旧/新App副本交给生产swap/rollback/verifyApp：新目标与旧备份签名及构建身份正确；显式回退恢复旧版；新副本在移动后验签失败时恢复旧版并再次验签通过。此测试没有调用完整helper、启动新GUI、合成新版Release或绕过路径/版本准入，不代表更新全链成功。本地未公证包的实际Gatekeeper评估为Unnotarized Developer ID拒绝，生产准备阶段会拒绝它，保留该行为。完整准入/下载/回执仍待合格发行包及独立测试。
