@@ -97,6 +97,7 @@ SCRIPT_CONFIG="$SCRIPT_HOME/Library/Application Support/IdentityVOnMac/Maintenan
 launch_source="$(/usr/bin/sed -n '/^launch_game_once() {/,/^}/p' "$RUNNER")"
 clear_source="$(/usr/bin/sed -n '/^clear_metal_hud_environment() {/,/^}/p' "$RUNNER")"
 stop_source="$(/usr/bin/sed -n '/^stop_prefix_processes() {/,/^}/p' "$RUNNER")"
+eval "$(/usr/bin/sed -n '/^publish_run_session() {/,/^}/p' "$RUNNER")"
 eval "$launch_source"
 eval "$clear_source"
 eval "$stop_source"

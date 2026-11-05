@@ -63,3 +63,7 @@ PR #5 与 #6 已获所有者授权真实合入 GitHub main，merge commit 分别
 在dbddd52隔离基线上整合0dbdee0更新候选，保留Agent/路径/登录/已获准反馈修改。新增共享活admission与既有产品锁的替换互斥，覆盖直接管理器只读业务；补实际挂载清单清理、POSIX进程组超时、最低系统版本、原版本/build再核对及ready/commit/GUI回执协议。显式App更新后端供Agent任务调用，Resources/idv仍独立；任务等待真实回执和清理，不把helper启动当成功。
 
 离线checker、假App真实rename/回退、挂载故障注入、活锁/超时/回执与真实运输层+mockGUI检查通过；管理器自检、GUI源码类型检查及三语言资源一致性通过。未完整构建此整合候选、未对新包作Gatekeeper正向或真实签名替换/重启/清理验收，日用App未变。所有者KVM暂停期间无CUA/键鼠/原生对话框操作；显式headless测试仅推迟原生UI段并打印DEFERRED，生产接口不读取该flag。下一步由主任务审查并调和近期206/i18n提交后完整构建，恢复输入后补原生UI与获准的真实更新测试。
+
+## 来宾会话确认修复候选（基于9e5ff6e，待最终包回归）
+
+build13来宾官方国际服安装/444文件全校验通过后，实际游戏存活但session为0bytes、正式launch误报失败。已确认当前代码相同的父shell全局x86 DYLD注入会污染arm64 native子程序，并用无害探针复现重定向零字节机制。独立候选将注入限于两分支Wine exec前，改为验证后的0600同目录原子会话；字段/消费者和PID/product/runtime身份检查保持原契约。新跨架构探针（含特殊路径与发布失败）和既有生命周期/HUD/鼠标/prefix契约通过，未运行Wine/游戏、模拟输入或操作来宾。最终包真实launch/session回归待主任务协调，不能将fixture写为来宾已修复；详见窗口调查RUN-SESSION。

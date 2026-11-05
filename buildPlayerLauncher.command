@@ -122,6 +122,7 @@ for runner_test in \
   "$PROJECT_ROOT/gameRunnerApp/tests/microphonePrivacyContract.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/nativeD3DCompilerContract.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/runnerLifecycleContract.test.command" \
+  "$PROJECT_ROOT/gameRunnerApp/tests/sessionPublication.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/stallWatchContract.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/mouseAccelerationSessionContract.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/metalHudConfigurationContract.test.command" \

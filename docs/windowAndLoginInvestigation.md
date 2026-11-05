@@ -116,3 +116,16 @@ Mpay面板与 idv-login 的网络/代理功能是不同层，不能用隐藏后�
 ## 记录可信度与维护
 
 本页保留可复核的源码入口、样本版本/偏移、定量结果、反证和未知；不把此前报告里不存在的专篇、行号或过强归因直接复制。原始私人日志不进入公开仓；未来复现只保留脱敏工程投影、测试脚本与必要版本/哈希。新证据取得后更新对应问题与STATUS，不建立第三套互相冲突的状态表。
+## RUN-SESSION：来宾游戏已存在但启动确认失败（2026-11-05）
+
+macOS27 headless 来宾的 build13 实际完成官方国际服444文件、17,602,266,736 bytes 安装与独立校验（valid=true、repairs=0）；随后游戏进程持续至少约2分20秒，但正式 launch 返回未发现可验证进程。会话文件为0600、0bytes，运行器日志同时显示x86_64 CommandGraveForwarder被注入arm64e子进程并遭dyld拒载。这是“游戏进程存在”和“受管会话确认成功”之间的真实差异，不是下载失败，也不是窗口/登录/Metal画面通过。9e5ff6e中的运行器与该build13源码对应文件无差异，问题仍适用。
+
+原因与可独立复验的依据：launch_game_once原来在父zsh全局export DYLD_INSERT_LIBRARIES，随后外部printf通过重定向写会话。重定向先截断/创建文件，目标Mach-O才由dyld加载；因此跨架构注入导致子程序在main前退出时，会留下零字节文件。用无副作用x86_64空dylib及自建非SIP arm64打印器复现了相同架构拒载、exit134与0bytes结果；这证明失败机制，不把来宾日志中的每个PID都猜成printf。宿主部分系统工具可能过滤DYLD，不能依赖这种差异保护运行器控制流程。
+
+修复只限定注入边界：direct与virtual-desktop分支各在其子shell最后exec Wine前设置注入，$!仍是exec后的同一PID。direct分支的native语言resolver在注入前完成，父shell及后续控制工具不继承x86注入；Wine的DYLD_FALLBACK_LIBRARY_PATH、注入库列表与其他既有环境保持原契约，没有插入会被系统过滤DYLD的env中转。
+
+会话仍为schema1 .env，不改任何机器字段或消费者。正文仅固定schema、产品/Windows根枚举和PID数字，没有自定义host路径；先校验枚举与PID，再以固定builtin printf格式和%s数据参数写入同目录独占0600临时文件，校验非空、内容、大小、owner/mode后rename发布。路径只作为全引用文件参数，不拼进shell代码或正文。发布失败保留原记录，明确报告已生成的Wine PID，不将它误称未捕获PID，也不自动重发游戏启动；退出仍走既有经验证prefix清理。旧会话清理及PID/产品/运行时/可执行身份检查未放宽，没有新增按裸游戏路径接管手动Wine会话的fallback。
+
+`gameRunnerApp/tests/sessionPublication.test.command`调用实际两个函数，以无GUI arm64语言/控制探针和x86_64 Wine替身加空dylib检查两服、direct/virtual模式、同PID exec、Wine fallback及native环境隔离。文件目录含空格、单双引号、反斜杠、中文和换行；另注入rename失败，验证完整旧记录保留、无临时残留、已spawn PID明确失败且替身只执行一次，并拒绝非法PID/换行字段/symlink目标。探针不运行Wine、游戏、输入hook或窗口。生命周期、Metal HUD、鼠标会话与prefix清理既有契约均通过；两个runner模板仍逐字一致。
+
+最终包仍须由主任务协调来宾回归：复用已完整校验的安装，核实新session非空/字段与真实PID一致、正式launch返回值及日志，不以本机探针替代实际Wine或窗口验收。本修复不宣称解决headless GPU/黑屏、登录、鼠标捕获或尚未复现的其他问题。

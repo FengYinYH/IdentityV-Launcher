@@ -28,7 +28,7 @@ PY
 ! /usr/bin/grep -Fq 'runner_path, "--run"' "$launcher_source"
 /usr/bin/grep -Fq 'process.executableURL = try embeddedGameRunnerExecutable(runner: app)' "$product_manager"
 ! /usr/bin/grep -Fq 'process.executableURL = URL(fileURLWithPath: "/usr/bin/open")' "$product_manager"
-/usr/bin/grep -Fq "/usr/bin/printf 'schema=1\\nproduct=%s\\nrunner_pid=%s\\nwine_pid=%s\\nwindows_root=%s\\n'" "$main_runner"
+/usr/bin/grep -Fq "builtin printf 'schema=1\\nproduct=%s\\nrunner_pid=%s\\nwine_pid=%s\\nwindows_root=%s\\n'" "$main_runner"
 ! /usr/bin/grep -Fq 'print -r -- "schema=1\nproduct=' "$main_runner"
 
 /usr/bin/grep -Fq 'event.keyCode != kVK_ANSI_Grave' "$forwarder"

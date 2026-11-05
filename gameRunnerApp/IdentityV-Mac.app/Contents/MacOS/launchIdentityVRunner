@@ -1096,9 +1096,49 @@ restart_marker_seen() {
   /usr/bin/tail -n 260 "$game_log" | /usr/bin/grep -E "show_restart_ui|need_restart['\"]?: True|need_restart.: True" >/dev/null 2>&1
 }
 
+publish_run_session() {
+  # This legacy machine record contains no host path: only fixed enums and
+  # positive PID digits. Keep the protocol and all reader identity checks.
+  case "$PRODUCT:$WINDOWS_GAME_ROOT" in
+    mainland:IdentityV|global:IdentityVGlobal) ;;
+    *) print -r -- "refused invalid product/root session fields" >>"$LOG_FILE"; return 1 ;;
+  esac
+  [[ "$LAUNCHED_WINE_PID" == <-> && ${#LAUNCHED_WINE_PID} -le 10 ]] &&
+    (( LAUNCHED_WINE_PID > 1 && LAUNCHED_WINE_PID <= 2147483647 )) || {
+      print -r -- "refused invalid Wine PID session field" >>"$LOG_FILE"; return 1; }
+  [[ ! -L "$RUN_SESSION_FILE" && ( ! -e "$RUN_SESSION_FILE" || -f "$RUN_SESSION_FILE" ) ]] || {
+    print -r -- "refused non-regular session destination" >>"$LOG_FILE"; return 1; }
+  local session_temp session_expected session_actual session_size
+  session_temp="$(/usr/bin/mktemp "${RUN_SESSION_FILE}.tmp.XXXXXX")" || return 1
+  # mktemp creates an exclusive 0600 sibling. Never truncate the published
+  # record, and use shell builtins rather than an injected native printf.
+  session_expected="$(builtin printf 'schema=1\nproduct=%s\nrunner_pid=%s\nwine_pid=%s\nwindows_root=%s\n' \
+    "$PRODUCT" "$$" "$LAUNCHED_WINE_PID" "$WINDOWS_GAME_ROOT")"
+  if ! (umask 077; builtin printf '%s\n' "$session_expected" >| "$session_temp"); then
+    /bin/rm -f -- "$session_temp"; return 1
+  fi
+  session_size="$(/usr/bin/stat -f '%z' "$session_temp" 2>/dev/null)" || {
+    /bin/rm -f -- "$session_temp"; return 1; }
+  session_actual="$(<"$session_temp")"
+  if [[ ! -f "$session_temp" || -L "$session_temp" || "$session_size" != <-> ]] ||
+     (( session_size <= 0 || session_size > 512 )) ||
+     [[ "$session_actual" != "$session_expected" ||
+        "$(/usr/bin/stat -f '%u:%Lp' "$session_temp" 2>/dev/null)" != "$UID:600" ]]; then
+    /bin/rm -f -- "$session_temp"; return 1
+  fi
+  # Same-directory rename publishes a complete validated record atomically.
+  if ! /bin/mv -f -- "$session_temp" "$RUN_SESSION_FILE"; then
+    /bin/rm -f -- "$session_temp"; return 1
+  fi
+  if [[ ! -f "$RUN_SESSION_FILE" || -L "$RUN_SESSION_FILE" || ! -s "$RUN_SESSION_FILE" ||
+        "$(<"$RUN_SESSION_FILE")" != "$session_expected" ]]; then
+    /bin/rm -f -- "$session_temp"; return 1
+  fi
+}
+
 launch_game_once() {
   local input_trace=0
-  local login_readiness=""
+  local login_readiness="" wine_inserted_libraries=""
   local -a inserted_libraries hud_environment
   if [[ -L "$INPUT_TRACE_ONCE_MARKER" ]]; then
     print -r -- "ignored symlinked developer input trace marker" >>"$LOG_FILE"
@@ -1127,7 +1167,9 @@ launch_game_once() {
   else
     print -r -- "IDV Login DNS compatibility layer inactive: proxy is not exactly ready" >>"$LOG_FILE"
   fi
-  export DYLD_INSERT_LIBRARIES="${(j.:.)inserted_libraries}"
+  # x86_64 interposers belong only to the final Wine child. Exporting here
+  # poisons arm64 native control/session children on systems that honor DYLD.
+  wine_inserted_libraries="${(j.:.)inserted_libraries}"
   if [[ "$IDENTITYV_USE_VIRTUAL_DESKTOP" == "1" ]]; then
     # Wine explorer is a bootstrap chain, not the final dwrg.exe child. Keep
     # this optional path HUD-free instead of leaking diagnostics into it.
@@ -1137,7 +1179,10 @@ launch_game_once() {
       print -r -- "Metal HUD disabled for virtual desktop bootstrap" >>"$LOG_FILE"
     fi
     print -r -- "launch mode: virtual desktop ${IDENTITYV_DESKTOP_NAME},${IDENTITYV_DESKTOP_SIZE}" >>"$LOG_FILE"
-    "$WINE_BIN" explorer "/desktop=${IDENTITYV_DESKTOP_NAME},${IDENTITYV_DESKTOP_SIZE}" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe" "${GAME_LAUNCH_ARGUMENTS[@]}" >>"$LOG_FILE" 2>&1 &
+    (
+      export DYLD_INSERT_LIBRARIES="$wine_inserted_libraries"
+      exec "$WINE_BIN" explorer "/desktop=${IDENTITYV_DESKTOP_NAME},${IDENTITYV_DESKTOP_SIZE}" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe" "${GAME_LAUNCH_ARGUMENTS[@]}"
+    ) >>"$LOG_FILE" 2>&1 &
   else
     if [[ "$METAL_HUD_ENABLED" == "1" ]]; then
       # Apple exposes no reliable "expanded" environment switch. Keep a
@@ -1184,15 +1229,17 @@ launch_game_once() {
       if (( ${#hud_environment[@]} )); then
         export "${hud_environment[@]}"
       fi
+      # Resolve native language/control helpers before setting x86 injection.
+      export DYLD_INSERT_LIBRARIES="$wine_inserted_libraries"
       exec "$WINE_BIN" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe" "${GAME_LAUNCH_ARGUMENTS[@]}"
     ) >>"$LOG_FILE" 2>&1 &
   fi
   LAUNCHED_WINE_PID=$!
-  # `print -r` deliberately preserves backslashes, so a quoted `\n` payload
-  # becomes one malformed line.  Emit real lines: the product manager and stop
-  # path treat this file as the authority for a runner-owned session.
-  (umask 077; /usr/bin/printf 'schema=1\nproduct=%s\nrunner_pid=%s\nwine_pid=%s\nwindows_root=%s\n' \
-    "$PRODUCT" "$$" "$LAUNCHED_WINE_PID" "$WINDOWS_GAME_ROOT" >| "$RUN_SESSION_FILE")
+  if ! publish_run_session; then
+    print -r -- "failed to publish session for spawned Wine PID $LAUNCHED_WINE_PID; no additional launch attempted" >>"$LOG_FILE"
+    return 1
+  fi
+
 }
 
 stop_prefix_processes() {
@@ -1637,7 +1684,15 @@ while true; do
   seen_log_activity=0
   print -r -- "launch wine at $(/bin/date '+%Y-%m-%d %H:%M:%S %Z')" >>"$LOG_FILE"
   launch_game_once
+  launch_status=$?
   wine_pid="$LAUNCHED_WINE_PID"
+  if (( launch_status != 0 )); then
+    # Wine may already exist. Do not call this a missing PID or launch again;
+    # the ordinary EXIT cleanup still closes only the verified own prefix.
+    print -r -- "session publication failed after spawning Wine PID $wine_pid; ending this launch attempt" >>"$LOG_FILE"
+    exit_code=1
+    break
+  fi
   if [[ -z "$wine_pid" ]]; then
     print -r -- "failed to capture launched Wine PID" >>"$LOG_FILE"
     exit_code=1

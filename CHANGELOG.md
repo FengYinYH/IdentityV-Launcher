@@ -6,6 +6,8 @@
 
 ### 修复
 
+- 修复游戏进程已启动，但启动器因会话记录失败而误报启动失败的情况。
+
 - 安装空间预检改用实际可用容量；下载核心明确报告空间不足时显示所需空间。
 - IDV Login 更新提示不再阻挡已安装组件的启动、停止、卸载和跟随设置，移除额外的上游更新屏蔽。
 - 补齐卡死提示、恢复倒计时、麦克风用途及常见运行状态的三语言显示。
@@ -24,6 +26,8 @@
 
 ### 修正
 
+- 修復遊戲程序已啟動，但啟動器因工作階段記錄失敗而誤報啟動失敗的情況。
+
 - 安裝空間預檢改用實際可用容量；下載核心明確回報空間不足時顯示所需空間。
 - IDV Login 更新提示不再阻擋已安裝元件的啟動、停止、解除安裝及跟隨設定，移除額外的上游更新封鎖。
 - 補齊卡死提示、恢復倒數、麥克風用途與常見執行狀態的三語顯示。
@@ -41,6 +45,8 @@
 - Agent/CLI 可呼叫遊戲安裝、檢查、修復與執行管理，提供工作 ID、結構化狀態、進度及日誌；指令文件隨 App 提供，Agent 解除安裝遊戲前會請使用者確認。
 
 ### Fixed
+
+- Fixed startup failure reports caused by session recording after the game process had already started.
 
 - Installation checks use actual free space and display required capacity when the download core explicitly reports insufficient space.
 - IDV Login update notices no longer disable installed component controls or Start with Game, and the extra upstream update blocker is removed.

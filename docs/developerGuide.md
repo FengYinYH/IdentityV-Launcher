@@ -76,3 +76,7 @@ IDV Login 的固定清单用于下载校验；安装状态、可选版本更新�
 玩家帮助菜单可读取随包 Agent 文档和复制 `Contents/Resources/idv help` 命令；`productManager/idv` 由玩家构建按755复制。它只添加 agent 前缀，不执行全局安装。删除确认展示核心预检的真实游戏位置及删除项，核心在修改锁内验证预览指纹后才停止进程/删除，避免确认期间绑定变化。CLI和GUI共用位置解析；更改这些契约时同时跑管理器与Agent自检。
 
 反馈视图的讨论组页与三语README共用FeedbackDestination常量，diagnostics的目标自检核对三份README；发送只打开邮件草稿，讨论页不替用户发送邮件。QQ提示气泡/收起及邮件前台切换需在最终包检查；社区链接为公开目的地，不将测试点击当作加入群组。
+
+### 运行器会话发布回归
+
+`gameRunnerApp/tests/sessionPublication.test.command`由玩家构建执行，也可单独用zsh运行；只编译/运行无GUI的arm64与x86_64探针及空dylib，需要已有Rosetta，不安装兼容组件，不运行Wine或游戏。它验证Wine子进程注入边界、保持PID/fallback以及固定字段会话的0600原子发布和失败保护；机制与真实来宾边界见[RUN-SESSION](windowAndLoginInvestigation.md#run-session来宾游戏已存在但启动确认失败2026-11-05)。

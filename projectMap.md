@@ -133,3 +133,5 @@ flowchart LR
 `productManager/idv` 随包复制至 Resources，提供 `idv help/docs/run/start/...` 短入口，仅转交同包管理器的 agent 子命令。帮助菜单提供文档及复制命令，不安装全局命令、不修改 PATH。删除地址预览和自定义位置解析由同一管理核心提供。
 
 更新入口：`LauncherUpdateChecker.swift`读取公开Releases；`LauncherUpdateInstallation.swift`共享准备、校验、恢复与进程超时；`LauncherUpdateAgent.swift`是显式App业务后端，默认入口仍为GUI。`UpdateHelper/`持活锁执行同址替换/重启回执/清理。`playerLauncherApp/Tests/updaterSelfTest.command`只做离线与假App检查，`productManager/tests/updaterAgent.test.py`用真实运输层和mockGUI验证状态，不执行真实更新。完整构建的`IDENTITYV_TEST_HEADLESS=1`只推迟原生确认UI测试，生产确认不变。
+
+`gameRunnerApp/tests/sessionPublication.test.command`：实际runner函数的无GUI跨架构/会话发布回归，使用无副作用探针，不运行Wine/游戏；玩家构建执行。会话字段和既有身份读取契约保持不变，调查见窗口专题RUN-SESSION。
