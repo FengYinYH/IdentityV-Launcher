@@ -16,6 +16,8 @@ The launcher continuously monitors for possible hangs while it is running. Closi
 
 Native-resolution rendering and macOS Game Mode in full screen are supported.
 
+Choose the default location or a dedicated empty folder during installation. Import an existing client to inspect it against the official base manifest without changing its files. In-game updates may differ from that manifest; unverified imports require explicit confirmation and are not automatically repaired. Removing an imported client preserves its external game files.
+
 ## Download and installation
 
 1. Open the downloaded disk image and drag “第五人格启动器.app” into Applications.
@@ -28,7 +30,7 @@ To upgrade from RC1, quit the game before replacing the launcher. The old defaul
 
 IDV Login is an optional component. You can download, repair, and play without installing it; use the game's official login flow instead.
 
-The launcher currently supports the official version `6.3.2` and manages component updates.
+The launcher currently supports the official version `6.3.3 beta` and manages component updates.
 
 ## Notes
 
@@ -40,7 +42,7 @@ Game audio follows the current macOS default input and output devices, and this 
 
 A mouse polling rate above 1 kHz may cause severe stuttering. Function-row mapping on external keyboards may also be unreliable.
 
-The project targets macOS 15 and later; the current candidate has only been tested on a real Mac running macOS 27. Some components have a technical minimum OS version of macOS 14, but that does not mean the complete product is verified or supported on macOS 14.
+The current runtime requires macOS 15 or later; this release does not provide macOS 14 compatibility. The current candidate has only been tested on a real Mac running macOS 27.
 
 We make no guarantees about stability, performance, or avoiding bans. The author is not responsible for your rank points, deduction points, win rate, or dithering, so be especially careful in ranked matches. If that costs you, ask the author to host a custom match and make it up to you with the Spiral Whip.
 

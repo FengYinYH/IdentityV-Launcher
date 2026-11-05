@@ -24,6 +24,11 @@ import (
 
 const taskSchemaVersion = 1
 
+// Protocol evidence is scoped to the bootstrap's exact downloadIPC.exe bytes.
+// Updating this pin must re-audit the 304 exception callback (not HTTP 304).
+// The cross-component test prevents a core upgrade silently inheriting it.
+const manifestRetryCoreSHA256 = "5c11d3188d271c1df88d36d98bb440437d29e8a41c88dfd38602ce3c60c56f82"
+
 var ErrCancelled = errors.New("download cancelled by control file")
 
 type Task struct {
@@ -219,7 +224,7 @@ type Supervisor struct {
 	startupTimeout time.Duration
 	idleTimeout    time.Duration
 	command        func(string, ...string) *exec.Cmd
-	environment    func(Task) []string
+	environment    func(Task) ([]string, error)
 	started        func(int) // test-only observation hook; never set by production callers
 }
 
@@ -385,7 +390,11 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	if makeEnvironment == nil {
 		makeEnvironment = controlledWineEnv
 	}
-	cmd.Env = makeEnvironment(s.task)
+	coreEnvironment, err := makeEnvironment(s.task)
+	if err != nil {
+		return err
+	}
+	cmd.Env = coreEnvironment
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// The core's stderr is intentionally discarded: it can contain untrusted paths
 	// or tokens, while this helper's stderr is reserved for generic diagnostics.
@@ -471,6 +480,9 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		idleDeadline = idleTimer.C
 	}
 	var lastSeq uint64
+	var lastMovement string
+	var lastAuxState string
+	var lastAuxDigest [32]byte
 	var pending *control
 	finished := false
 	var finishDeadline <-chan time.Time
@@ -479,8 +491,14 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-startupDeadline:
+			if lastAuxState != "" {
+				return fmt.Errorf("core did not establish progress channel after auxiliary state %s (payload sha256 %x)", lastAuxState, lastAuxDigest)
+			}
 			return errors.New("core did not establish progress channel")
 		case <-idleDeadline:
+			if lastAuxState != "" {
+				return fmt.Errorf("core progress timed out after auxiliary state %s (payload sha256 %x)", lastAuxState, lastAuxDigest)
+			}
 			return errors.New("core progress timed out")
 		case exitErr := <-coreDone:
 			coreExited = true
@@ -534,11 +552,32 @@ func (s *Supervisor) Run(ctx context.Context) error {
 				return errors.New("invalid progress frame")
 			}
 			state := string(msg.Frames[1])
-			if auxiliaryState(state) {
-				if err := s.emitAuxiliary(state, msg.Frames[2]); err != nil {
+			if state == "304" {
+				// DownloadManifestByUrl exhausts its retry counter and raises
+				// 304 via ExceptionCallback. sendMsg forwards the raw string;
+				// even an empty/non-JSON payload is a terminal task failure.
+				payload := msg.Frames[2]
+				if err := s.emitAuxiliary(state, payload); err != nil {
 					return err
 				}
-				noteCoreFrame(!pausedState)
+				return fmt.Errorf("core manifest download retries exhausted (state 304; payload bytes %d, sha256 %x)", len(payload), sha256.Sum256(payload))
+			}
+			if auxiliaryState(state) {
+				payload := msg.Frames[2]
+				digest := sha256.Sum256(payload)
+				if err := s.emitAuxiliary(state, payload); err != nil {
+					return err
+				}
+				// The vendor does not document a terminal schema for these frames.
+				// Arbitrary error/fail substrings can describe recoverable retries;
+				// preserve diagnostics, but let known terminal states/process exit
+				// or the bounded idle deadline decide failure.
+				// Auxiliary frames are not download progress. Refreshing the
+				// idle deadline here would let a core that only repeats them
+				// hang the install forever; remember the newest one for the
+				// timeout diagnostic instead.
+				lastAuxState = state
+				lastAuxDigest = digest
 				continue
 			}
 			if state == "101" || state == "206" || state == "-1" {
@@ -567,8 +606,18 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			if err := s.emit(state, json.RawMessage(msg.Frames[2])); err != nil {
 				return err
 			}
+			movement, err := progressMovement(state, msg.Frames[2])
+			if err != nil {
+				return err
+			}
 			pausedState = state == "6" || state == "7"
-			noteCoreFrame(!pausedState && state != "8")
+			// A live PUB channel is not evidence of forward transfer. Rates,
+			// timestamps and opaque payload churn must not keep a stuck core
+			// alive forever. Stage transitions/counts/percentages do count.
+			if !coreReady || pausedState || state == "8" || movement != lastMovement {
+				noteCoreFrame(!pausedState && state != "8")
+				lastMovement = movement
+			}
 			if state == "8" && !finished {
 				if e := controlPub.Send(zmq4.NewMsgFromString([]string{s.task.ContentID, "3"})); e != nil {
 					return errors.New("finish send failed")
@@ -580,7 +629,18 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		}
 	}
 }
-func controlledWineEnv(task Task) []string {
+func progressMovement(state string, payload []byte) (string, error) {
+	p, err := sanitizeProgress(state, payload)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/%g/%g/%g/%g/%g/%g/%g", state,
+		p.DownloadHead.Percent, p.DownloadHead.TotalBytes,
+		p.Download.Percent, p.Download.TotalBytes,
+		p.Build.Percent, p.Build.TotalBytes, p.VerifyPercent), nil
+}
+
+func controlledWineEnv(task Task) ([]string, error) {
 	// Never forward the launcher's complete environment to a downloaded
 	// Windows helper. These are the only host/runtime fields Wine needs for the
 	// supported CodeWeavers/Sikarugir profiles. In particular, credentials,
@@ -596,26 +656,31 @@ func controlledWineEnv(task Task) []string {
 		"WINEDEBUG", "WINEDLLOVERRIDES", "MallocNanoZone",
 	}
 	out := make([]string, 0, len(allowed)+1)
+	fallback := os.Getenv("DYLD_FALLBACK_LIBRARY_PATH")
+	if strings.ContainsAny(fallback, "\x00\r\n") {
+		fallback = ""
+	}
 	for _, key := range allowed {
 		if value, present := os.LookupEnv(key); present && !strings.ContainsAny(value, "\x00\r\n") {
 			out = append(out, key+"="+value)
+
 		}
 	}
-	// Hardened Runtime can clear the fallback path when the supervisor starts.
-	// Restore the bundled runtime's lib64 at the final exec of Wine.
-	fallback := os.Getenv("DYLD_FALLBACK_LIBRARY_PATH")
+	// PR #5: reconstruct only the catalog's exact Wine layout at the final
+	// exec boundary. Hardened Runtime has already removed caller DYLD values.
+	// An explicit valid override remains authoritative for alternate layouts.
 	if fallback == "" {
-		if root, bundled := strings.CutSuffix(task.WineExecutable, "/lib/wine/x86_64-unix/wine"); bundled {
-			lib64 := filepath.Join(root, "lib64")
-			if info, err := os.Stat(lib64); err == nil && info.IsDir() && !strings.ContainsRune(lib64, os.PathListSeparator) {
-				fallback = lib64
-			}
+		var err error
+		fallback, err = runtimeFallbackLibraryPath(task.WineExecutable)
+		if err != nil {
+			return nil, err
 		}
 	}
-	if fallback != "" && !strings.ContainsAny(fallback, "\x00\r\n") {
+	if fallback != "" {
 		out = append(out, "DYLD_FALLBACK_LIBRARY_PATH="+fallback)
 	}
-	return append(out, "WINEPREFIX="+task.WinePrefix)
+
+	return append(out, "WINEPREFIX="+task.WinePrefix), nil
 }
 
 func validState(v string) bool {
@@ -631,11 +696,40 @@ func auxiliaryState(v string) bool {
 	// frames. idv-login 6.2.3 ignores them; retain only bounded metadata in our
 	// JSONL stream without accepting arbitrary unknown codes.
 	switch v {
-	case "10", "304", "2001", "2002", "2005", "2006":
+	case "10", "2001", "2002", "2005", "2006":
 		return true
 	}
 	return false
 }
+
+// runtimeFallbackLibraryPath follows PR #5's exact suffix and path-list guard.
+// This is layout recovery, not a second runtime trust mechanism: the manager
+// owns catalog/hash verification. Keep early missing-library diagnostics for
+// the known bundled profile; unknown layouts retain the pre-RC5 behavior.
+func runtimeFallbackLibraryPath(wineExecutable string) (string, error) {
+	root, bundled := strings.CutSuffix(wineExecutable, "/lib/wine/x86_64-unix/wine")
+	if !bundled {
+		return "", nil
+	}
+	if !filepath.IsAbs(wineExecutable) {
+		return "", errors.New("wine executable path is not absolute")
+	}
+	library := filepath.Join(root, "lib64")
+	if strings.ContainsAny(library, "\x00\r\n") || strings.ContainsRune(library, os.PathListSeparator) {
+		return "", errors.New("runtime library directory cannot be represented as a single search path")
+	}
+	if info, err := os.Stat(library); err != nil || !info.IsDir() {
+		return "", errors.New("runtime library directory is missing")
+	}
+	matches, _ := filepath.Glob(filepath.Join(library, "libgnutls*.dylib"))
+	for _, candidate := range matches {
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+			return library, nil
+		}
+	}
+	return "", errors.New("runtime does not provide the bundled GnuTLS library")
+}
+
 func readControl(path string) (control, bool, error) {
 	info, e := os.Lstat(path)
 	if os.IsNotExist(e) {

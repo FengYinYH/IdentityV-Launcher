@@ -747,7 +747,30 @@ final class ToolboxViewModel: ObservableObject {
         clearLaunchFailure()
         clearInstallCompletionPresentation()
         if action == .install {
-            let directory = Self.defaultInstallDirectory(for: productID)
+            var directory = Self.defaultInstallDirectory(for: productID)
+            let choice = NSAlert()
+            choice.messageText = LauncherLanguage.current.localized("选择安装位置")
+            choice.informativeText = String(format: LauncherLanguage.current.localized("默认位置：%@\n可选择任意可写文件夹；检测到已有游戏时同步客户端状态，否则安装到其中的 game 文件夹。"), directory.path)
+            choice.addButton(withTitle: LauncherLanguage.current.localized("默认位置"))
+            choice.addButton(withTitle: LauncherLanguage.current.localized("自定义位置"))
+            choice.addButton(withTitle: LauncherLanguage.current.localized("取消"))
+            switch choice.runModal() {
+            case .alertFirstButtonReturn: break
+            case .alertSecondButtonReturn:
+                let panel = NSOpenPanel()
+                panel.message = LauncherLanguage.current.localized("选择游戏安装位置")
+                panel.canChooseFiles = false; panel.canChooseDirectories = true
+                panel.canCreateDirectories = true; panel.allowsMultipleSelection = false
+                guard panel.runModal() == .OK, let selected = panel.url else { return }
+                directory = selected
+            default: return
+            }
+            // Detect both a client root and the launcher's game subfolder.
+            // Existing bytes go through inspection/import, never the downloader.
+            if let existing = Self.existingClientDirectory(in: directory) {
+                inspectAndImportClient(at: existing, productID: productID, manager: manager)
+                return
+            }
             // The manager migrates RC1 before creating the new default root;
             // creating it here would manufacture a migration target conflict.
             startInstallerDownload(productID: productID, manager: manager, destinationParent: directory)
@@ -755,16 +778,20 @@ final class ToolboxViewModel: ObservableObject {
         }
         if action == .importExisting {
             let panel = NSOpenPanel()
-            panel.message = "选择已有的 \(productID.localizedName) 客户端目录"
-            panel.prompt = "导入"
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
+            panel.message = LauncherLanguage.current.localized("选择游戏本体 dwrg.exe")
+            panel.prompt = LauncherLanguage.current.localized("导入")
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
             panel.allowsMultipleSelection = false
-            guard panel.runModal() == .OK, let directory = panel.url else {
-                showOperation("未选择要导入的客户端目录。")
+            guard panel.runModal() == .OK, let executable = panel.url else {
+                showOperation("未选择要导入的游戏本体。")
                 return
             }
-            runProductAction(action, productID: productID, manager: manager, extraArguments: ["--path", directory.path])
+            guard executable.lastPathComponent.lowercased() == "dwrg.exe" else {
+                showOperation("请选择游戏本体 dwrg.exe。", isError: true)
+                return
+            }
+            inspectAndImportClient(at: executable.deletingLastPathComponent(), productID: productID, manager: manager)
             return
         }
         if (action == .launch || action == .restart), idvLoginEnabled {
@@ -784,6 +811,47 @@ final class ToolboxViewModel: ObservableObject {
             }
         } else {
             runProductAction(action, productID: productID, manager: manager, extraArguments: [])
+        }
+    }
+
+    nonisolated static func existingClientDirectory(in directory: URL) -> URL? {
+        for relative in ["", "game", "DWRG", "IdentityV"] {
+            let root = relative.isEmpty ? directory : directory.appendingPathComponent(relative, isDirectory: true)
+            let executable = root.appendingPathComponent("dwrg.exe")
+            if FileManager.default.isReadableFile(atPath: executable.path),
+               (try? executable.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true { return root }
+        }
+        return nil
+    }
+
+    private func inspectAndImportClient(at directory: URL, productID: GameProductID, manager: URL) {
+        activeProductAction = .importExisting
+        activeProductID = productID
+        showOperation("正在只读检测所选客户端与官方基础清单，原文件不会修改…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Self.runProductManager(manager, arguments: ["inspect", "--json", "--product", productID.rawValue, "--path", directory.path])
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.activeProductAction = nil; self.activeProductID = nil
+                guard result.status == 0 else { self.showOperation(result.output, isError: true); return }
+                guard let report = try? JSONDecoder().decode(ExistingClientInspectionReport.self, from: Data(result.output.utf8)),
+                      report.schemaVersion == 1, report.productId == productID.rawValue else {
+                    self.showOperation("客户端检测结果格式无效，未导入。", isError: true); return
+                }
+                let confirmation = NSAlert()
+                confirmation.messageText = LauncherLanguage.current.localized("客户端检测完成")
+                confirmation.informativeText = String(format: LauncherLanguage.current.localized("官方版本：%@\n检查文件数：%ld\n缺失或不匹配：%ld"), report.versionCode, report.filesTotal, report.repairs)
+                    + "\n" + LauncherLanguage.current.localized(report.valid
+                        ? "官方基础清单一致。导入保留原文件，并建立独立兼容环境。"
+                        : "无法确认完整性或服务器；可能包含游戏内更新。仍导入只登记原目录，不修复或覆盖文件。")
+                confirmation.alertStyle = report.valid ? .informational : .warning
+                confirmation.addButton(withTitle: LauncherLanguage.current.localized(report.valid ? "导入" : "仍导入（保留原文件）"))
+                confirmation.addButton(withTitle: LauncherLanguage.current.localized("取消"))
+                guard confirmation.runModal() == .alertFirstButtonReturn else { return }
+                var arguments = ["--path", directory.path]
+                if !report.valid { arguments.append("--accept-base-mismatch") }
+                self.runProductAction(.importExisting, productID: productID, manager: manager, extraArguments: arguments)
+            }
         }
     }
 
@@ -808,17 +876,7 @@ final class ToolboxViewModel: ObservableObject {
         // Rebuild presentation immediately instead of waiting for the next
         // status poll.  No product-manager mutation is needed for a view-only
         // server switch, so it stays available during an installer download.
-        products = products.map { product in
-            GameProductPresentation(
-                productId: product.productId,
-                state: product.state,
-                installedVersion: product.installedVersion,
-                detail: product.detail,
-                idvLoginVersion: product.idvLoginVersion,
-                canRemove: product.canRemove,
-                isSelected: product.productId == productID
-            )
-        }
+        products = products.map { $0.selecting(productID) }
     }
 
     private func runProductAction(
@@ -2647,7 +2705,7 @@ final class ToolboxViewModel: ObservableObject {
               values.isRegularFile == true, values.isSymbolicLink != true,
               let size = values.fileSize, size > 0, size <= 256 * 1_024,
               let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
-        return text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"8\"")
+        return text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"10\"")
     }
 
     nonisolated private static func gamePID(in snapshot: String) -> Int32? {
@@ -2691,12 +2749,24 @@ struct ToolboxProcessMatcherSelfTest {
     static func main() throws {
         let helperFixture = FileManager.default.temporaryDirectory.appendingPathComponent("idv-helper-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: helperFixture) }
-        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"8\"\n".utf8).write(to: helperFixture)
+        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"10\"\n".utf8).write(to: helperFixture)
         let compatibleHelper = ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
-        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"7\"\n".utf8).write(to: helperFixture)
+        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"8\"\n".utf8).write(to: helperFixture)
         let rejectedV3Helper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
+        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"9\"\n".utf8).write(to: helperFixture)
+        let rejectedPreviousHelper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
         try Data("#!/bin/zsh\n# legacy helper\n".utf8).write(to: helperFixture)
         let rejectedLegacyHelper = !ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
+        let pathFixture = FileManager.default.temporaryDirectory.appendingPathComponent("idv-path-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: pathFixture) }
+        try FileManager.default.createDirectory(at: pathFixture, withIntermediateDirectories: true)
+        try Data("unrelated".utf8).write(to: pathFixture.appendingPathComponent("keep.txt"))
+        guard ToolboxViewModel.existingClientDirectory(in: pathFixture) == nil else { fatalError("unrelated file detected as game") }
+        let gameFolder = pathFixture.appendingPathComponent("game")
+        try FileManager.default.createDirectory(at: gameFolder, withIntermediateDirectories: true)
+        try Data("MZfixture".utf8).write(to: gameFolder.appendingPathComponent("dwrg.exe"))
+        guard ToolboxViewModel.existingClientDirectory(in: pathFixture)?.path == gameFolder.path,
+              ToolboxViewModel.existingClientDirectory(in: gameFolder)?.path == gameFolder.path else { fatalError("existing game location not detected") }
         let game = "C:\\Games\\IdentityV\\dwrg.exe --start_from_launcher=1"
         let quotedLogin = "\"/Library/Application Support/IdentityVOnMac/Components/idv-login/current/idv-login\" --uri idvlogin://start?game_id=h55"
         let unquotedLogin = "/Library/Application Support/IdentityVOnMac/Components/idv-login/current/idv-login --uri idvlogin://start?game_id=h55"
@@ -2734,6 +2804,7 @@ struct ToolboxProcessMatcherSelfTest {
             LoginStartupResult.fromHelper(status: 0, output: "") == .ready,
             compatibleHelper,
             rejectedV3Helper,
+            rejectedPreviousHelper,
             rejectedLegacyHelper,
             leader.isLeader,
             !follower.isLeader,

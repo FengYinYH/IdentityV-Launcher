@@ -72,24 +72,31 @@ plist_raw() {
   print -r -- "$value"
 }
 
-# ProductManager encodes `[ProductID: Installation]` with Swift's default
-# Dictionary coding. ProductID is a String-backed enum, not a String key, so
-# products.json stores installations as a flat [key, value, key, value] array
-# rather than an object. Accept that canonical form and the object form.
-global_installation_raw() {
-  local field="$1" value key index=0
-  if value="$(plist_raw "$PRODUCTS_FILE" "installations.global.$field")"; then
-    print -r -- "$value"
+# Swift Codable writes dictionaries keyed by ProductID (an enum) as alternating
+# key/value arrays, not JSON objects. Read that persisted schema without rewriting
+# user state; also accept the object representation used by older fixtures.
+product_installation_key_path() {
+  local file="$1" product="$2" kind count index key value_index found="" seen="|"
+  kind="$(/usr/bin/plutil -type installations "$file" 2>/dev/null)" || return 1
+  if [[ "$kind" == "dictionary" ]]; then
+    [[ "$(/usr/bin/plutil -type "installations.$product" "$file" 2>/dev/null)" == "dictionary" ]] || return 1
+    print -r -- "installations.$product"
     return 0
   fi
-  while (( index < 64 )) && key="$(plist_raw "$PRODUCTS_FILE" "installations.$index")"; do
-    if [[ "$key" == "global" ]]; then
-      plist_raw "$PRODUCTS_FILE" "installations.$(( index + 1 )).$field"
-      return
-    fi
-    index=$(( index + 2 ))
+  [[ "$kind" == "array" ]] || return 1
+  count="$(plist_raw "$file" installations)" || return 1
+  [[ "$count" == <-> ]] && (( count > 0 && count <= 4 && count % 2 == 0 )) || return 1
+  for (( index = 0; index < count; index += 2 )); do
+    key="$(plist_raw "$file" "installations.$index")" || return 1
+    [[ "$key" == "mainland" || "$key" == "global" ]] || return 1
+    [[ "$seen" != *"|$key|"* ]] || return 1
+    seen+="$key|"
+    value_index=$(( index + 1 ))
+    [[ "$(/usr/bin/plutil -type "installations.$value_index" "$file" 2>/dev/null)" == "dictionary" ]] || return 1
+    [[ "$key" != "$product" ]] || found="installations.$value_index"
   done
-  return 1
+  [[ -n "$found" ]] || return 1
+  print -r -- "$found"
 }
 
 validate_relative_path() {
@@ -197,10 +204,11 @@ esac
 if [[ "$PRODUCT" == "global" ]]; then
   [[ -r "$PRODUCTS_FILE" ]] || abort_launcher "products.json is missing; install the global client first"
   [[ "$(plist_raw "$PRODUCTS_FILE" schemaVersion || true)" == "1" ]] || abort_launcher "unsupported products schema"
-  PREFIX_VOLUME_UUID="$(global_installation_raw "prefix.volumeUUID" || true)"
-  PREFIX_RELATIVE_PATH="$(global_installation_raw "prefix.relativePath" || true)"
-  GAME_VOLUME_UUID="$(global_installation_raw "gameRoot.volumeUUID" || true)"
-  GAME_RELATIVE_PATH="$(global_installation_raw "gameRoot.relativePath" || true)"
+  GLOBAL_INSTALLATION_KEY="$(product_installation_key_path "$PRODUCTS_FILE" global)" || abort_launcher "global installation record is missing or invalid"
+  PREFIX_VOLUME_UUID="$(plist_raw "$PRODUCTS_FILE" "$GLOBAL_INSTALLATION_KEY.prefix.volumeUUID" || true)"
+  PREFIX_RELATIVE_PATH="$(plist_raw "$PRODUCTS_FILE" "$GLOBAL_INSTALLATION_KEY.prefix.relativePath" || true)"
+  GAME_VOLUME_UUID="$(plist_raw "$PRODUCTS_FILE" "$GLOBAL_INSTALLATION_KEY.gameRoot.volumeUUID" || true)"
+  GAME_RELATIVE_PATH="$(plist_raw "$PRODUCTS_FILE" "$GLOBAL_INSTALLATION_KEY.gameRoot.relativePath" || true)"
   WINDOWS_GAME_ROOT="IdentityVGlobal"
   GAME_LAUNCH_ARGUMENTS=()
 else

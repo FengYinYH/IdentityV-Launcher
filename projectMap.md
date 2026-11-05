@@ -31,9 +31,9 @@ flowchart LR
 | `gameDownloader/` | 游戏下载、更新和文件校验逻辑。 |
 | `downloaderCoreBootstrap/` | 获取并校验网易下载核心的引导程序；不存放用户账号。 |
 | `productCatalog/` | 两服及其组件的产品目录与锁定配置。 |
-| `productManager/` | 按产品目录组织安装、更新、修复等流程；RC1 默认中文目录的一次性迁移同步安装记录和 prefix 链接，保留事务恢复。`fixtures/` 是测试样本。 |
+| `productManager/` | 按产品目录组织安装、更新、修复等流程；RC1 默认中文目录的一次性迁移同步安装记录和 prefix 链接，保留事务恢复。`fixtures/` 是测试样本。玩家安装支持包含无关文件的可写自定义目录，已有事务子目录仍受保护；游戏位置旁的导入入口通过文件选择器选择 `dwrg.exe` 后只读检测；`inspect --product … --path …` 只读扫描官方基础清单，`import` 仅登记已验证的外部游戏并创建 prefix，外部文件不归卸载所有。 |
 | `manifestPlanner/` | 比对远端与本地文件清单，规划下载和修复。 |
-| `runtimeManifest/` | Wine 运行环境目录、哈希和部署目标审计。 |
+| `runtimeManifest/` | Wine 运行环境目录、哈希和部署目标审计；符号链接根必须扫描真实路径，零 Mach-O 明确失败，相关回归进入玩家 App 构建。 |
 | `runtimeBootstrap/` | 取得、校验和安装共享运行环境；`releasePayloads/` 是四枚按哈希锁定的**已签补丁构建输入**，不是自动生成缓存。 |
 | `idvLoginComponent/` | 可选登录组件的来源、下载与安装接入；`downloader/` 是相应源码和测试。 |
 | `globalAdapter/` | 解析国际服官方清单与安装器地址；游戏文件传输由共享网易下载核心处理，`fixtures/` 用于测试。 |

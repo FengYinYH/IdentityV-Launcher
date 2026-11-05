@@ -216,3 +216,32 @@
 "游戏运行器已收到请求，但启动准备超时，仍未出现可验证的游戏进程；没有再次启动游戏。" = "The runner received the request, but startup preparation timed out without a verified game process. The game has not been launched again.";
 "游戏进程已出现，但尚未进入可验证的游戏窗口；不会自动再次启动。请打开日志查看启动原因。" = "The game process started, but no verified game window appeared. It will not be launched again automatically. Open the logs to inspect the startup failure.";
 "游戏运行环境绑定已变化，无法确认当前窗口。" = "The runtime binding changed; the current game window cannot be verified.";
+
+"选择安装位置" = "Choose installation location";
+"默认位置" = "Default location";
+"自定义位置" = "Custom location";
+"选择专用空文件夹作为安装位置" = "Choose an empty folder dedicated to this installation";
+"客户端检测完成" = "Client inspection complete";
+"正在只读检测所选客户端与官方基础清单，原文件不会修改…" = "Checking the client against the official base manifest without changing files…";
+
+"游戏位置：%@" = "Game location: %@";
+"已登记，完整性待确认" = "Registered; integrity unverified";
+"仍导入（保留原文件）" = "Import anyway; preserve files";
+"客户端检测结果格式无效，未导入。" = "Invalid inspection result; nothing was imported.";
+
+"默认位置：%@\n也可选择专用空文件夹，游戏放在其中的 game 文件夹。已有客户端请使用导入检测。" = "Default: %@\nYou may choose a dedicated empty folder. Game files go in its game subfolder. Use import inspection for an existing client.";
+"官方版本：%@\n检查文件数：%ld\n缺失或不匹配：%ld" = "Official version: %@\nFiles checked: %ld\nMissing or mismatching: %ld";
+"官方基础清单一致。导入保留原文件，并建立独立兼容环境。" = "The official base manifest matches. Import preserves the files and creates an independent compatibility environment.";
+"无法确认完整性或服务器；可能包含游戏内更新。仍导入只登记原目录，不修复或覆盖文件。" = "Integrity and server identity are unverified; the client may contain in-game updates. Import only registers the folder and does not repair or overwrite its files.";
+"导入" = "Import";
+"移除启动器记录与兼容环境，保留外部游戏文件。" = "Remove launcher records and the compatibility environment while preserving external game files.";
+
+"默认位置：%@\n可选择任意可写文件夹；检测到已有游戏时同步客户端状态，否则安装到其中的 game 文件夹。" = "Default: %@\nChoose any writable folder. An existing game is detected and its state synchronized; otherwise the game is installed in its game subfolder.";
+
+"选择游戏安装位置" = "Choose game installation location";
+
+"选择游戏本体 dwrg.exe" = "Select the game executable dwrg.exe";
+
+"未选择要导入的游戏本体。" = "No game executable selected.";
+
+"请选择游戏本体 dwrg.exe。" = "Select the game executable dwrg.exe.";

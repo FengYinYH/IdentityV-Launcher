@@ -3,8 +3,8 @@ import Foundation
 /// Fixed upstream component shipped by reference, never inside the app. Keep
 /// the UI/cache contract together; the build checks it against the manifest.
 enum IdvLoginRelease {
-    static let version = "6.3.2"
-    static let assetName = "idv-login-v\(version)-stable-mac"
+    static let version = "6.3.3"
+    static let assetName = "idv-login-v\(version)-beta-mac"
 
     static func isCurrent(installedVersion: String?, helperIsCurrent: Bool) -> Bool {
         installedVersion == version && helperIsCurrent
@@ -226,6 +226,8 @@ struct ProductManagerProductDocument: Decodable, Equatable {
     /// Optional for compatibility with an older bundled manager.  A missing
     /// field must never invent a destructive action in the UI.
     let canRemove: Bool
+    let gamePath: String?
+    let baseManifestVerified: Bool?
 
     enum CodingKeys: String, CodingKey {
         case productId
@@ -237,6 +239,8 @@ struct ProductManagerProductDocument: Decodable, Equatable {
         case message
         case idvLoginVersion
         case canRemove
+        case gamePath
+        case baseManifestVerified
     }
 
     init(from decoder: Decoder) throws {
@@ -251,6 +255,8 @@ struct ProductManagerProductDocument: Decodable, Equatable {
         detail = try container.decodeIfPresent(String.self, forKey: .detail)
             ?? container.decodeIfPresent(String.self, forKey: .message)
         idvLoginVersion = try container.decodeIfPresent(String.self, forKey: .idvLoginVersion)
+        gamePath = try container.decodeIfPresent(String.self, forKey: .gamePath)
+        baseManifestVerified = try container.decodeIfPresent(Bool.self, forKey: .baseManifestVerified)
         canRemove = try container.decodeIfPresent(Bool.self, forKey: .canRemove) ?? false
     }
 }
@@ -435,9 +441,17 @@ struct GameProductPresentation: Equatable, Identifiable {
     let detail: String?
     let idvLoginVersion: String?
     let canRemove: Bool
-    let isSelected: Bool
+    var isSelected: Bool
+    var gamePath: String? = nil
+    var baseManifestVerified: Bool? = nil
 
     var id: GameProductID { productId }
+
+    func selecting(_ selectedProductID: GameProductID) -> Self {
+        var copy = self
+        copy.isSelected = productId == selectedProductID
+        return copy
+    }
 
     static func makeAll(
         from document: ProductManagerStatusDocument?,
@@ -452,10 +466,21 @@ struct GameProductPresentation: Equatable, Identifiable {
                 detail: record?.detail,
                 idvLoginVersion: record?.idvLoginVersion,
                 canRemove: record?.canRemove ?? false,
-                isSelected: (selectedProductID ?? document?.selectedProductId) == productId
+                isSelected: (selectedProductID ?? document?.selectedProductId) == productId,
+                gamePath: record?.gamePath, baseManifestVerified: record?.baseManifestVerified
             )
         }
     }
+}
+
+struct ExistingClientInspectionReport: Decodable {
+    let schemaVersion: Int
+    let productId: String
+    let valid: Bool
+    let description: String
+    let versionCode: String
+    let filesTotal: Int
+    let repairs: Int
 }
 
 enum GameProductAction: String, CaseIterable, Identifiable {
@@ -488,11 +513,11 @@ enum GameProductActionPolicy {
     static func actions(for state: GameProductState, product: GameProductID = .mainland, canRemove: Bool = false) -> [GameProductAction] {
         var actions: [GameProductAction]
         switch state {
-        case .notInstalled: actions = [.install]
-        case .available: actions = [.launch, .stop, .restart, .repair]
-        case .needsRepair: actions = [.repair]
+        case .notInstalled: actions = [.install, .importExisting]
+        case .available: actions = [.launch, .stop, .restart, .repair, .importExisting]
+        case .needsRepair: actions = [.repair, .importExisting]
         case .updating: actions = []
-        case .error: actions = [.repair]
+        case .error: actions = [.repair, .importExisting]
         case .unknown: actions = []
         }
         if canRemove { actions.append(.remove) }
@@ -834,7 +859,7 @@ struct ProductManagerModelSelfTest {
           "selectedProductId": "global",
           "products": [
             { "productId": "mainland", "state": "not-installed" },
-            { "productId": "global", "status": "available", "installedVersion": "1.0", "canRemove": true }
+            { "productId": "global", "status": "available", "installedVersion": "1.0", "canRemove": true, "gamePath": "/example/Global/game", "baseManifestVerified": false }
           ]
         }
         """
@@ -852,10 +877,14 @@ struct ProductManagerModelSelfTest {
             global?.state == .available,
             global?.canRemove == true,
             global?.isSelected == true,
-            GameProductActionPolicy.actions(for: .notInstalled) == [.install],
-            GameProductActionPolicy.actions(for: .available, canRemove: true) == [.launch, .stop, .restart, .repair, .remove],
-            GameProductActionPolicy.actions(for: .needsRepair, canRemove: true) == [.repair, .remove],
-            GameProductActionPolicy.actions(for: .notInstalled, canRemove: true) == [.install, .remove],
+            global?.selecting(.mainland).isSelected == false,
+            global?.selecting(.mainland).gamePath == "/example/Global/game",
+            global?.selecting(.mainland).baseManifestVerified == false,
+            global?.selecting(.mainland).selecting(.global) == global,
+            GameProductActionPolicy.actions(for: .notInstalled) == [.install, .importExisting],
+            GameProductActionPolicy.actions(for: .available, canRemove: true) == [.launch, .stop, .restart, .repair, .importExisting, .remove],
+            GameProductActionPolicy.actions(for: .needsRepair, canRemove: true) == [.repair, .importExisting, .remove],
+            GameProductActionPolicy.actions(for: .notInstalled, canRemove: true) == [.install, .importExisting, .remove],
             GameProductActionPolicy.actions(for: .updating).isEmpty,
             GameProductActionPolicy.actions(for: .unknown("future")).isEmpty,
             GameProductPresentation.makeAll(from: document, selectedProductID: .mainland)

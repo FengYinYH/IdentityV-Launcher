@@ -8,7 +8,7 @@ GAME_BRIDGE="$HELPER_DIR/launch-game-as-console-user"
 STATE_TOOL="$HELPER_DIR/identityv-state-tool"
 readonly READINESS_TIMEOUT_SECONDS=300
 readonly RESTART_GRACE_SECONDS=10
-readonly IDV_LOGIN_STATUS_CONTRACT="8"
+readonly IDV_LOGIN_STATUS_CONTRACT="10"
 readonly MANAGED_DOMAINS=(
   "service.mkey.163.com"
   "sdk-os.mpsdk.easebar.com"
@@ -248,6 +248,16 @@ startup_observation() {
   fi
 }
 
+# Only the current bounded log suffix may trigger recovery. Old failures and
+# arbitrary EOF/crashes are not CA failures. The native tool independently
+# validates the public CA and authorizes its exact root-owned snapshot.
+ca_import_needs_foreground_retry() {
+  local path="$1" offset="$2" text
+  [[ "$offset" == <-> && -f "$path" && ! -L "$path" ]] || return 1
+  text="$(/bin/dd if="$path" bs=1 skip="$offset" count=65536 2>/dev/null)" || return 1
+  [[ "$text" == *'no user interaction was possible'* && "$text" == *'导入CA证书失败'* ]]
+}
+
 STARTUP_ABSENT_SINCE=-1
 STARTUP_DECISION=starting
 STARTUP_AUTHORIZATION_ACTIVE=0
@@ -383,6 +393,10 @@ log "idv-login config prepared with the fixed game bridge and compat mode"
 
 ensure_compat_hosts
 
+# Log generation boundary for this explicit start; do not consume old errors.
+startup_log_offset="$(/usr/bin/stat -f '%z' "$LOG_FILE" 2>/dev/null || print 0)"
+ca_recovery_attempted=0
+
 if [[ -n "$(idv_login_pids_from <<< "$(process_snapshot)")" ]]; then
   log "idv-login already running; leaving shared proxy/account service intact"
   /usr/bin/printf 'IDV Login 已在后台运行。\n'
@@ -428,6 +442,33 @@ while true; do
       exit 0
       ;;
     not-running)
+      if (( ! ca_recovery_attempted )) && ca_import_needs_foreground_retry "$LOG_FILE" "$startup_log_offset"; then
+        ca_recovery_attempted=1
+        log "first CA import needs foreground authorization; attempting one bounded recovery"
+        # This foreground helper inherits the launcher's user-session audit
+        # context, unlike the system job. A cancelled/unavailable authorization
+        # returns 75 and is never automatically retried.
+        if "$STATE_TOOL" ensure-idv-login-ca --home "$USER_HOME"; then
+          ensure_compat_hosts
+          startup_log_offset="$(/usr/bin/stat -f '%z' "$LOG_FILE" 2>/dev/null || print 0)"
+          idv_job_start "$IDV_BIN" "$USER_HOME" "$USER_NAME" "$LOG_FILE" || exit 1
+          STARTUP_ABSENT_SINCE=-1
+          STARTUP_AUTHORIZATION_ACTIVE=0
+          STARTUP_AUTHORIZATION_SEEN=0
+          STARTUP_DEADLINE_OFFSET=0
+          started_at="$(/bin/date +%s)"
+          continue
+        else
+          ca_status=$?
+          "$HELPER_DIR/stop-idv-login.sh" >/dev/null 2>&1 || true
+          if (( ca_status == 75 )); then
+            print -u2 -r -- "IDV_LOGIN_AUTHORIZATION=waiting"
+            exit 75
+          fi
+          print -u2 -- 'IDV Login 首次证书授权未完成；请重新启动并完成 macOS 授权，无需重装组件。'
+          exit 1
+        fi
+      fi
       if (( STARTUP_AUTHORIZATION_SEEN )); then
         log "component exited after system authorization; waiting for an explicit retry"
         "$HELPER_DIR/stop-idv-login.sh" >/dev/null 2>&1 || true

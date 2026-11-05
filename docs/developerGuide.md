@@ -6,9 +6,9 @@
 
 ## 运行与构建关系
 
-本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper 合约为 8；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。
+本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper 合约为 10；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。
 
-IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精确字节锁和许可来源；当前锁定官方 `v6.3.2-stable`，标签与资产以实际 Release 核验，不能由版本号猜测通道。通常先退出游戏再运行安装器。已明确安排保留活动游戏的维护更新，可先停止登录代理，再使用安装器的 `--allow-running-game-with-stopped-proxy`；此参数仍要求代理进程和托管 hosts 均已消失，不提供活动代理绕过。具体证据与回退见[组件说明](../idvLoginComponent/README.md)。
+IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精确字节锁和许可来源；当前锁定官方 `v6.3.3-beta`，标签与资产以实际 Release 核验，不能由版本号猜测通道。通常先退出游戏再运行安装器。已明确安排保留活动游戏的维护更新，可先停止登录代理，再使用安装器的 `--allow-running-game-with-stopped-proxy`；此参数仍要求代理进程和托管 hosts 均已消失，不提供活动代理绕过。具体证据与回退见[组件说明](../idvLoginComponent/README.md)。
 
 玩家 App 的界面和调度位于 `playerLauncherApp/Sources/`。下载与校验依次由 `productCatalog/`、`productManager/`、`manifestPlanner/`、`gameDownloader/` 等模块负责；国服和国际服首装及完整性修复共用 manifest planner 与网易 `downloadIPC.exe` supervisor，国际服通过显式 `oversea` 路由保持 LoadingBay 产品身份。国际服 adapter 仍独立解析并校验官方清单及安装器地址；两服的发布事务和游戏路径绑定保持分开。共链证据及边界见[网易下载核心共链说明](downloadCoreUnification.md)。共享 Wine/DXMT 输入由 `runtimeManifest/` 与 `runtimeBootstrap/` 锁定、取得和核验。玩家点启动游戏后，内嵌的 `gameRunnerApp/IdentityV-Mac.app` 承接启动命令，调用 Wine，再进入游戏。`gameRunnerApp/IdentityV-AGTK.app` 是历史/开发模板，不在当前玩家 App 内出货。
 
@@ -22,7 +22,9 @@ RC1 升级时，ProductManager 的状态/操作入口在空闲状态执行[默�
 
 1. 先从界面所属 App 的 README 与 `Sources/` 找调用，再沿上面的模块关系定位实现；若跨两款 App，确认是明确共享的行为再放入 `sharedDiagnostics/`。先看对应测试与[工程取舍](engineeringDecisions.md)，避免只复制旧兼容分支。
 2. 在当前用户游戏/App 未依赖的隔离工作副本中修改。根入口 `./devIterate.command launcher build`、`./devIterate.command toolbox build` 只生成候选；玩家启动器构建还会更新仓内 runner 模板、签名输入与可再生输出，不能在有运行中的同一路径候选时原地覆盖。`keyboard build` 仅构建键盘组件，不产生可安装 App。需构建工具以各脚本的实际前置为准；主要使用 macOS SDK/Xcode 命令行工具，玩家构建还调用 Go 与若干本仓检查。
-3. 优先跑改动模块自己的合约测试，再对受影响 App 做完整构建与签名树/部署目标检查。构建脚本会调用多项自检；通过只证明对应静态与候选条件。`./devIterate.command … run` 会打开候选，`… install` 或 `./installIdentityVApps.command` 会替换 `/Applications` 并备份旧 App，这两步属于明确安排的真实运行/安装验收，不能和 `build` 混用。
+3. 优先跑改动模块自己的合约测试，再对受影响 App 做完整构建与签名树/部署目标检查。构建脚本会调用多项自检；通过只证明对应静态与候选条件。已授权的本机功能开发与修复随后默认继续更新日用版、重启实测和收尾。`./devIterate.command … run` 打开隔离候选，`… install` 构建并安装，`./installIdentityVApps.command` 安装已有构建并备份旧 App；根据已经核验的产物选择入口，不为安装已有合格产物重复构建。
+
+   安装前确认当前日用路径、旧进程及游戏/下载占用，正常退出旧 App，用安装器更新同一日用位置，再从该位置打开；核对实际运行路径与构建身份，并操作验证本次修复。存在不宜中断的对局或下载时，先完成其他准备，记录具体等待条件和接续方式。失败则保留必要现场、修复后重验或恢复已知可用版，不把未通过候选留作日用交付。只读调查、迁仓/文档整理、明确只要候选或隔离实验的任务按其范围执行；首装隔离实验与日用更新分别管理，不让同身份副本同时争用用户数据。目的和历史依据见[本机开发交付闭环](engineeringDecisions.md#本机开发交付闭环)。
 
 4. 若更改 App/runner 内容或签名输入，发行候选需从干净的确切源码提交重建、签名、公证并重算对应源码与材料哈希。构建把提交、构建前干净状态、发行号与实际默认 runtime 写入 App 的 `build-provenance.json`；封包器逐项核对并拒绝已公开的同名版本。纯文档整理不回写已签 App。版本及对用户的变化同步[变更记录](../CHANGELOG.md)，原因、失败路径和适用边界留在相关测试、代码注释或工程说明。结构、入口或脚本效果改变时，同步[项目地图](../projectMap.md)；普通函数细节不必改地图。
 
@@ -47,3 +49,14 @@ RC1 升级时，ProductManager 的状态/操作入口在空闲状态执行[默�
 日常开发用 `devIterate.command`；独立构建用 `buildPlayerLauncher.command`、`buildMaintenanceToolbox.command` 和由玩家构建调用的 `buildGameRunner.command`。封包器 `releasePackaging/buildAlpha1Preview.command` **仍是现役脚本**，其中 `Alpha1` 只是保留的历史文件名，实际版本取 App 元数据，不应用文件名推断版本。旧独立 runner 安装器和退役浮窗入口已退出仓库根目录；缘由及恢复旧实现的方法见[历史命令](legacyCommands.md)。其余根脚本的读/写、安装、提权和服务影响以[地图的命令表](../projectMap.md#根目录文件构建与开发入口)为准，不要把 `*.command` 当作说明文档双击。
 
 第一方 bundle ID、Developer ID 签名、TCC、Keychain service/account 与用户运行数据目录分别是兼容契约。改源码目录名不自动迁移它们；需要改变身份时按[身份方案](firstPartyIdentity.md)核旧数据与恢复。已有本地候选不等于可公开发布：公开前还要审查拟推 Git refs、隐私、许可证、最终包和真实安装/游戏结果。
+
+### 自定义安装与已有目录检测（RC5 build 10 候选）
+
+安装入口选择默认或任意可写位置，不要求空目录。检测所选根目录或 game/DWRG/IdentityV 子目录中的 dwrg.exe；存在时进入只读检测和导入确认，同步产品状态，原文件不交给下载器。非游戏的兄弟文件保留；已有非受管 game/.staging/work 事务目录不覆盖。导入按钮位于游戏位置右侧，caption 字号与 small 控件不增加主操作行。文件选择器选取 dwrg.exe 后以其父目录检测；两服现有启动契约及官方海外 startup_path 均为 dwrg.exe，不通过安装器文件名判断本体。
+
+`IdentityVProductManager inspect --product mainland|global --path <客户端根目录>` 按该服官方基础清单执行只读 XXH64 扫描。检测与导入仍区分基础清单不符和游戏热更新；需要确认后登记，不覆盖原文件。externalGameRoot 保留用户所有权，卸载只移除记录/prefix。路径检测 fixture、管理器的非空目录 sentinel 与事务子目录保护回归通过，完整构建最终检查通过；GUI 最终行高/文件选择器实机验收由 RC5 集成轮完成。
+
+
+### macOS 14 与部署目标审计
+
+第一方 App 的构建通过不涵盖首次下载的 runtime；完整槽须用 `runtimeManifest/auditMachODeploymentTargets.command` 单独扫描。该命令解析输入根的符号链接并拒绝零文件，symlink/empty-root 回归已纳入玩家 App 构建。当前 DXMT Unixlib 仍为 macOS15，因此不能仅修改 Info.plist 或 runtime minimumMacOS 来宣称14支持。独立重建与VM/真实GPU验收矩阵见 [DXMT兼容专题](../runtimeManifest/dxmt080MacOS14Compatibility.md)。

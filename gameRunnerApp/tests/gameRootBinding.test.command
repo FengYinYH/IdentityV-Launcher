@@ -45,4 +45,56 @@ if game_root_binding_is_valid "$game_dir" "$managed_link"; then
   exit 1
 fi
 
-print -r -- "game-root APFS alias binding self-test passed"
+# Exercise the producer's real Codable representation, not a hand-authored
+# object fixture: enum dictionary keys become an alternating key/value array.
+for function_name in plist_raw product_installation_key_path; do
+  function_source="$(/usr/bin/awk -v name="$function_name" '
+    $0 == name "() {" { capture=1 }
+    capture { print }
+    capture && /^}/ { exit }
+  ' "$RUNNER")"
+  [[ -n "$function_source" ]]
+  eval "$function_source"
+done
+products="$TEST_ROOT/products.json"
+/usr/bin/xcrun swift -e '
+import Foundation
+enum ProductID: String, Codable { case mainland, global }
+struct Location: Codable { let volumeUUID: String; let relativePath: String }
+struct Installation: Codable { let prefix: Location; let gameRoot: Location }
+struct State: Codable { let schemaVersion: Int; let installations: [ProductID: Installation] }
+let record = Installation(prefix: Location(volumeUUID: "1234-ABCD", relativePath: "prefix"), gameRoot: Location(volumeUUID: "1234-ABCD", relativePath: "game"))
+let data = try JSONEncoder().encode(State(schemaVersion: 1, installations: [.mainland: record, .global: record]))
+FileHandle.standardOutput.write(data)
+' >"$products"
+[[ "$(/usr/bin/plutil -type installations "$products")" == "array" ]]
+key_path="$(product_installation_key_path "$products" global)"
+[[ "$(plist_raw "$products" "$key_path.prefix.relativePath")" == "prefix" ]]
+[[ "$(plist_raw "$products" "$key_path.gameRoot.relativePath")" == "game" ]]
+
+# Dictionary order is not a launch contract; the requested product must be found
+# in either position. Missing, duplicate and malformed records fail closed.
+for data in \
+  '{"installations":["global",{},"mainland",{}]}' \
+  '{"installations":["mainland",{},"global",{}]}' \
+  '{"installations":["global",{}]}' \
+  '{"installations":{"global":{}}}'; do
+  print -r -- "$data" >"$products"
+  [[ -n "$(product_installation_key_path "$products" global)" ]]
+done
+for data in \
+  '{"installations":["mainland",{}]}' \
+  '{"installations":["global",{},"global",{}]}' \
+  '{"installations":["global"]}' \
+  '{"installations":["global","invalid"]}' \
+  '{"installations":["unknown",{},"global",{}]}' \
+  '{"installations":{"global":"invalid"}}' \
+  '{"installations":{}}'; do
+  print -r -- "$data" >"$products"
+  if product_installation_key_path "$products" global >/dev/null; then
+    print -u2 -- "invalid product installation record was accepted: $data"
+    exit 1
+  fi
+done
+
+print -r -- "game-root APFS alias and product-state Codable binding self-test passed"

@@ -17,6 +17,15 @@ import (
 	"github.com/go-zeromq/zmq4"
 )
 
+// The shipped supervisor is hardened, so macOS strips DYLD_* before it runs and
+// production rebuilds the fallback from the runtime layout. Lifecycle tests
+// spawn a fake core instead of a Wine runtime, so they start with a forwarded
+// value; the rebuild tests unset it again and exercise the derivation.
+func TestMain(m *testing.M) {
+	os.Setenv("DYLD_FALLBACK_LIBRARY_PATH", "/opt/idv-test/lib64")
+	os.Exit(m.Run())
+}
+
 func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_IDV_HELPER") != "1" {
 		return
@@ -96,12 +105,56 @@ func TestHelperProcess(t *testing.T) {
 			os.Exit(5)
 		}
 	}
+	if strings.HasPrefix(mode, "manifest-") {
+		if mode == "manifest-after-progress" {
+			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "2", "{}"}))
+		}
+		payload := "manifest https://example.invalid/private?token=secret, try count exceeded"
+		if mode == "manifest-empty" {
+			payload = ""
+		}
+		if mode == "manifest-json" {
+			payload = `{"message":"private secret"}`
+		}
+		for i := 0; i < 10; i++ {
+			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "304", payload}))
+			time.Sleep(25 * time.Millisecond)
+		}
+		if mode == "manifest-after-progress" {
+			// Observed real-core order: state 2, raw 304, then repeated 10.
+			for i := 0; i < 80; i++ {
+				_ = p.Send(zmq4.NewMsgFromString([]string{"42", "10", ""}))
+				time.Sleep(25 * time.Millisecond)
+			}
+			os.Exit(0)
+		}
+		// If 304 were ignored, normal progress/completion below could falsely
+		// succeed. The supervisor must return before that path is accepted.
+	}
+	if mode == "aux-fatal" {
+		// Opaque auxiliary error words alone do not prove terminal failure.
+		for i := 0; i < 20; i++ {
+			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "2001", `{"success":false,"message":"tls: failed to verify certificate"}`}))
+			time.Sleep(40 * time.Millisecond)
+		}
+		time.Sleep(5 * time.Second)
+		os.Exit(0)
+	}
 	for i := 0; i < 10; i++ {
 		_ = p.Send(zmq4.NewMsgFromString([]string{"42", "1", "{}"}))
 		time.Sleep(25 * time.Millisecond)
 	}
 	if mode == "idle" {
 		time.Sleep(5 * time.Second)
+		os.Exit(0)
+	}
+	if mode == "aux-idle" {
+		// Informational 2001 frames must not keep the progress idle timer
+		// alive; the supervisor has to time out even while they arrive.
+		for i := 0; i < 80; i++ {
+			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "2001", `{"code":2001}`}))
+			time.Sleep(40 * time.Millisecond)
+		}
 		os.Exit(0)
 	}
 	until = time.After(3 * time.Second)
@@ -224,8 +277,12 @@ func TestCancelControlStopsExactCoreGroup(t *testing.T) {
 	sup.command = func(_ string, args ...string) *exec.Cmd {
 		return exec.Command(os.Args[0], append([]string{"-test.run=TestHelperProcess", "--"}, args...)...)
 	}
-	sup.environment = func(task Task) []string {
-		return append(controlledWineEnv(task), "GO_WANT_IDV_HELPER=1", "IDV_HELPER_MODE=cancel")
+	sup.environment = func(task Task) ([]string, error) {
+		environment, err := controlledWineEnv(task)
+		if err != nil {
+			return nil, err
+		}
+		return append(environment, "GO_WANT_IDV_HELPER=1", "IDV_HELPER_MODE=cancel"), nil
 	}
 	sup.started = func(pid int) { started <- pid }
 	done := make(chan error, 1)
@@ -269,7 +326,7 @@ func TestProgressProtocolRejectsMalformed(t *testing.T) {
 	if validState("101") || validState("206") || validState("-1") || validState("12") {
 		t.Fatal("failure or unknown state accepted")
 	}
-	if !auxiliaryState("10") || !auxiliaryState("304") || validState("10") {
+	if !auxiliaryState("10") || auxiliaryState("304") || validState("10") {
 		t.Fatal("opaque control acknowledgement is not isolated")
 	}
 	if !auxiliaryState("2001") || !auxiliaryState("2002") || !auxiliaryState("2005") || !auxiliaryState("2006") || auxiliaryState("2003") {
@@ -414,14 +471,17 @@ func TestRunLifecycle(t *testing.T) {
 			sup.command = func(_ string, args ...string) *exec.Cmd {
 				return exec.Command(os.Args[0], append([]string{"-test.run=TestHelperProcess", "--"}, args...)...)
 			}
-			sup.environment = func(task Task) []string {
-				result := controlledWineEnv(task)
+			sup.environment = func(task Task) ([]string, error) {
+				result, err := controlledWineEnv(task)
+				if err != nil {
+					return nil, err
+				}
 				for _, key := range []string{"GO_WANT_IDV_HELPER", "IDV_HELPER_MODE", "IDV_HELPER_MARKER"} {
 					if value, present := os.LookupEnv(key); present {
 						result = append(result, key+"="+value)
 					}
 				}
-				return result
+				return result, nil
 			}
 			err := sup.Run(ctx)
 			_ = w.Close()
@@ -443,37 +503,6 @@ func TestRunLifecycle(t *testing.T) {
 	}
 }
 
-func TestWineLibraryFallback(t *testing.T) {
-	root := t.TempDir()
-	lib64 := filepath.Join(root, "lib64")
-	if err := os.Mkdir(lib64, 0700); err != nil {
-		t.Fatal(err)
-	}
-	bundled := filepath.Join(root, "lib", "wine", "x86_64-unix", "wine")
-	for _, tc := range []struct{ name, wine, inherited, want string }{
-		{"signed supervisor", bundled, "", lib64},
-		{"explicit path", bundled, "/custom/lib", "/custom/lib"},
-		{"other layout", filepath.Join(root, "bin", "wine"), "", ""},
-		{"missing lib64", filepath.Join(root, "missing", "lib", "wine", "x86_64-unix", "wine"), "", ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("DYLD_FALLBACK_LIBRARY_PATH", tc.inherited)
-			var got []string
-			for _, entry := range controlledWineEnv(Task{WineExecutable: tc.wine}) {
-				if path, ok := strings.CutPrefix(entry, "DYLD_FALLBACK_LIBRARY_PATH="); ok {
-					got = append(got, path)
-				}
-			}
-			if tc.want == "" && len(got) == 0 {
-				return
-			}
-			if len(got) != 1 || got[0] != tc.want {
-				t.Fatalf("library paths = %v, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestControlledWineEnvironmentExcludesCallerSecrets(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin")
 	t.Setenv("OPENAI_API_KEY", "must-not-cross-boundary")
@@ -481,7 +510,10 @@ func TestControlledWineEnvironmentExcludesCallerSecrets(t *testing.T) {
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:9999")
 	t.Setenv("DYLD_INSERT_LIBRARIES", "/private/tmp/inject.dylib")
 	task := testTask(t)
-	environment := controlledWineEnv(task)
+	environment, err := controlledWineEnv(task)
+	if err != nil {
+		t.Fatalf("environment: %v", err)
+	}
 	if !contains(environment, "PATH=/usr/bin:/bin") || !contains(environment, "WINEPREFIX="+task.WinePrefix) {
 		t.Fatal("required Wine environment was not preserved")
 	}
@@ -533,6 +565,161 @@ func TestTaskAndFilesystemRejectUnknownOrSymlink(t *testing.T) {
 		t.Fatal("symlink core accepted")
 	}
 }
+
+func unsetenvForTest(t *testing.T, key string) {
+	t.Helper()
+	old, had := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv(key, old)
+		} else {
+			_ = os.Unsetenv(key)
+		}
+	})
+}
+
+// fakeWineRuntime lays out the supported bundled runtime:
+// <root>/lib/wine/x86_64-unix/wine and <root>/lib64/libgnutls.30.dylib.
+func fakeWineRuntime(t *testing.T, withGnuTLS, symlinkedLibrary bool) (root, wine string) {
+	t.Helper()
+	root = t.TempDir()
+	wine = filepath.Join(root, "lib", "wine", "x86_64-unix", "wine")
+	if err := os.MkdirAll(filepath.Dir(wine), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wine, []byte("wine"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	lib64 := filepath.Join(root, "lib64")
+	if symlinkedLibrary {
+		outside := t.TempDir()
+		if err := os.WriteFile(filepath.Join(outside, "libgnutls.30.dylib"), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, lib64); err != nil {
+			t.Fatal(err)
+		}
+		return root, wine
+	}
+	if err := os.MkdirAll(lib64, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if withGnuTLS {
+		if err := os.WriteFile(filepath.Join(lib64, "libgnutls.30.dylib"), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root, wine
+}
+
+func TestControlledWineEnvRebuildsMissingFallback(t *testing.T) {
+	// The shipped supervisor runs hardened; macOS clears DYLD_* before it can
+	// read them, so the launcher-supplied fallback is gone and the path must
+	// be rebuilt from the selected runtime layout.
+	unsetenvForTest(t, "DYLD_FALLBACK_LIBRARY_PATH")
+	root, wine := fakeWineRuntime(t, true, false)
+	task := testTask(t)
+	task.WineExecutable = wine
+	environment, err := controlledWineEnv(task)
+	if err != nil {
+		t.Fatalf("environment: %v", err)
+	}
+	expectedDirectory := filepath.Join(root, "lib64")
+	want := "DYLD_FALLBACK_LIBRARY_PATH=" + expectedDirectory
+	if !contains(environment, want) {
+		t.Fatalf("fallback path was not rebuilt: %v", environment)
+	}
+}
+
+func TestControlledWineEnvRejectsUntrustedFallback(t *testing.T) {
+	unsetenvForTest(t, "DYLD_FALLBACK_LIBRARY_PATH")
+
+	t.Run("runtime alias keeps PR5 compatibility", func(t *testing.T) {
+		_, wine := fakeWineRuntime(t, true, true)
+		task := testTask(t)
+		task.WineExecutable = wine
+		if _, err := controlledWineEnv(task); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("runtime lacks gnutls", func(t *testing.T) {
+		_, wine := fakeWineRuntime(t, false, false)
+		task := testTask(t)
+		task.WineExecutable = wine
+		if _, err := controlledWineEnv(task); err == nil {
+			t.Fatal("runtime without GnuTLS was accepted")
+		}
+	})
+
+	t.Run("wine outside the runtime layout", func(t *testing.T) {
+		foreign := filepath.Join(t.TempDir(), "wine")
+		if err := os.WriteFile(foreign, []byte("wine"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		task := testTask(t)
+		task.WineExecutable = foreign
+		if _, err := controlledWineEnv(task); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func runAuxiliaryFixture(t *testing.T, mode string, idleTimeout time.Duration) error {
+	return runAuxiliaryFixtureOutput(t, mode, idleTimeout, io.Discard)
+}
+
+func runAuxiliaryFixtureOutput(t *testing.T, mode string, idleTimeout time.Duration, output io.Writer) error {
+	t.Helper()
+	task := runTask(t)
+	sup := NewSupervisor(task, output)
+	if idleTimeout > 0 {
+		sup.idleTimeout = idleTimeout
+		if mode == "aux-fatal" {
+			sup.startupTimeout = idleTimeout
+		}
+	}
+	sup.command = func(_ string, args ...string) *exec.Cmd {
+		return exec.Command(os.Args[0], append([]string{"-test.run=TestHelperProcess", "--"}, args...)...)
+	}
+	sup.environment = func(task Task) ([]string, error) {
+		environment, err := controlledWineEnv(task)
+		if err != nil {
+			return nil, err
+		}
+		return append(environment, "GO_WANT_IDV_HELPER=1", "IDV_HELPER_MODE="+mode), nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- sup.Run(context.Background()) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(15 * time.Second):
+		t.Fatal("supervisor did not return")
+	}
+	return nil
+}
+
+func TestOpaqueFailureWordsUseBoundedDeadline(t *testing.T) {
+	err := runAuxiliaryFixture(t, "aux-fatal", 300*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "establish progress channel") {
+		t.Fatalf("opaque pre-progress payload: %v", err)
+	}
+}
+
+func TestAuxiliaryFramesDoNotExtendIdleDeadline(t *testing.T) {
+	err := runAuxiliaryFixture(t, "aux-idle", 300*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("want an idle timeout, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "2001") {
+		t.Fatalf("timeout diagnostic must name the last auxiliary state: %v", err)
+	}
+}
+
 func runTask(t *testing.T) Task {
 	d := t.TempDir()
 	core := filepath.Join(d, "core.exe")
@@ -568,4 +755,120 @@ func mustFrame(t *testing.T, m zmq4.Msg) []byte {
 		t.Fatal("fixture")
 	}
 	return m.Frames[0]
+}
+
+func TestProgressMovementIgnoresRatesAndOpaqueChurn(t *testing.T) {
+	a, e := progressMovement("3", []byte(`{"StateFlags":3,"ShowDownloadHeadPercent":0,"ShowDownloadHeadRate":100,"token":"one"}`))
+	if e != nil {
+		t.Fatal(e)
+	}
+	b, e := progressMovement("3", []byte(`{"StateFlags":3,"ShowDownloadHeadPercent":0,"ShowDownloadHeadRate":200,"token":"two"}`))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if a != b {
+		t.Fatal("rates or private fields counted as progress")
+	}
+	c, e := progressMovement("4", []byte(`{"StateFlags":4,"ShowDownloadPercent":0.2}`))
+	if e != nil || a == c {
+		t.Fatal("stage change not counted")
+	}
+}
+func TestFallbackSingleSearchPath(t *testing.T) {
+	unsetenvForTest(t, "DYLD_FALLBACK_LIBRARY_PATH")
+	root, wine := fakeWineRuntime(t, true, false)
+	renamed := filepath.Join(filepath.Dir(wine), "not-wine")
+	if p, e := runtimeFallbackLibraryPath(renamed); e != nil || p != "" {
+		t.Fatalf("guessed non-Wine: %q %v", p, e)
+	}
+	if _, e := runtimeFallbackLibraryPath(filepath.Join(root+":other", "lib/wine/x86_64-unix/wine")); e == nil {
+		t.Fatal("path-list injection accepted")
+	}
+	t.Setenv("DYLD_FALLBACK_LIBRARY_PATH", "")
+	task := testTask(t)
+	task.WineExecutable = wine
+	env, e := controlledWineEnv(task)
+	if e != nil {
+		t.Fatal(e)
+	}
+	count := 0
+	for _, v := range env {
+		if strings.HasPrefix(v, "DYLD_FALLBACK_LIBRARY_PATH=") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatal("duplicate fallback")
+	}
+}
+
+func TestManifestRetry304IsTerminalForRawEmptyAndJSONPayload(t *testing.T) {
+	for _, mode := range []string{"manifest-raw", "manifest-empty", "manifest-json", "manifest-after-progress"} {
+		t.Run(mode, func(t *testing.T) {
+			var output bytes.Buffer
+			started := time.Now()
+			err := runAuxiliaryFixtureOutput(t, mode, 10*time.Second, &output)
+			if err == nil || !strings.Contains(err.Error(), "manifest download retries exhausted (state 304;") {
+				t.Fatalf("304 must fail without JSON parsing: %v", err)
+			}
+			if time.Since(started) >= 8*time.Second {
+				t.Fatal("304 waited for startup/idle expiry")
+			}
+			combined := output.String() + err.Error()
+			if strings.Contains(combined, "secret") || strings.Contains(combined, "example.invalid") || strings.Contains(output.String(), `"state":"8"`) {
+				t.Fatalf("304 leaked raw payload or accepted completion: %s", combined)
+			}
+			var event struct {
+				State            string `json:"state"`
+				PayloadByteCount int    `json:"payloadByteCount"`
+				PayloadSHA256    string `json:"payloadSha256"`
+			}
+			decoder := json.NewDecoder(bytes.NewReader(output.Bytes()))
+			count304 := 0
+			for {
+				if err := decoder.Decode(&event); err == io.EOF {
+					break
+				} else if err != nil {
+					t.Fatal(err)
+				}
+				if event.State == "304" {
+					count304++
+					if len(event.PayloadSHA256) != 64 {
+						t.Fatal("missing bounded payload hash")
+					}
+				}
+				if event.State == "8" {
+					t.Fatal("accepted completion after 304")
+				}
+			}
+			if count304 != 1 {
+				t.Fatalf("missing or duplicate 304 metadata: %s", output.String())
+			}
+		})
+	}
+}
+
+func TestManifestRetry304ContractMatchesPinnedCore(t *testing.T) {
+	data, err := os.ReadFile("../downloaderCoreComponent.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var component struct {
+		Files []struct {
+			Filename string `json:"filename"`
+			SHA256   string `json:"sha256"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(data, &component); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range component.Files {
+		if file.Filename == "downloadIPC.exe" {
+			if file.SHA256 != manifestRetryCoreSHA256 {
+				t.Fatal("core changed: re-audit 304 protocol before updating its contract")
+			}
+			return
+		}
+	}
+	t.Fatal("missing pinned downloadIPC.exe")
 }

@@ -115,7 +115,6 @@ for runner_source in \
 done
 for runner_test in \
   "$PROJECT_ROOT/gameRunnerApp/tests/gameRootBinding.test.command" \
-  "$PROJECT_ROOT/gameRunnerApp/tests/globalProductsLayout.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/privateDesktopIsolation.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/coreAudioCapturePolicy.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/fontFallbackContract.test.command" \
@@ -520,6 +519,7 @@ python3 "$PROJECT_ROOT/signing/verifyFirstPartyIdentity.py" launcher "$APP_PATH"
   "$SOURCE_ROOT/Sources/LauncherHangMonitor.swift" \
   "$PROMPT_PROTOCOL" "$PROMPT_CLIENT" \
   "$SOURCE_ROOT/Sources/ToolboxViewModel.swift" \
+  "$SOURCE_ROOT/Sources/LauncherLanguage.swift" \
   -o "$PROCESS_SELF_CHECK"
 "$PROCESS_SELF_CHECK"
 /bin/rm -f "$PROCESS_SELF_CHECK"
@@ -570,4 +570,5 @@ HOME="$PRODUCT_TEST_HOME" "$PRODUCT_MANAGER_DESTINATION" status --json | /usr/bi
 # offline self-test independent of the host session; mutation/0600 checks live
 # in IdentityVProductManager's own deterministic self-test.
 
+"$PROJECT_ROOT/runtimeManifest/auditMachODeploymentTargets.test.command"
 print -- "构建完成：$APP_PATH"

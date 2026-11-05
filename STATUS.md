@@ -1,43 +1,40 @@
 # 项目状态
 
-更新：2026-11-04。本页是状态正本，只放当前问题、方向、进度与规划；技术细节、证据和历史放到专题文档，不在这里累积。规划正本见 [开发计划](docs/developmentPlan.md)，详细核对快照与能力分层见 [状态明细](docs/statusDetails.md)，已交付变化见 [CHANGELOG](CHANGELOG.md)（简中、繁中、English）。
+更新：2026-11-05。本页是当前状态正本；历史、取舍与验证证据见专题，规划见[开发计划](docs/developmentPlan.md)。
 
-## 当前版本与进度
+## 正式合入后的整合候选
 
-- 公开版：`1.0.0-rc.4`（2026-11-04），修复 #2 默认目录与 #3 辅助状态 `304`；App 与 DMG 已签名、公证并 staple。
-- 上一版：`1.0.0-rc.3`（2026-10-09）。
-- RC4 之后没有已决定范围。
+PR #5 与 #6 已获所有者授权真实合入 GitHub main，merge commit 分别为75aad464bfbb12dfe93f21a08c4beeeb35d56548和91aadb15adda663efbea6e847afa3421111385a6；原始作者提交均保持为祖先。远端最终树与此前评估基线完全一致。独立分支已将复核过的RC5 e04cb8a最终差异干净应用并验证树一致，没有把本地“Evaluation only”实验提交带入正式历史；以下build13证据仍是前序已验事实。新build14只更新来源身份/版本及真实合入文档，待完整重建与测试，不把旧包冒充新历史构建。
 
-## 当前要紧问题
+## 当前版本与验收
 
-| 问题 | 状态 | 入口 |
+- 公开版：`1.0.0-rc.4`（2026-11-04）；上一版 RC3（2026-10-09）。
+- 本机候选与日用 App：`1.0.0-rc.5` / build 13，干净源码 `51760a9`。完整构建、全部自检、签名树与 31 个包内 Mach-O 的 macOS14 部署目标审计通过；本地测试 DMG 和对应材料 ZIP 已生成、挂载复验与哈希复算通过，未公证。
+- 日用更新保留旧版备份，安装及 Terra UI 烟测后原产品/runtime 绑定哈希不变。新包实际通过仅国际服预检、启动与公告场景；按所有者确认，公告页即本轮国际服验收终点，不要求账号登录/大厅。测试国际服已正常退出，国服和 IDV Login 保留。
+- 原 17,602,266,736 bytes 隔离全量安装、暂停恢复、取消后续传、最终复验在前序候选完成；build13 干净 VM 冷测仍是独立验收，不把旧包结果冒充最终新包首装。
+
+## 当前问题与边界
+
+| 项目 | 当前状态 | 入口 |
 | --- | --- | --- |
-| RC4 国际服下载停在 0 KB（#4） | 已在下载监督器重建随包 Wine 的 `lib64` 搜索路径；本地修复版已观察到下载恢复 | [#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4) |
-| 国际服首装与中断续传 | #3 修复只有单元测试证据，真实下载待反馈者或本机实测 | [#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3) |
-| 游戏鼠标捕捉丢失 | 2026-10-28 首次出现；指针可自由移动、`CGCursorIsVisible` 为真，Wine 约束未生效；未复现 | 待复现后记录 |
-| 账号登录面板比例偏小 | 长期报告，根因未定 | [LOGIN-01](docs/windowAndLoginInvestigation.md#login-01账号登录面板偏小) |
-| 启动窗口变大/越屏 | 10-18 冷启动复现过，最近触发未知 | [WIN-01](docs/windowAndLoginInvestigation.md#win-01启动窗口变大与越屏) |
-| 启动延迟误报 `IDV-LAUNCH-203` | 固定 20 秒等待导致先报错、随后游戏仍启动 | [已知问题](docs/knownIssues.md) |
-| 卡顿、语音气泡音 | 保留，未解决；与本版无关 | [已知问题](docs/knownIssues.md) |
+| Wine/GnuTLS 路径（#4、PR #5） | 已采用 PR5 窄路径恢复并保留诊断，全量安装通过 | [下载专题](docs/downloadCoreUnification.md) |
+| 304 | 精确锁定核心已定位为清单重试耗尽，现立即失败；真实464字节帧回放及2→304→重复10回归通过，日志只保留长度/hash；不外推所有TLS根因 | [锁定定义与证据](docs/downloadCoreUnification.md#build-13：304-锁定定义与按实际产品-runtime-确认2026-11-05) |
+| 299 与两服绑定 | 启动前按产品固定实际runtime，验证失败不借另一服；仅国际服实机通过，A/B不同与缺失绑定回归通过，但未制造真实A/B双游戏场景 | [下载专题](docs/downloadCoreUnification.md) |
+| 默认/自定义路径与导入 | 默认目录从不存在开始安装通过；允许无关兄弟文件，保留事务目录保护；文件级导入、三语同行按钮、检测与取消通过。错误文件拒绝行为通过，短提示未捕获；未安装状态的选择取消待VM | [开发者指南](docs/developerGuide.md#自定义安装与已有目录检测rc5-build-10-候选) |
+| 完整性与修复 | 官方基础清单检测/单文件损坏检测通过；不声称证明全部热更新完整性，外部导入不自动修复或删除原文件 | [下载专题](docs/downloadCoreUnification.md) |
+| IDV Login / #7 | 源码固定官方6.3.3 beta、helper契约10；来源/迁移/CA有界恢复回归通过。现机仍为6.3.2与helper8，新系统首次CA及633真实运行待验 | [来源审计](docs/idvLoginSourceAudit.md) |
+| macOS14 | 按所有者最新成本边界停止本轮14兼容：当前DXMT及可复用LLVM静态库要求15；官方0.61虽标14但属于未验证降级。保留15+方案，未建14候选 | [DXMT审计与测试矩阵](runtimeManifest/dxmt080MacOS14Compatibility.md) |
+| 鼠标捕获丢失 | 单次事件未复现，缺少完整时序证据，不猜测修改Wine | [窗口与登录调查](docs/windowAndLoginInvestigation.md) |
+| 登录面板比例、游戏越屏、卡顿/语音气泡音 | 原有问题保留，与本次下载/路径修复分开 | [已知问题](docs/knownIssues.md) |
 
-启动器自身窗口固定为 680×420（显示下载进度时 530），由系统默认居中，已实现；游戏窗口的初始分辨率、默认居中、系统全屏与超屏确认仍属未实现需求（[PLAN-WINDOW](docs/developmentPlan.md#plan-window初始窗口)）。
+## 协作与下一步
 
-## 当前方向
+- PR #5/#6 已真实 merged，见上方准确提交；原作者SHA和GitHub状态已核验。正式RC5整合基于main91aadb1、干净移植已验最终差异；正在build14完整构建和回归，旧试验分支保留，不推送其模拟merge。
+- macOS14成本复核完成：找到既有工具链，但LLVM静态库也为15；核验官方0.74为15、0.61为14但需旧引擎降级、路径修正和成套回归。另有约279MB官方Sonoma LLVM候选未下载，不能据此保证只需小打包。按最新边界停止本轮14，不启动大型构建；15+及build13验证继续。
+- 干净VM的最终包首装/续传/校验/游戏进程及新组件授权验收接续；VM黑屏按所有者授权的Metal限制单列。
+- 反馈讨论组补丁仍因先前自动审批拒绝保持未应用，没有重试或绕过。主仓所有者未提交README修改未被覆盖。
+- 已按新授权合入原PR #5/#6；没有发布Release、公证或对外评论。后续整合提交状态单独记录，不将本地准备误写为已远端生效。
 
-RC4 只做问题修复与文档整理，不引入新 UI 或窗口能力；发版后按实际反馈决定下一版范围。
+## 后续方向与接手
 
-## 未来规划
-
-- 跨平台新 UI（[PLAN-UI](docs/developmentPlan.md#plan-ui跨平台新-ui)）
-- 初始窗口设置：分辨率、默认居中、系统原生全屏、超屏确认（[PLAN-WINDOW](docs/developmentPlan.md#plan-window初始窗口)）
-- 登录健康与耗时（[PLAN-LOGIN](docs/developmentPlan.md#plan-login登录问题与健康)）
-- 可选登录组件预启动（[PLAN-PRESTART](docs/developmentPlan.md#plan-prestart可选登录组件预启动)）
-- 游戏多开（后续计划，非优先）
-- Metal FX、自定义安装路径、发现已有游戏
-
-## 接手入口
-
-1. 读 `AGENTS.md` → 本页 → [开发计划](docs/developmentPlan.md)。
-2. 用 `git status --short`、`git diff` 核对实际工作树；不要用 reset/clean 制造干净状态。
-3. 用 [开发者指南](docs/developerGuide.md) 与 [项目地图](projectMap.md) 定位模块，按问题读专题。
-4. 明确本次授权、交付条件、测试与安装影响后再动手。
+窗口/跨平台UI、登录健康、可选预启动、Metal FX及游戏多开仍按[开发计划](docs/developmentPlan.md)原有边界推进。先读[AGENTS](AGENTS.md)，核对工作树和并行状态，再从[开发者指南](docs/developerGuide.md)、[地图](projectMap.md)与专题续接；不要用reset/clean清理他人的工作。
