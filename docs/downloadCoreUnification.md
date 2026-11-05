@@ -303,7 +303,7 @@ Agent 安装实测中，前次隔离国际服任务已下载 14,570,838 bytes �
 
 为区分游戏自定义目录与运行时路径，使用相同已校验运行时的独立外置副本、分别新建短HOME和独立prefix，仅运行 `wineboot -i`；不使用或结束日用游戏。按运行时根目录的UTF-8字节数计，181、201、211字节的三例退出0，216与221字节的两例均退出53并出现 `could not load kernel32.dll`、`c0000135`。把物理221字节目录通过35字节的短符号链接调用，仍退出53及同样错误。各例为一次观测；未证明精确临界值，也未定位 Wine 内部哪一处长度限制。不能仅凭现象认定它与此前267字符DLL路径故障同根因。
 
-这次失败复现的是运行时路径而非游戏自定义目录路径。当前本机日用运行时根目录为177字节，落在已测成功样本之内；其他用户名、HOME位置、运行时版本、字符编码或磁盘布局不在该结论内。代码目前没有针对这一故障的可靠路径检测或修复，不应据此一刀切限制用户选择游戏位置。发行前需在隔离环境复验更多路径与不同版本，并确定安全可靠的运行时部署方案；短符号链接已被本次反例推翻，不能直接当修复。
+这次失败复现的是运行时路径而非游戏自定义目录路径。当前本机日用运行时根目录为177字节，落在已测成功样本之内；其他用户名、HOME位置、运行时版本、字符编码或磁盘布局不在该结论内。当时的代码没有针对这一故障的可靠路径检测或修复，不应据此一刀切限制用户选择游戏位置；后续短实体路径缓解与验证见下文。发行前需在隔离环境复验更多路径与不同版本，并确定安全可靠的运行时部署方案；短符号链接已被本次反例推翻，不能直接当修复。
 
 新HOME独立首装使用已装build22及官方核心，完成 state 8、零退出、444文件和17,602,266,736字节清单复验；核心记录430次60秒读取超时检测，前期下载头约12分钟后继续，主体一度约20–40 MB/s，末段再度降速。外置副本排除下载核心缓存后再次用同一官方清单验证444文件、零差异，再在隔离HOME通过受支持的导入建立独立prefix；日用三份绑定文件哈希不变。外置客户端已报告启动成功且窗口激活日志出现，但此处不以进程或日志代替游戏画面：游戏日志有下载任务失败，热更新完成、公告及标题/登录页仍待可视验证。内置测试源按要求保留，不能视为已清理。
 
@@ -318,3 +318,5 @@ Agent 安装实测中，前次隔离国际服任务已下载 14,570,838 bytes �
 ### Wine runtime path migration (candidate)
 
 A controlled fixture initialized successfully with a 211-unit physical runtime path and failed at 216 with `kernel32.dll` / `c0000135`; a short symlink to the long physical directory did not fix it. These measurements do not establish a universal threshold. The runtime bootstrap now publishes a short hashed directory, while legacy full-version directories remain valid. The product manager prepares and verifies a separate copy, refuses to switch while a game is running, atomically switches `current`, and then saves the binding. The previous runtime is retained; an interrupted binding write can be retried. This does not restrict the user's chosen game directory. An exceptionally long home directory may still exceed the observed Wine boundary even with the compact name; the exact Wine cause is not established.
+
+build23整合验证：干净源码ce809e4完整无窗口构建、签名与32个Mach-O审计通过，本地DMG和对应源码材料复验通过。默认目录实际首装、外置目录验证和较长HOME单样本Wine初始化见上文；旧运行时迁移、运行中拒绝、绑定切换失败及可恢复行为由隔离自动测试覆盖。极端HOME长度不保证修复，明确kernel32/c0000135诊断保留；最终标题页尚未证实。

@@ -163,3 +163,5 @@ build22真实Agent国际服暂停/恢复：独立HOME与本地容量充足卷新
 Runtime-path candidate: controlled Wine fixture reproduced prefix initialization failure at a 216-unit physical runtime path and success at 211; the exact upstream limit/cause remains unconfirmed. Compact runtime storage and conservative legacy migration are under validation. Migration keeps the old runtime and defers while a game is running; custom game paths are not restricted. A very long home path remains a possible failure boundary. See `runtimeManifest/README.md` and `docs/downloadCoreUnification.md`.
 
 任务14最终候选9900123已整合，另生成build23以区分既有日用22；其前序干净构建及实验通过，最终整合构建/回归进行中。极长HOME仍可能超过Wine边界，标题场景尚待独立验收。
+
+build23最终整合构建：干净源码ce809e4，完整无窗口构建、运行器/产品管理器/Agent及32个Mach-O部署目标审计通过；首次签名因时间戳缺失失败，独立干净克隆完整重建通过。配套材料和本地测试DMG已挂载签名/源码身份复验。默认路径首装、较长HOME实体短路径、外置目录和旧版迁移各有分层证据，旧版迁移的保护由自动测试覆盖，极端HOME长度与最终标题页仍未通过实际验收。预检发现现有国际服测试游戏仍运行，不关闭、不替换日用22；等待会话自然结束。
