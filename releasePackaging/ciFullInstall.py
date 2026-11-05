@@ -211,6 +211,7 @@ def observe_launch(manager, env, game, product, work, reports, result):
         receipt = agent('start', 'launch', '--product', product)
         task = str(uuid.UUID(receipt['taskId']))
         report['taskId'] = task
+        result['gameLaunchAttempted'] = True
         next_capture = 30
         captures = 0
         while time.monotonic() - started < 480:
@@ -244,6 +245,7 @@ def observe_launch(manager, env, game, product, work, reports, result):
                 break
             time.sleep(15)
         report['coreVerifiedGameWindow'] = report.get('taskState') == 'succeeded' and report.get('taskExitCode') == 0
+        result['gameLaunched'] = report['coreVerifiedGameWindow']
     except Exception as error:
         report['observationError'] = safe_text(str(error))[:2048]
     finally:
