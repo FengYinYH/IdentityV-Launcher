@@ -12,6 +12,7 @@
 
 | 问题 | 状态 | 入口 |
 | --- | --- | --- |
+| RC4 国际服下载停在 0 KB（#4） | 已在下载监督器重建随包 Wine 的 `lib64` 搜索路径；本地修复版已观察到下载恢复 | [#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4) |
 | 国际服首装与中断续传 | #3 修复只有单元测试证据，真实下载待反馈者或本机实测 | [#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3) |
 | 游戏鼠标捕捉丢失 | 2026-10-28 首次出现；指针可自由移动、`CGCursorIsVisible` 为真，Wine 约束未生效；未复现 | 待复现后记录 |
 | 账号登录面板比例偏小 | 长期报告，根因未定 | [LOGIN-01](docs/windowAndLoginInvestigation.md#login-01账号登录面板偏小) |

@@ -443,6 +443,37 @@ func TestRunLifecycle(t *testing.T) {
 	}
 }
 
+func TestWineLibraryFallback(t *testing.T) {
+	root := t.TempDir()
+	lib64 := filepath.Join(root, "lib64")
+	if err := os.Mkdir(lib64, 0700); err != nil {
+		t.Fatal(err)
+	}
+	bundled := filepath.Join(root, "lib", "wine", "x86_64-unix", "wine")
+	for _, tc := range []struct{ name, wine, inherited, want string }{
+		{"signed supervisor", bundled, "", lib64},
+		{"explicit path", bundled, "/custom/lib", "/custom/lib"},
+		{"other layout", filepath.Join(root, "bin", "wine"), "", ""},
+		{"missing lib64", filepath.Join(root, "missing", "lib", "wine", "x86_64-unix", "wine"), "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("DYLD_FALLBACK_LIBRARY_PATH", tc.inherited)
+			var got []string
+			for _, entry := range controlledWineEnv(Task{WineExecutable: tc.wine}) {
+				if path, ok := strings.CutPrefix(entry, "DYLD_FALLBACK_LIBRARY_PATH="); ok {
+					got = append(got, path)
+				}
+			}
+			if tc.want == "" && len(got) == 0 {
+				return
+			}
+			if len(got) != 1 || got[0] != tc.want {
+				t.Fatalf("library paths = %v, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestControlledWineEnvironmentExcludesCallerSecrets(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin")
 	t.Setenv("OPENAI_API_KEY", "must-not-cross-boundary")

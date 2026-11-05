@@ -589,7 +589,7 @@ func controlledWineEnv(task Task) []string {
 		"HOME", "USER", "LOGNAME", "TMPDIR",
 		"LANG", "LC_ALL", "LC_CTYPE", "PATH",
 		"CX_ROOT", "WINELOADER", "WINESERVER", "WINEDLLPATH",
-		"DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH",
+		"DYLD_LIBRARY_PATH",
 		"GST_PLUGIN_SYSTEM_PATH", "GST_REGISTRY", "SSL_CERT_FILE",
 		"QMLSCENE_DEVICE", "DOTNET_EnableWriteXorExecute", "SIM_BACKEND_OVERRIDE",
 		"ROSETTA_ADVERTISE_AVX", "WINEMSYNC", "WINEESYNC",
@@ -600,6 +600,20 @@ func controlledWineEnv(task Task) []string {
 		if value, present := os.LookupEnv(key); present && !strings.ContainsAny(value, "\x00\r\n") {
 			out = append(out, key+"="+value)
 		}
+	}
+	// Hardened Runtime can clear the fallback path when the supervisor starts.
+	// Restore the bundled runtime's lib64 at the final exec of Wine.
+	fallback := os.Getenv("DYLD_FALLBACK_LIBRARY_PATH")
+	if fallback == "" {
+		if root, bundled := strings.CutSuffix(task.WineExecutable, "/lib/wine/x86_64-unix/wine"); bundled {
+			lib64 := filepath.Join(root, "lib64")
+			if info, err := os.Stat(lib64); err == nil && info.IsDir() && !strings.ContainsRune(lib64, os.PathListSeparator) {
+				fallback = lib64
+			}
+		}
+	}
+	if fallback != "" && !strings.ContainsAny(fallback, "\x00\r\n") {
+		out = append(out, "DYLD_FALLBACK_LIBRARY_PATH="+fallback)
 	}
 	return append(out, "WINEPREFIX="+task.WinePrefix)
 }
