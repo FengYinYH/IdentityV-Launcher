@@ -8,6 +8,8 @@
 
 下载核心是网易提供的程序，不是IDV Login作者重新编写的下载引擎；当前获取位置是作者仓库中按提交与字节锁定的镜像。取用这个二进制不等于安装或运行IDV Login。独立bootstrap的本地HTTP/hash测试、管理器临时prefix核心复制/修复清单/清理测试都不准备登录插件；这些证明组件及准备链独立，不能代替真实服务和不透明核心的完整游戏下载实测。
 
+> **阅读时序：**本专题保留早期候选与审查原文，文中当时的「当前」、未合并 PR 和 304 猜测均是历史快照。后续已确认：针对本仓精确锁定的核心，304 表示清单下载重试耗尽，应立即报告失败；这不是 HTTP 304，也不应一概归因 TLS。证据见 [build 13 的锁定定义](#build-13304-锁定定义与按实际产品-runtime-确认2026-11-05)及其后复现记录；最终验收状态以 [STATUS](../STATUS.md) 为准。
+
 ## 网易官方原始载荷核验（2026-10-05）
 
 实际请求[官方 Windows 下载 resolver](https://api.loadingbay.com/app/v1/download_client/windows/mkt-h55-official/url)，得到 302 到[网易 CDN 安装器](https://a50.gdl.easebar.com/7497956734284075008/Identity_V_setup.exe)。安装器为 147,731,528 字节，SHA-256 `508c96dd4320a40da830d3f75fca5c95eacf60e05e74794738c0f57c23bd368a`；其 Inno Setup 数据版本为 6.4.3，产品标识 LoadingBay 1.5.26.11。

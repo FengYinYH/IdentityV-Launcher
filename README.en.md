@@ -10,7 +10,7 @@ Download, verify, launch, repair, and uninstall both the Mainland China and Glob
 
 The launcher supports Simplified Chinese, Traditional Chinese, and English, and follows the system language by default.
 
-Agents can use the [command interface](docs/agentCLI.md) to install, inspect, repair and control games, and read task status, progress and logs. The App's `idv help` and `idv docs` provide commands and documentation for the installed version.
+Agents can use the [command interface](docs/agentCLI.md) to install, inspect, repair and control games, and read task status, progress and logs. The Help menu opens documentation for this version and copies the bundled `idv` entry command; no separate global command installation is required.
 
 In-game key mapping is supported. Command maps to Windows Alt; F1–F9 on MacBook keyboards behave like the corresponding Windows keys, while F10–F12 retain their volume controls. These mappings do not affect keyboard behavior outside the game.
 
@@ -34,7 +34,6 @@ To upgrade from RC1, quit the game before replacing the launcher. The old defaul
 
 IDV Login is an optional component. You can download, repair, and play without installing it; use the game's official login flow instead.
 
-The launcher currently supports the official version `6.3.3 beta` and manages component updates.
 
 ## Notes
 
@@ -48,9 +47,9 @@ Game audio follows the current macOS default input and output devices, and this 
 
 A mouse polling rate above 1 kHz may cause severe stuttering. Function-row mapping on external keyboards may also be unreliable.
 
-The current runtime requires macOS 15 or later; this release does not provide macOS 14 compatibility. The current candidate has only been tested on a real Mac running macOS 27.
+The runtime requires macOS 15 or later.
 
-We make no guarantees about stability, performance, or avoiding bans. The author is not responsible for your rank points, deduction points, win rate, or dithering, so be especially careful in ranked matches. If that costs you, ask the author to host a custom match and make it up to you with the Spiral Whip.
+We make no guarantees about stability, performance, or avoiding bans. The author is not responsible for your rank points, deduction points, win rate, or dithering, so be especially careful in ranked matches. If that costs you, ask the author to host a custom match and make it up to you with a Spiral Whip or a pallet stun after a position swap.
 
 ## Feedback and development
 

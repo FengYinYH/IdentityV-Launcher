@@ -4,65 +4,95 @@
 
 2026-11-04
 
-### 修复
+### 简体中文
 
-- 修复游戏进程已启动，但启动器因会话记录失败而误报启动失败的情况。
+#### 新增
 
-- 安装空间预检改用实际可用容量；下载核心明确报告空间不足时显示所需空间。
+- 「版本与更新」接入实际更新检测和安装流程，不再只是一个预留按钮。
+- 新增「自定义游戏位置」，也可通过此功能指向已经下载好的游戏目录；可选择文件或目录。
+- 新增 CLI 及文档说明，Agent 可通过[命令接口](https://github.com/FengYinYH/IdentityV-Launcher/blob/v1.0.0-rc.5/docs/agentCLI.md)安装、检测、修复和管理游戏，读取任务状态、进度与日志；帮助菜单可打开本版文档、复制随包 `idv` 入口命令，无需另装全局命令。Agent 卸载游戏前需要用户确认。
+- IDV Login 就绪时可使用「打开后台」进入本机管理页面；反馈窗口增加讨论组入口。
+- Agent 可控制安装下载的暂停和继续，并使用已支持的语言、登录组件和反馈草稿接口。
+
+#### 调整
+
 - IDV Login 更新提示不再阻挡已安装组件的启动、停止、卸载和跟随设置，移除额外的上游更新屏蔽。
+- 已有外部客户端的安装状态与基础清单检查结果分开显示；检查外部客户端不会自动覆盖其文件。
+- 导入的外部游戏文件在卸载时保留。
+- 缩短运行环境的实体目录名，并在安全条件下迁移旧目录；若 Wine 初始化仍遇到路径相关错误，显示明确诊断。
+
+#### 修复
+
+- 为 IDV Login 首次 CA 导入无法交互的情况增加有界恢复。
+- 修复游戏进程已启动，但启动器因会话记录失败而误报启动失败的情况。
+- 安装空间预检改用实际可用容量；下载核心明确报告空间不足时显示所需空间。
 - 补齐卡死提示、恢复倒计时、麦克风用途及常见运行状态的三语言显示。
 - 国际服首次安装长时间停在 0 KB：下载核心监督器在 Hardened Runtime 下拿不到 Wine 的 DYLD 库搜索路径，现按已选 Wine 的固定布局恢复 `lib64`，拒绝无效搜索路径并保留缺库诊断（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
 - 下载核心的辅助通知或重复速率不再无限延长进度期限；清单下载重试耗尽的 304 会立即明确失败，并保留受限诊断；不根据任意文本猜测错误。
-- 修复仅安装国际服或两服运行环境不同时的启动确认误报，以及 IDV Login 首次 CA 导入无法交互后的有界恢复。
-
+- 修复仅安装国际服或两服运行环境不同时的启动确认误报。
 - 国际服游戏内更新后，基础清单修复也会保护有效热更新，避免回退正常客户端。
+- 操作锁忙碌导致启动请求未执行时，显示单独的启动器错误代码和说明；后续同一产品成功启动会清除旧的失败提示。
+- 修复 Agent 请求国际服清单时误用国服解析器的问题。
 
-### 新增
+### 繁體中文
 
-- “版本与更新”可检查 GitHub 新版；确认后校验并同址更新、重新启动，清理本次临时安装包；Agent 可调用相同流程。
+#### 新增
 
-- 统一“自定义游戏位置”入口，可选择文件或目录，找到已有游戏就检测并同步状态，未找到则询问是否安装；外部游戏目录保留原文件，卸载不删除它们。
-- Agent/CLI 可调用游戏安装、检测、修复与运行管理，提供任务 ID、结构化状态、进度和日志；命令文档随 App 提供，Agent 卸载游戏前询问用户确认。
+- 「版本與更新」接入實際更新檢查與安裝流程，不再只是預留按鈕。
+- 新增「自訂遊戲位置」，也可透過此功能指定已下載的遊戲目錄；可選擇檔案或目錄。
+- 新增 CLI 與指令文件，Agent 可透過[指令介面](https://github.com/FengYinYH/IdentityV-Launcher/blob/v1.0.0-rc.5/docs/agentCLI.md)安裝、檢查、修復及管理遊戲，讀取工作狀態、進度與日誌；說明選單可開啟本版文件、複製隨包 `idv` 入口指令，無須另裝全域指令。Agent 解除安裝遊戲前需要使用者確認。
+- IDV Login 就緒時可使用「開啟後台」進入本機管理頁面；回饋視窗新增討論群組入口。
+- Agent 可暫停及繼續安裝下載，並使用已支援的語言、登入元件與回饋草稿介面。
 
-### 修正
+#### 調整
 
-- 修復遊戲程序已啟動，但啟動器因工作階段記錄失敗而誤報啟動失敗的情況。
-
-- 安裝空間預檢改用實際可用容量；下載核心明確回報空間不足時顯示所需空間。
 - IDV Login 更新提示不再阻擋已安裝元件的啟動、停止、解除安裝及跟隨設定，移除額外的上游更新封鎖。
-- 補齊卡死提示、恢復倒數、麥克風用途與常見執行狀態的三語顯示。
-- 國際服首次安裝長時間停在 0 KB：下載核心監督器在 Hardened Runtime 下取不到 Wine 的 DYLD 函式庫搜尋路徑，現改為依已選 runtime 重建 `lib64`，拒絕無效搜尋路徑並保留缺庫診斷（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
-- 輔助通知或重複速率不再無限延長進度期限；清單下載重試耗盡的 304 會立即明確失敗，並保留受限診斷；不根據任意文字猜測錯誤。
-- 修復僅安裝國際服或兩服執行環境不同時的啟動確認誤報，並為 IDV Login 首次 CA 授權失敗加入有界恢復。
+- 既有外部用戶端的安裝狀態與基礎清單檢查結果分開顯示；檢查外部用戶端不會自動覆寫其檔案。
+- 匯入的外部遊戲檔案在解除安裝時保留。
+- 縮短執行環境的實體目錄名稱，並在安全條件下遷移舊目錄；若 Wine 初始化仍遇到路徑相關錯誤，顯示明確診斷。
 
-- 國際服遊戲內更新後，基礎清單修復也會保護有效熱更新，避免回退正常客戶端。
+#### 修復
 
-### 新增功能
+- 為 IDV Login 首次 CA 匯入無法互動的情況加入有界恢復。
+- 修復遊戲程序已啟動，但啟動器因工作階段記錄失敗而誤報啟動失敗的情況。
+- 安裝空間預檢改用實際可用容量；下載核心明確回報空間不足時顯示所需空間。
+- 補齊卡死提示、恢復倒數、麥克風用途及常見執行狀態的三語顯示。
+- 國際服首次安裝長時間停在 0 KB：下載核心監督器在 Hardened Runtime 下取不到 Wine 的 DYLD 函式庫搜尋路徑，現依已選 Wine 的固定配置恢復 `lib64`，拒絕無效搜尋路徑並保留缺庫診斷（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
+- 下載核心的輔助通知或重複速率不再無限延長進度期限；清單下載重試耗盡的 304 會立即明確失敗，並保留受限診斷；不依任意文字猜測錯誤。
+- 修復僅安裝國際服或兩服執行環境不同時的啟動確認誤報。
+- 國際服遊戲內更新後，基礎清單修復也會保護有效熱更新，避免回退正常用戶端。
+- 操作鎖忙碌導致啟動請求未執行時，顯示獨立的啟動器錯誤代碼與說明；後續同一產品成功啟動會清除舊的失敗提示。
+- 修復 Agent 請求國際服清單時誤用國服解析器的問題。
 
-- 「版本與更新」可檢查 GitHub 新版；確認後驗證並原址更新、重新啟動，清理本次暫存安裝包；Agent 可呼叫相同流程。
+### English
 
-- 統一「自訂遊戲位置」入口，可選擇檔案或目錄，找到既有遊戲便檢查並同步狀態，未找到則詢問是否安裝；外部遊戲檔案不會因解除安裝而刪除。
-- Agent/CLI 可呼叫遊戲安裝、檢查、修復與執行管理，提供工作 ID、結構化狀態、進度及日誌；指令文件隨 App 提供，Agent 解除安裝遊戲前會請使用者確認。
+#### Added
 
-### Fixed
+- Version & Updates now connects to update checking and installation flows instead of being a placeholder button.
+- Added Custom Game Location, which can also point to an already downloaded game directory; both files and folders can be selected.
+- Added a CLI and documentation so agents can install, inspect, repair and manage games through the [command interface](https://github.com/FengYinYH/IdentityV-Launcher/blob/v1.0.0-rc.5/docs/agentCLI.md), and read task status, progress and logs. The Help menu opens documentation for the installed version and copies the bundled `idv` entry command; no global command installation is needed. Agents must obtain user confirmation before uninstalling a game.
+- Open Admin opens the local management page when IDV Login is ready; the feedback window also provides access to the discussion group.
+- Agents can pause and resume installation downloads and use the supported language, login-component and feedback-draft interfaces.
 
-- Fixed startup failure reports caused by session recording after the game process had already started.
+#### Changed
 
-- Installation checks use actual free space and display required capacity when the download core explicitly reports insufficient space.
-- IDV Login update notices no longer disable installed component controls or Start with Game, and the extra upstream update blocker is removed.
-- Localized hang alerts, recovery countdowns, microphone usage descriptions, and common runtime status messages.
-- First install of the global build no longer stalls at 0 KB: under Hardened Runtime the download-core supervisor lost Wine's DYLD library path, so it now rebuilds `lib64` from the selected runtime and rejects invalid search paths and reports missing libraries ([#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)).
-- Auxiliary notifications and changing rates no longer extend stalled transfers indefinitely. Manifest retry exhaustion (304) now fails immediately with bounded diagnostics, without guessing from arbitrary payload text.
-- Fixed launch confirmation errors in global-only installs and when the two products use different runtimes and added bounded recovery when the initial IDV Login CA authorization cannot interact with the user.
+- IDV Login update notices no longer block starting, stopping, uninstalling or configuring Start with Game for an installed component. The extra upstream update blocker has been removed.
+- Installation status and base-manifest inspection results are shown separately for existing external clients. Inspection does not automatically overwrite their files.
+- Imported external game files are preserved during uninstallation.
+- Shortened physical runtime directory names and added migration of legacy directories when safe. Explicit diagnostics are shown if Wine initialization still encounters a path-related error.
 
-- Global in-game hot updates now receive the same base-repair rollback protection as the mainland client.
+#### Fixed
 
-### Added
-
-- Check GitHub releases from Version & Updates, then confirm to verify, update in place, restart, and clean up temporary packages. Agents can use the same flow.
-
-- A unified “Custom Game Location” button accepts files or folders, checks and registers an existing client, or asks to install if none is found. Imported game files remain user-owned and are preserved during removal.
-- Agent/CLI access to game installation, inspection, repair and runtime control, with task IDs, structured status, progress and logs. Command documentation ships with the App; Agent game removal asks the user to confirm.
+- Added bounded recovery when the initial IDV Login CA import cannot obtain user interaction.
+- Fixed false startup failures caused by session recording after the game process had already started.
+- Installation space checks use actual free space; required capacity is shown when the download core explicitly reports insufficient space.
+- Added missing translations for hang alerts, recovery countdowns, microphone usage descriptions and common runtime status messages across all three languages.
+- Fixed global first installs stalling at 0 KB when Hardened Runtime strips Wine's DYLD library search path. The download-core supervisor now restores `lib64` from the selected Wine layout, rejects invalid search paths and retains missing-library diagnostics ([#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)).
+- Auxiliary notifications and repeated transfer rates no longer extend progress deadlines indefinitely. Manifest retry exhaustion (304) now fails immediately with bounded diagnostics, without inferring errors from arbitrary text.
+- Fixed launch confirmation errors in global-only installations and when the two clients use different runtimes.
+- Base-manifest repair now protects valid in-game hot updates for the global client, preventing rollback of an otherwise working client.
+- Launch requests blocked by a busy operation lock now show a distinct launcher error code and explanation. A later successful launch of the same product clears the previous failure message.
+- Fixed Agent requests for the global manifest incorrectly using the mainland parser.
 
 ---
 
@@ -74,28 +104,10 @@
 
 - 简体、繁体与英文 README 增加 QQ 交流群。
 
-### 調整
-
-- 簡體、繁體與英文 README 新增 QQ 交流群。
-
-### Changed
-
-- QQ group added to the Simplified Chinese, Traditional Chinese and English READMEs.
-
 ### 修复
 
-- 首次安装时默认目录尚不存在，导致国服或国际服提示“所选安装位置不可用”（[#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)）。
+- 首次安装时默认目录尚不存在，导致国服或国际服提示「所选安装位置不可用」（[#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)）。
 - 下载核心返回辅助状态码 `304` 时不再被误判为未知错误并中断下载（[#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3)）。
-
-### 修正
-
-- 首次安裝時預設目錄尚不存在，導致國服或國際服提示「所選安裝位置無法使用」（[#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)）。
-- 下載核心回傳輔助狀態碼 `304` 時，不再被誤判為未知錯誤而中斷下載（[#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3)）。
-
-### Fixed
-
-- First install no longer fails with "the selected install location is unavailable" when the default directory does not exist yet ([#2](https://github.com/FengYinYH/IdentityV-Launcher/issues/2)).
-- Auxiliary status code `304` from the download core is no longer treated as an unknown error that aborts the download ([#3](https://github.com/FengYinYH/IdentityV-Launcher/issues/3)).
 
 ---
 
@@ -145,92 +157,3 @@
 - 跟随系统设置的音频设备热切换
 - 游戏多开（后续计划，非优先项）
 ---
-
-## 繁體中文
-
-### 1.0.0-rc.3
-
-2026-10-09
-
-#### 調整
-
-- 問題回饋聯絡信箱更新為 `FengYinYH@icloud.com`，專案公開倉庫統一使用 [FengYinYH/IdentityV-Launcher](https://github.com/FengYinYH/IdentityV-Launcher)。
-
-### 1.0.0-rc.2
-
-2026-10-05
-
-#### 新增
-
-- 多語言支援，預設跟隨系統：簡體中文、繁體中文與 English。
-- 音訊輸入輸出裝置跟隨系統預設裝置切換，不再綁死啟動時的裝置。
-
-#### 調整
-
-- 國服與國際服首裝、校驗修復共用網易下載核心。
-- IDV-Login 支援版本更新為 6.3.2 stable，更新由啟動器維護，關閉元件自己的升級與遠端熱修復。
-- 預設遊戲目錄統一為 ASCII `IdentityV/CN`、`IdentityV/Global`，舊版預設目錄在遊戲退出後自動遷移。
-- 卡死提醒隨啟動器持續啟用，移除選單開關。
-- 遊戲視窗的選單列名稱調整為遊戲名稱第五人格，並跟隨語言變化。
-
-#### 修正
-
-- 修正部分 emoji 無法正常顯示的問題。
-
-### 1.0.0-rc.1
-
-2026-09-23 公開發布。包含啟動器與第一方安裝、執行時下載和遊戲啟動的首個發布候選。公開包預設使用 `wine11-codeweavers-26.1-dxmt-0.80-macos15-alpha1-r1`；倉庫裡的 emoji2 修正當時只是本機維護候選，沒有進入該預設執行時。
-
-已知問題（發布後確認）：聊天中部分組合 emoji 顯示為方框；遊戲內語音訊息使用內建麥克風錄製後，自己回聽時約每三秒出現破音。診斷與後續方案見[已知問題](docs/knownIssues.md)。
-
-計畫中的功能（不屬於 RC1 已交付內容）：
-
-- UI 重構
-- Metal FX 超解析與補幀支援
-- 跟隨系統設定的音訊裝置熱切換
-- 遊戲多開（後續計畫，非優先項）
----
-
-## English
-
-### 1.0.0-rc.3
-
-2026-10-09
-
-#### Changed
-
-- The feedback contact email is now `FengYinYH@icloud.com`, and the public repository is unified as [FengYinYH/IdentityV-Launcher](https://github.com/FengYinYH/IdentityV-Launcher).
-
-### 1.0.0-rc.2
-
-2026-10-05
-
-#### Added
-
-- Multilingual support following the system language: Simplified Chinese, Traditional Chinese and English.
-- Audio input and output follow the system default device and switch with it, instead of staying bound to the device present at launch.
-
-#### Changed
-
-- Mainland and global first installs, verification and repair now share the same NetEase download core.
-- IDV-Login support updated to 6.3.2 stable; the launcher manages updates and disables the component's own updater and remote hotfixes.
-- Default game directories are unified to ASCII `IdentityV/CN` and `IdentityV/Global`; old default directories migrate automatically after the game exits.
-- The hang reminder stays enabled together with the launcher; the menu toggle is removed.
-- The game window's menu bar name is now the game name and follows the selected language.
-
-#### Fixed
-
-- Fixed some emoji not displaying correctly.
-
-### 1.0.0-rc.1
-
-2026-09-23 public release. The first release candidate with the launcher, first-party installation, runtime download and game launch. The public package defaults to `wine11-codeweavers-26.1-dxmt-0.80-macos15-alpha1-r1`; the emoji2 fix in the repository was only a local maintenance candidate at that time and was not part of that default runtime.
-
-Known issues (confirmed after release): some combined emoji render as boxes in chat; in-game voice messages recorded with the built-in microphone crackle about every three seconds on playback. See [known issues](docs/knownIssues.md) for diagnosis and follow-up.
-
-Planned features (not part of RC1):
-
-- UI redesign
-- Metal FX upscaling and frame interpolation
-- Audio device following the system setting
-- Multiple game instances (future plan, low priority)
