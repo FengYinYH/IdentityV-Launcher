@@ -38,6 +38,8 @@ The launcher currently supports the official version `6.3.3 beta` and manages co
 
 ## Notes
 
+An overly long runtime directory can prevent Wine from initializing. The launcher shortens its runtime directory where possible. If you still see `kernel32.dll` / `c0000135`, check whether your macOS home folder path is unusually long and share diagnostic information with the maintainers. This runtime-path trigger does not restrict your custom game folder; limits across paths, characters, and system versions are not yet established.
+
 The first installation or launch may request macOS permissions. If administrator authorization is needed, macOS will show its own prompt. The launcher does not collect or upload your password.
 
 Use Control+C and Control+V to copy and paste in the game, rather than Command+C and Command+V.
