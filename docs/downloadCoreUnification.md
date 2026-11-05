@@ -61,6 +61,23 @@ RC4 改为比较标准化后的文件系统路径，保留“仅默认目录自�
 
 验证使用不依赖真实 runtime 的临时目录布局：缺失变量时仍得到正确的 `lib64`、路径逃出 runtime/缺少 GnuTLS/外来 Wine 布局均被拒、终止性辅助帧触发失败且不刷新 idle、只有辅助帧时不延长进度期限。2026-11-04 `go test -count=1 ./...`（`gameDownloader/` 包 7.999s）与 `go vet ./...` 通过，`productManager/selfTest.command` 通过。这些是 Go 侧合约测试：本机没有据此重签名、公证或重装 App，也没有跑真实 17.6 GB 国际服首装，因此用户机器上的端到端验收仍待带新签名的候选完成。
 
+### PR #5 与本机 RC5 的整合审查（2026-11-05）
+
+审查 [PR #5](https://github.com/FengYinYH/IdentityV-Launcher/pull/5) 精确提交 `c15101a964d6096c9dfff7da186414217ac5bab7`，base 为 `0896cd9`。当时远端 PR 仍开放、标记可合并，没有 review 或 CI 检查记录；这是相对远端 RC4 基础的状态，不代表能无冲突合入本机 RC5。并行本机分支已经推进至 `e151416`，包含 `f8b4e01` 的路径/辅助状态改动、RC5 候选及后续启动修复；原日用源码与运行状态未因本次审查改变。
+
+PR 与本地早先隔离修复 `7531ae5` 解决同一个签名边界问题。PR 严格匹配完整 `lib/wine/x86_64-unix/wine` 后缀，并拒绝将含 `:` 的派生目录作为单一 DYLD 路径；有效显式继承值仍优先。两者的次要差异是无效的换行继承值：PR 丢弃而不重建，早期隔离修复丢弃后重建。PR 不增加 entitlement、不修改证书或 TLS 校验；在该窄范围内未发现阻断问题。不要重复提交两套同义修复。
+
+独立验证严格区分提交与验证层：
+
+- PR **原样提交**的 `gameDownloader` 执行 `go test -count=1 -timeout 60s ./...` 通过（5.997s），并成功构建 supervisor。PR 自带四例覆盖缺失值、显式值、其他布局和缺少 lib64；名为“signed supervisor”的用例只是设置空环境，不是实际签名测试。
+- 审查临时增加的六个边界用例均通过：变量确实 unset、lib64 是普通文件、同目录非 Wine 可执行文件、runtime 路径含冒号、显式多路径和含换行的显式值。临时测试不加入 PR，审查后移除。
+- **实际签名边界**：将该 PR 编译的 supervisor 本地 ad-hoc + Hardened Runtime 签名，不赋 allow-dyld entitlement；用与此前对照相同的 x86_64 原生探针加载实际 bundled GnuTLS，观察到 fallback 存在、加载成功、`gnutls_global_init` 返回 0。探针故意退出 1，supervisor 的非零退出是该诊断的设计，不是下载回归失败。
+- **未对这个 PR 精确提交执行**：完整 App 构建、真实文件下载、全量首装或游戏启动。报告者区分了此前本地补丁的 8.8 MB 观察与 PR 分支的自动化测试，不能把前者写成该提交已完成全量安装。本机 RC5 文档记载的后续安装/启动结果属于另一条源码链，亦不能转记为 PR 验收。
+
+整合建议：保留报告者贡献与本机已完成验证，逐项协调后再决定单一实现，不直接 cherry-pick/覆盖。`git merge-tree --write-tree` 的只读整合预演确认 PR 与 `e151416` 在 `STATUS.md` 和 `gameDownloader/supervisor.go` 冲突；测试文件能自动合并，不表示其语义已经适配。当前 RC5 的 `controlledWineEnv` 已返回 `([]string, error)`，并有 `EvalSymlinks`、路径留界、GnuTLS 常规文件及 fail-closed 校验；PR 保持旧 `[]string` 接口和未知布局兼容行为。不能将任一差异悄悄覆盖，整合后需要重跑模块测试并以实际决定的生产源码复验签名边界。当前 RC5 派生路径也没有 PR 的冒号防护，建议在后续统一实现时保留该边界测试。
+
+**独立于 PR 的当前风险**：RC5 的 `auxiliaryFrameFatal` 根据任意 message 文本的 `error`/`fail` 子串判断终止，合成反例 `{"message":"no errors"}` 与 `{"message":"retry after temporary failure"}` 均返回 true。它们仅用于证明启发式的误判可能，**不是厂商真实 payload**。现有记录没有证明这些文本模式等同终止语义，不能因本机正常安装成功而认定所有辅助状态分类正确；需要真实 304 第三帧、前后状态/字节、重试和最终结果，形成脱敏 fixture 后再决定分类。本轮不为缺少证据的语义写补丁，也不推送、批准、合并或回复 PR。
+
 ### RC5 国际服安装完成后启动预检失败（2026-11-05）
 
 在源码 `b27457c` 对应的 RC5 build 9 日用候选中，国际服安装完成并发布游戏/prefix 记录后，启动仍失败；已安装运行器的 `--preflight --product global` 返回 `prefix has an invalid volume UUID`，尚未进入 Wine。原因是产品管理器的 `ProductState.installations` 类型为 `[ProductID: Installation]`，其中 `ProductID` 是枚举。Swift Codable 对这种字典编码为交替键值数组，例如 `{"installations":["mainland",{…},"global",{…}]}`；运行器却把它当作对象，固定读取 `installations.global.prefix.volumeUUID` 等路径，结果全部为空。数组顺序由字典决定，不能固定为某个索引。安装成功与此启动失败并不矛盾：管理器自己用 Codable 解码能够读回记录，跨语言的 shell 消费者才发生不匹配。
