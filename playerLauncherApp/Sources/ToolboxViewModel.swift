@@ -658,6 +658,7 @@ final class ToolboxViewModel: ObservableObject {
                     let resultAlert = NSAlert()
                     resultAlert.messageText = LauncherLanguage.current.localized("外部客户端检查完成")
                     resultAlert.informativeText = LauncherLanguage.current.localized(report.valid ? "官方基础清单文件一致；热更新文件未包含在本次检查中。未修改游戏文件。" : "部分文件与官方基础清单不同，可能是官方热更新；这不能单独证明游戏损坏。未修改游戏文件。")
+                    self.showOperation(resultAlert.informativeText)
                     resultAlert.addButton(withTitle: LauncherLanguage.current.localized("好"))
                     resultAlert.runModal()
                 }
