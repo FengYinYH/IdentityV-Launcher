@@ -1,0 +1,31 @@
+name: RC5 hosted game graphics feasibility
+on:
+  push:
+    branches: [ci/rc5-game-launch-20261105]
+permissions:
+  contents: read
+concurrency:
+  group: rc5-hosted-game-launch
+  cancel-in-progress: false
+jobs:
+  graphics-preflight:
+    runs-on: xcode-27
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check graphics before repeating any game download
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          swift releasePackaging/ciGraphicsProbe.swift > "$RUNNER_TEMP/graphics-preflight.json"
+          cat "$RUNNER_TEMP/graphics-preflight.json"
+      - name: Upload graphics capability result only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graphics-preflight
+          path: ${{ runner.temp }}/graphics-preflight.json
+          retention-days: 3

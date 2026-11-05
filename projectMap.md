@@ -141,3 +141,5 @@ flowchart LR
 - `.github/workflows/full-install.yml`：仅独立`ci/rc5-full-install-20261105`分支push触发的一次性真实首装实验；未冻结候选SHA时拒绝执行，不是普通PR下载矩阵。
 - `releasePackaging/ciFullInstall.py`：仅在临时macOS Actions runner构建ad-hoc包、校验来源/Rosetta/空间、调用同一Agent安装核心，监督任务/采样磁盘/记录阶段，仅发布小型脱敏JSON。
 - `releasePackaging/tests/test_ci_full_install.py`：无网络、无真实游戏的预算边界、真实发布条件、取消语义与诊断过滤测试。
+
+- `releasePackaging/ciGraphicsProbe.swift`：托管Mac的Metal/display只读能力探针；由隔离游戏启动实验工作流调用，无游戏下载或输入操作。
