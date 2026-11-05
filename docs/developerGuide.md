@@ -80,3 +80,7 @@ IDV Login 的固定清单用于下载校验；安装状态、可选版本更新�
 ### 运行器会话发布回归
 
 `gameRunnerApp/tests/sessionPublication.test.command`由玩家构建执行，也可单独用zsh运行；只编译/运行无GUI的arm64与x86_64探针及空dylib，需要已有Rosetta，不安装兼容组件，不运行Wine或游戏。它验证Wine子进程注入边界、保持PID/fallback以及固定字段会话的0600原子发布和失败保护；机制与真实来宾边界见[RUN-SESSION](windowAndLoginInvestigation.md#run-session来宾游戏已存在但启动确认失败2026-11-05)。
+
+### 一次性托管完整首装实验
+
+`.github/workflows/full-install.yml`与`releasePackaging/ciFullInstall.py`只面向一次性GitHub macOS ARM runner、单次国服真实首装；不在维护者Mac执行。发布测试分支前必须将工作流候选SHA占位符替换为已冻结的最终整合提交，驱动会核对候选祖先、仅CI/文档差异与构建来源，拒绝用旧候选冒充最终。预算为官方清单D向上取整GiB后加17GiB，低于6GiB取消本任务；20分钟构建、120分钟安装、150分钟job上限。只上传结构化脱敏result.json，不上传载荷/原始日志。详情见CI专题；本实验不修改main/Release/用户Mac。

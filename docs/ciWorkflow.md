@@ -60,3 +60,9 @@ macos-14/macOS14 larger 标签已于11月2日退役，当前不能推荐它作�
 随后只向`refs/heads/ci/rc5-agent-smoke-20261105`尝试推送上述确切提交，GitHub服务端明确拒绝：`refusing to allow an OAuth App to create or update workflow .github/workflows/checks.yml without workflow scope`。现有认证只有repo/read:org/gist，缺workflow。拒绝后只读复核：目标远端分支仍不存在、workflows为0、该分支run列表为空。没有改main、设置、PR或release，也没有重试同一凭据或换身份绕过。
 
 因此远端CI尚未运行，不能报告托管结果。下一步需要账号本人为当前GitHub连接补授workflow scope（例如在可信本机交互式`gh auth refresh -h github.com -s workflow`并完成GitHub授权），再按新的确切提交/分支重新审查并推送；本轮未执行认证变更。此阻挡来自GitHub认证权限，不是产品CLI只读限制，也不改变RC5须包含Agent接口/文档而CI流程调整不阻挡发行的约定。本地合约、完整构建及真实resolver结果仍有效，但不代替GitHub运行。
+
+## 完整首装驱动已准备，候选冻结待确认
+
+在独立克隆中基于整合检查点9e5ff6e准备full-install.yml、ciFullInstall.py及无网络单元测试，未改共享候选代码。五项测试和YAML解析通过，非Actions本机调用会在创建安装目录前拒绝。报告每5秒采样剩余空间，记录最小可用/观测增量峰值和阶段转换；不将采样峰值称为绝对瞬时峰值。构建与前置错误保留最多4KiB经过过滤的尾部，不导出其他原始日志。
+
+工作流保留FINAL_CANDIDATE_NOT_FROZEN占位符，未推送、未开始载荷下载。准备期间发现共享整合树存在ProductManager修改，随后提交为19a27b7（容量估计为零时采用普通可用容量）；旧9e5ff6e因此不应被当作最终首装候选。须由主协调任务明确最终冻结提交，将CI专用增量安全应用到该提交之上，并审查所有新增公开对象后再推测试分支。既有7ab3056绿灯仍只是旧候选smoke。

@@ -1,0 +1,43 @@
+name: RC5 real first install
+on:
+  push:
+    branches: [ci/rc5-full-install-20261105]
+permissions:
+  contents: read
+concurrency:
+  group: rc5-real-first-install
+  cancel-in-progress: false
+jobs:
+  first-install:
+    runs-on: macos-15
+    timeout-minutes: 150
+    env:
+      # Freeze the final integrated candidate before replacing this sentinel and pushing.
+      RC5_CANDIDATE_COMMIT: FINAL_CANDIDATE_NOT_FROZEN
+      PYTHONDONTWRITEBYTECODE: '1'
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Test CI supervisor without downloads
+        run: python3 -m unittest discover -s releasePackaging/tests -p 'test_ci_full_install.py'
+      - name: Build and perform one real mainland first install
+        run: >-
+          python3 releasePackaging/ciFullInstall.py
+          --candidate "$RC5_CANDIDATE_COMMIT"
+          --work-root "$RUNNER_TEMP/idv-first-install"
+          --report-root "$RUNNER_TEMP/idv-first-install-report"
+      - name: Upload bounded structured result only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: first-install-result
+          path: ${{ runner.temp }}/idv-first-install-report/result.json
+          if-no-files-found: ignore
+          retention-days: 3
