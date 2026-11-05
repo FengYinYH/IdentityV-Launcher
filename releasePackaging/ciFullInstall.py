@@ -22,7 +22,9 @@ GIB = 1024 ** 3
 TERMINAL = {'succeeded', 'failed', 'cancelled'}
 ALLOWED_DIFF = {'.github/workflows/full-install.yml', 'releasePackaging/ciFullInstall.py',
                 'releasePackaging/tests/test_ci_full_install.py', 'docs/ciWorkflow.md',
-                'docs/developerGuide.md', 'projectMap.md', 'STATUS.md'}
+                'docs/developerGuide.md', 'projectMap.md', 'STATUS.md',
+                '.github/workflows/game-launch.yml', 'releasePackaging/ciGraphicsProbe.swift',
+                '.github/workflows/server-install.yml'}
 
 
 class ExperimentError(Exception):
@@ -86,8 +88,8 @@ def stop_reason(record, free, elapsed, deadline):
     return None
 
 
-def verify_ready(document, destination, version):
-    rows = [x for x in document.get('products', []) if x.get('productId') == 'mainland']
+def verify_ready(document, destination, version, product='mainland'):
+    rows = [x for x in document.get('products', []) if x.get('productId') == product]
     if len(rows) != 1 or rows[0].get('state') != 'ready':
         raise ExperimentError('product_not_ready')
     row = rows[0]
@@ -96,7 +98,7 @@ def verify_ready(document, destination, version):
         raise ExperimentError('invalid_published_game_path')
     if row.get('installedVersion') != version:
         raise ExperimentError('upstream_version_changed_or_binding_mismatch')
-    if (game.parent / '.staging').exists() or (game.parent / '.identityv-direct-install.json').exists():
+    if any((game.parent / name).exists() for name in ('.staging', '.identityv-direct-install.json', '.identityv-global-install.json')):
         raise ExperimentError('installation_transaction_not_finished')
     return game
 
@@ -175,6 +177,95 @@ def supervise(agent, task_id, disk, event_file, result, timeout=7200, poll=5):
         time.sleep(poll)
 
 
+def game_tree_summary(game):
+    count, size = 0, 0
+    for parent, dirs, files in os.walk(game, followlinks=False):
+        for name in files:
+            path = Path(parent) / name
+            if path.is_symlink():
+                continue
+            try:
+                size += path.stat().st_size
+                count += 1
+            except FileNotFoundError:
+                pass
+    return {'files': count, 'bytes': size}
+
+
+def observe_launch(manager, env, game, product, work, reports, result):
+    # This is an observation, never a declaration that the announcement is visible.
+    report = {'announcementVerified': False, 'hotUpdateVerified': False,
+              'accountLoginAttempted': False, 'inputEventsSent': False,
+              'observationLimitSeconds': 480, 'samples': []}
+    result['launchObservation'] = report
+    report['gameTreeBefore'] = game_tree_summary(game)
+    started = time.monotonic()
+    def agent(*args, timeout=20):
+        proc = subprocess.run([manager, 'agent', *args], env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=timeout)
+        if proc.returncode:
+            raise ExperimentError('launch_agent_exit_' + str(proc.returncode))
+        return json.loads(proc.stdout)
+    task = None
+    try:
+        receipt = agent('start', 'launch', '--product', product)
+        task = str(uuid.UUID(receipt['taskId']))
+        report['taskId'] = task
+        next_capture = 30
+        captures = 0
+        while time.monotonic() - started < 480:
+            elapsed = round(time.monotonic() - started, 2)
+            free = shutil.disk_usage(work).free
+            if free < 6 * GIB:
+                report['stopReason'] = 'free_space_below_6_gib'
+                break
+            state = agent('task', task)
+            report['taskState'] = state.get('state')
+            report['taskExitCode'] = state.get('exitCode')
+            if state.get('error'):
+                report['errorSummary'] = safe_text(str(state['error']))[:2048]
+            pids = subprocess.run(['/usr/bin/pgrep', '-f', r'(^|[/])dwrg[.]exe([[:space:]]|$)'],
+                                  capture_output=True, text=True).stdout.split()
+            sample = {'seconds': elapsed, 'gameProcessCount': len(pids), 'freeBytes': free,
+                      'taskState': state.get('state')}
+            report['samples'].append(sample)
+            print(json.dumps({'event': 'ci-game-observation', 'product': product, **sample}), flush=True)
+            if elapsed >= next_capture and captures < 4:
+                captures += 1
+                name = 'game-' + product + '-' + str(captures) + '.png'
+                capture = subprocess.run(['/usr/sbin/screencapture', '-x', str(reports / name)],
+                                         stdin=subprocess.DEVNULL, capture_output=True, timeout=15)
+                sample['screenshotExitCode'] = capture.returncode
+                if capture.returncode == 0:
+                    sample['screenshot'] = name
+                next_capture = [30, 120, 300, 450][min(captures, 3)]
+            if state.get('state') in TERMINAL and state.get('state') != 'succeeded' and not pids and elapsed >= 30:
+                report['stopReason'] = 'launch_failed_and_no_game_process'
+                break
+            time.sleep(15)
+        report['coreVerifiedGameWindow'] = report.get('taskState') == 'succeeded' and report.get('taskExitCode') == 0
+    except Exception as error:
+        report['observationError'] = safe_text(str(error))[:2048]
+    finally:
+        # Stop only this freshly installed product with the public shared core.
+        if task and report.get('taskState') not in TERMINAL:
+            try:
+                agent('cancel', task)
+            except Exception:
+                report['launchCancellationPending'] = True
+        try:
+            stopped = agent('run', 'stop', '--product', product, timeout=60)
+            report['stopTaskState'] = stopped.get('state')
+        except Exception as error:
+            report['stopError'] = safe_text(str(error))[:1024]
+        report['observedSeconds'] = round(time.monotonic() - started, 2)
+        report['gameTreeAfter'] = game_tree_summary(game)
+        log_root = Path(env['HOME']) / 'Library/Logs/IdentityVOnMac'
+        logs = sorted(log_root.glob('*.log'), key=lambda p: p.stat().st_mtime, reverse=True)[:3]
+        report['runnerLogTails'] = [safe_diagnostic(p).replace(env['HOME'], '<isolated-home>') for p in logs]
+        report['cleanup'] = 'product_stop_attempted_then_ephemeral_runner_reclamation'
+
+
 def experiment(args, result, checkpoint=lambda: None):
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'macOS' or platform.machine() != 'arm64':
         raise ExperimentError('ephemeral_macos_actions_runner_required')
@@ -228,7 +319,7 @@ def experiment(args, result, checkpoint=lambda: None):
     manifest_file = work / 'manifest.json'
     with manifest_file.open('wb') as out, (work / 'manifest-error.log').open('wb') as err:
         manifest_start = time.monotonic()
-        subprocess.run([manager, 'resolve-manifest', '--json', '--product', 'mainland'], env=env,
+        subprocess.run([manager, 'resolve-manifest', '--json', '--product', args.product], env=env,
                        stdout=out, stderr=err, check=True, timeout=90)
     manifest = json.loads(manifest_file.read_bytes())
     total = manifest['totalByteCount']
@@ -244,27 +335,31 @@ def experiment(args, result, checkpoint=lambda: None):
         p = subprocess.run([manager, 'agent', *arguments], env=env, capture_output=True, check=True, timeout=20)
         return json.loads(p.stdout)
     result['stage'] = 'installation'
-    receipt = agent('start', 'install', '--product', 'mainland', '--destination-parent', str(destination))
+    receipt = agent('start', 'install', '--product', args.product, '--destination-parent', str(destination))
     task_id = str(uuid.UUID(receipt['taskId']))
     result['taskId'] = task_id
     supervise(agent, task_id, disk, tasks / task_id.upper() / 'events.jsonl', result)
     result['stage'] = 'published-state'
     # Status is a small JSON document. Query the same core after the task's verified finish.
     status = subprocess.run([manager, 'status', '--json'], env=env, capture_output=True, check=True, timeout=30)
-    verify_ready(json.loads(status.stdout), destination, manifest['versionCode'])
+    game = verify_ready(json.loads(status.stdout), destination, manifest['versionCode'], args.product)
     result['stage'] = 'complete'
     result['success'] = True
     result['fullBaseManifestVerification'] = 'performed_by_successful_install_core'
+    if args.observe_launch:
+        observe_launch(manager, env, game, args.product, work, Path(args.report_root), result)
     disk.sample()
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--candidate', required=True)
+    parser.add_argument('--product', choices=['mainland', 'global'], default='mainland')
+    parser.add_argument('--observe-launch', action='store_true')
     parser.add_argument('--work-root', required=True)
     parser.add_argument('--report-root', required=True)
     args = parser.parse_args()
-    result = {'schemaVersion': 1, 'success': False, 'product': 'mainland',
+    result = {'schemaVersion': 1, 'success': False, 'product': args.product,
               'gameLaunched': False, 'accountLoginAttempted': False, 'payloadUploaded': False}
     start = time.monotonic()
     target = None

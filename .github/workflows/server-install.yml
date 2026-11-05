@@ -1,0 +1,53 @@
+name: RC5 bounded server install and launch observation
+on:
+  push:
+    branches: [ci/rc5-server-observation-20261105]
+permissions:
+  contents: read
+concurrency:
+  group: rc5-server-observation
+  cancel-in-progress: false
+jobs:
+  server-observation:
+    runs-on: xcode-27
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        product: [mainland, global]
+    env:
+      RC5_CANDIDATE_COMMIT: 97605502a685ae765c213fee4d1620ea4348d79e
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Graphics and supervisor checks
+        run: |
+          swift releasePackaging/ciGraphicsProbe.swift > "$RUNNER_TEMP/graphics-preflight.json"
+          python3 -m unittest discover -s releasePackaging/tests -p 'test_ci_full_install.py'
+          python3 -c 'import json,os; assert json.load(open(os.environ["RUNNER_TEMP"]+"/graphics-preflight.json"))["usableForGameExperiment"]'
+      - name: Fresh install and bounded observation without account or input
+        run: >-
+          python3 releasePackaging/ciFullInstall.py
+          --candidate "$RC5_CANDIDATE_COMMIT"
+          --product '${{ matrix.product }}'
+          --observe-launch
+          --work-root "$RUNNER_TEMP/idv-first-install"
+          --report-root "$RUNNER_TEMP/idv-first-install-report"
+      - name: Upload bounded result and four ephemeral game screenshots only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-observation-${{ matrix.product }}
+          path: |
+            ${{ runner.temp }}/idv-first-install-report/result.json
+            ${{ runner.temp }}/idv-first-install-report/game-*.png
+            ${{ runner.temp }}/graphics-preflight.json
+          retention-days: 3

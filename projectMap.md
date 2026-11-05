@@ -143,3 +143,5 @@ flowchart LR
 - `releasePackaging/tests/test_ci_full_install.py`：无网络、无真实游戏的预算边界、真实发布条件、取消语义与诊断过滤测试。
 
 - `releasePackaging/ciGraphicsProbe.swift`：托管Mac的Metal/display只读能力探针；由隔离游戏启动实验工作流调用，无游戏下载或输入操作。
+
+- `.github/workflows/server-install.yml`：隔离分支两服串行首装与有界无输入启动观察；驱动参数及验收边界见CI专题。

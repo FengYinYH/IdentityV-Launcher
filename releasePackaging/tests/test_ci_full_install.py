@@ -46,6 +46,20 @@ class CIInstallTests(unittest.TestCase):
             with self.assertRaises(ci.ExperimentError):
                 ci.verify_ready(doc, root / 'elsewhere', 'v1')
 
+    def test_global_publication_checks_its_own_identity_and_marker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            game = root / 'global/game'
+            game.mkdir(parents=True)
+            (game / 'dwrg.exe').write_bytes(b'fixture')
+            doc = {'products': [{'productId': 'global', 'state': 'ready', 'gamePath': str(game), 'installedVersion': 'v1'}]}
+            self.assertEqual(ci.verify_ready(doc, root, 'v1', 'global'), game.resolve())
+            with self.assertRaises(ci.ExperimentError):
+                ci.verify_ready(doc, root, 'v1', 'mainland')
+            (game.parent / '.identityv-global-install.json').write_text('{}')
+            with self.assertRaises(ci.ExperimentError):
+                ci.verify_ready(doc, root, 'v1', 'global')
+
     def test_supervisor_cancels_own_task_and_does_not_claim_success(self):
         calls = []
         def agent(command, task):

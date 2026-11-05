@@ -86,3 +86,5 @@ IDV Login 的固定清单用于下载校验；安装状态、可选版本更新�
 `.github/workflows/full-install.yml`与`releasePackaging/ciFullInstall.py`只面向一次性GitHub macOS ARM runner、单次国服真实首装；不在维护者Mac执行。发布测试分支前必须将工作流候选SHA占位符替换为已冻结的最终整合提交，驱动会核对候选祖先、仅CI/文档差异与构建来源，拒绝用旧候选冒充最终。预算为官方清单D向上取整GiB后加17GiB，低于6GiB取消本任务；20分钟构建、120分钟安装、150分钟job上限。只上传结构化脱敏result.json，不上传载荷/原始日志。详情见CI专题；本实验不修改main/Release/用户Mac。
 
 托管游戏启动实验先运行 `.github/workflows/game-launch.yml` 的 `ciGraphicsProbe.swift`，能力结果见[CI专题](ciWorkflow.md)。先确认Metal和桌面能力再重复首装；能力探针通过不等同游戏或公告页通过。
+
+`ciFullInstall.py --product mainland|global --observe-launch` 可用于已明确授权的托管两服候选实验；`server-install.yml` 串行处理两服并回收临时环境。报告中的首装成功、核心窗口验证和公告页验收分开读取，截图不得提交仓库。

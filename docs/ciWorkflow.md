@@ -93,3 +93,12 @@ The Xcode 26.3 retry (run 41990357203) also stopped before downloads: the frozen
 所有者希望在真实首装后继续验证启动、热更新和公告页。此前首装runner已销毁，不能接着读取同一游戏目录；重新首装意味着再下载约17GB。先用独立 `ci/rc5-game-launch-20261105` 分支的 `game-launch.yml` 执行5分钟上限的图形探针，检查Metal设备及真实命令提交、桌面display和既有屏幕录制授权，不请求权限、不模拟输入、不下载游戏。`ciGraphicsProbe.swift` 只输出能力JSON，不能据此宣称游戏启动或公告页通过。
 
 若Metal和display可用，再准备全新首装后的有界启动/热更新观察；只调用现有Agent启动接口，不登录、不改游戏二进制、不绕过运行限制。保留6GiB磁盘底线、有限观察时间和仅结果/必要游戏画面证据。进程存在只能算进程里程碑，热更新需要明确日志或文件证据，公告页必须有可靠视觉验收。若图形能力缺失，先停止昂贵重下载并报告阻碍；不把此环境限制归为启动器失败。
+
+
+图形实证：run [41993684822](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/41993684822)，checkout1e4cc48，45秒成功。Metal为Apple Paravirtual device，真实命令completed；1个1024x768 display，截屏权限已具备，没有申请新授权或发送输入。此前成功首装的runner已结束，不能接着使用它的目录。
+
+按所有者追加要求，准备 `server-install.yml` 在新隔离分支上串行运行mainland、global两项，max-parallel=1，前一个runner结束自动回收后再建下一个，无本机删除动作。每项仍冻结9760550业务源码、全新HOME/目录、原空间门槛与6GiB底线及安装两小时时限；安装成功后仅调用既有Agent launch观察最多480秒，每15秒记录进程数、任务状态和空间。最多四张临时runner游戏画面，保留三天；最终通过既有Agent stop结束本产品，随后runner回收。启动任务失败且无游戏进程则30秒后提前停止。未发送点击/按键、不登录、不操作付费/对局、未修改游戏或绕过运行限制。图形探针通过不能保证D3DMetal、游戏或热更新能运行。
+
+报告独立记录安装成功和launchObservation；CI任务完成不等于公告页通过。coreVerifiedGameWindow只采用原核心进程/窗口验证结果；hotUpdateVerified/announcementVerified保持false直到后续日志/画面得到明确人工或Agent验收。安装前后文件计数/总字节变化仅是辅助事实，不能单独证明热更新成功。仅上传结果JSON、图形能力JSON及至多四张游戏截图；不上传游戏/prefix/runtime。失败日志尾部经过长度限制及敏感字段过滤。
+
+[GitHub附加产品条款](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features)将托管Actions限制于关联软件项目的生产、测试、部署或发布，并禁止负担与用户收益不成比例的活动。对启动器安装/启动链路执行有限次数候选验收与该项目测试直接相关；这是基于条款的适用判断，并非GitHub对具体用量预先批准或保证不受限制。这里不配置周期循环、CDN、游戏下载分发或游戏托管；两服各一次、串行、限时、仅短期元数据/画面。如遇上游或GitHub限流/拒绝则停下报告，不换账号或规避限制。标准公开仓库runner免费不代表任意使用无限制。
