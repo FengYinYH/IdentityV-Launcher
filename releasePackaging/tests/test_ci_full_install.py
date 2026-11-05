@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import re
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,6 +11,24 @@ spec.loader.exec_module(ci)
 
 
 class CIInstallTests(unittest.TestCase):
+
+    def test_game_process_pattern_accepts_windows_paths(self):
+        # Python equivalent of pgrep's POSIX whitespace class.
+        pattern = ci.GAME_PROCESS_PATTERN.replace('[[:space:]]', r'\s')
+        for command in ['/tmp/game/dwrg.exe', r'C:\Games\IdentityV\dwrg.exe --example']:
+            self.assertIsNotNone(re.search(pattern, command))
+        self.assertIsNone(re.search(pattern, '/tmp/not-dwrg.exe'))
+
+    def test_stop_uses_async_receipt_and_terminal_record_not_run_jsonl(self):
+        calls = []
+        task = '730cbf24-c60b-43f7-af85-e473865e90f8'
+        def agent(*arguments):
+            calls.append(arguments)
+            if arguments[0] == 'start':
+                return {'taskId': task, 'state': 'queued'}
+            return {'taskId': task, 'state': 'succeeded', 'exitCode': 0}
+        self.assertEqual(ci.stop_owned_product(agent, 'global')['exitCode'], 0)
+        self.assertEqual(calls, [('start', 'stop', '--product', 'global'), ('task', task)])
 
     def test_diagnostic_never_publishes_credentials_or_url_query(self):
         with tempfile.TemporaryDirectory() as temp:

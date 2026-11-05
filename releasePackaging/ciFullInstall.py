@@ -20,6 +20,7 @@ import uuid
 
 GIB = 1024 ** 3
 TERMINAL = {'succeeded', 'failed', 'cancelled'}
+GAME_PROCESS_PATTERN = r'(^|[\\/])dwrg[.]exe([[:space:]]|$)'
 ALLOWED_DIFF = {'.github/workflows/full-install.yml', 'releasePackaging/ciFullInstall.py',
                 'releasePackaging/tests/test_ci_full_install.py', 'docs/ciWorkflow.md',
                 'docs/developerGuide.md', 'projectMap.md', 'STATUS.md',
@@ -192,6 +193,19 @@ def game_tree_summary(game):
     return {'files': count, 'bytes': size}
 
 
+def stop_owned_product(agent, product, timeout=60):
+    # `agent run` is JSONL events, whereas start/task each return one document.
+    receipt = agent('start', 'stop', '--product', product)
+    task = str(uuid.UUID(receipt['taskId']))
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        record = agent('task', task)
+        if record.get('state') in TERMINAL:
+            return record
+        time.sleep(1)
+    raise ExperimentError('product_stop_still_pending')
+
+
 def observe_launch(manager, env, game, product, work, reports, result):
     # This is an observation, never a declaration that the announcement is visible.
     report = {'announcementVerified': False, 'hotUpdateVerified': False,
@@ -225,7 +239,7 @@ def observe_launch(manager, env, game, product, work, reports, result):
             report['taskExitCode'] = state.get('exitCode')
             if state.get('error'):
                 report['errorSummary'] = safe_text(str(state['error']))[:2048]
-            pids = subprocess.run(['/usr/bin/pgrep', '-f', r'(^|[/])dwrg[.]exe([[:space:]]|$)'],
+            pids = subprocess.run(['/usr/bin/pgrep', '-f', GAME_PROCESS_PATTERN],
                                   capture_output=True, text=True).stdout.split()
             sample = {'seconds': elapsed, 'gameProcessCount': len(pids), 'freeBytes': free,
                       'taskState': state.get('state')}
@@ -256,7 +270,7 @@ def observe_launch(manager, env, game, product, work, reports, result):
             except Exception:
                 report['launchCancellationPending'] = True
         try:
-            stopped = agent('run', 'stop', '--product', product, timeout=60)
+            stopped = stop_owned_product(agent, product)
             report['stopTaskState'] = stopped.get('state')
         except Exception as error:
             report['stopError'] = safe_text(str(error))[:1024]
@@ -382,9 +396,12 @@ def main():
     except Exception as error:
         work = Path(args.work_root)
         stage = result.get('stage')
-        log = work / ('build.log' if stage == 'build' else 'prerequisites.log')
-        if stage in ('build', 'prerequisites') and log.is_file():
+        logs = {'build': 'build.log', 'prerequisites': 'prerequisites.log', 'manifest': 'manifest-error.log'}
+        log = work / logs.get(stage, 'not-collected')
+        if stage in logs and log.is_file():
             result['diagnosticTail'] = safe_diagnostic(log)
+        if isinstance(error, subprocess.CalledProcessError):
+            result['subprocessExitCode'] = error.returncode
         # Exception messages from subprocesses may contain raw stdout/URLs: retain only class/code.
         result['failure'] = str(error) if isinstance(error, ExperimentError) else type(error).__name__
     checkpoint()
