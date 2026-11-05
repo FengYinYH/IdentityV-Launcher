@@ -148,3 +148,5 @@ flowchart LR
 
 - `releasePackaging/ciScreenClassifier.swift`、`.github/workflows/global-announcement.yml`：有界OCR登录/验证码停止与一次重启前后公告候选取证，最终仍需视觉验收。
 - `.github/workflows/graphics-matrix.yml`：macOS15/26轻量托管图形、OCR、Rosetta和磁盘探针，无游戏下载。
+
+- `releasePackaging/installCIOCR.command`：只在Actions临时Mac安装本地OCR兼容引擎及校验固定语言数据，非CI先拒绝，记录磁盘元数据，不修改用户Mac或部署服务。

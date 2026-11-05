@@ -17,9 +17,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Install temporary local OCR compatibility engine
+        run: ./releasePackaging/installCIOCR.command
       - name: Read OS disk graphics and CPU OCR capability without game downloads
         run: |
           mkdir "$RUNNER_TEMP/readiness"
+          cp -R "$RUNNER_TEMP/ci-ocr-metrics" "$RUNNER_TEMP/readiness/ocr-install-metrics"
           sw_vers > "$RUNNER_TEMP/readiness/os.txt"
           xcodebuild -version >> "$RUNNER_TEMP/readiness/os.txt"
           df -k "$RUNNER_TEMP" > "$RUNNER_TEMP/readiness/disk-before.txt"

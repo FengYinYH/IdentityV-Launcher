@@ -27,7 +27,7 @@ ALLOWED_DIFF = {'.github/workflows/full-install.yml', 'releasePackaging/ciFullIn
                 '.github/workflows/game-launch.yml', 'releasePackaging/ciGraphicsProbe.swift',
                 '.github/workflows/server-install.yml', 'gameDownloader/supervisor_test.go',
                 '.github/workflows/global-announcement.yml', 'releasePackaging/ciScreenClassifier.swift',
-                '.github/workflows/graphics-matrix.yml'}
+                '.github/workflows/graphics-matrix.yml', 'releasePackaging/installCIOCR.command'}
 
 
 class ExperimentError(Exception):
@@ -106,6 +106,28 @@ def verify_ready(document, destination, version, product='mainland'):
     if any((game.parent / name).exists() for name in ('.staging', '.identityv-direct-install.json', '.identityv-global-install.json')):
         raise ExperimentError('installation_transaction_not_finished')
     return game
+
+
+def storage_directory_samples(work, source, env):
+    paths = {'appBundle': work / 'build/第五人格启动器.app',
+             'buildRootIncludingApp': work / 'build',
+             'checkoutIncludingGitAndIgnoredOutputs': source}
+    try:
+        cache = subprocess.check_output(['go', 'env', 'GOCACHE', 'GOMODCACHE'], env=env, text=True, timeout=10).splitlines()
+        paths.update({key: Path(value) for key, value in zip(('goBuildCache', 'goModuleCache'), cache)})
+    except Exception:
+        pass
+    measured = {}
+    for name, path in paths.items():
+        if not path.exists():
+            measured[name] = {'available': False}
+            continue
+        try:
+            usage = subprocess.check_output(['/usr/bin/du', '-sk', str(path.resolve())], text=True, stderr=subprocess.DEVNULL, timeout=20)
+            measured[name] = {'available': True, 'sizeKiB': int(usage.split()[0])}
+        except Exception as error:
+            measured[name] = {'available': False, 'measurementError': type(error).__name__}
+    return measured
 
 
 def run_private(command, cwd, env, output, disk, timeout):
@@ -275,10 +297,11 @@ def observe_launch(manager, env, game, product, work, reports, result, limit=480
                     report['stopReason'] = 'screen_observation_unavailable'
                     break
                 if classifier and capture.returncode == 0:
-                    checked = subprocess.run([classifier, str(screen)], capture_output=True, check=True, timeout=20)
+                    checked = subprocess.run([classifier, str(screen)], env=dict(env, IDV_CI_GAME_PID=pids[0] if pids else '', IDV_CI_OCR_LANGUAGES='eng' if product == 'global' else 'chi_sim+eng'), capture_output=True, check=True, timeout=20)
                     verdict = json.loads(checked.stdout)
                     sample['screen'] = verdict
-                    candidates = candidates + 1 if verdict.get('announcementCandidate') else 0
+                    ready = state.get('state') == 'succeeded' and state.get('exitCode') == 0
+                    candidates = candidates + 1 if verdict.get('announcementCandidate') and ready else 0
                     action = screen_action(verdict, candidates, restarted, state.get('state') == 'succeeded' and state.get('exitCode') == 0)
                     if action == 'stop_for_user':
                         report['stopReason'] = 'user_authentication_or_agreement_required'
@@ -367,9 +390,11 @@ def experiment(args, result, checkpoint=lambda: None):
     if intel.returncode != 0:
         raise ExperimentError('rosetta_required_before_build')
     result['nativeUIChecks'] = 'deferred_using_supported_test_only_flag'
+    result['storageDirectoriesBeforeBuild'] = storage_directory_samples(work, source, env)
     result['stage'] = 'build'
     result['buildSeconds'] = round(run_private(['./buildPlayerLauncher.command'], source, env,
                                              work / 'build.log', disk, 1200), 2)
+    result['storageDirectoriesAfterBuild'] = storage_directory_samples(work, source, env)
     resources = work / 'build/第五人格启动器.app/Contents/Resources'
     provenance = json.loads((resources / 'build-provenance.json').read_text())
     if provenance.get('sourceCommit') != result['checkoutCommit'] or provenance.get('sourceClean') is not True:

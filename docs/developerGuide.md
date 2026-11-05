@@ -90,3 +90,5 @@ IDV Login 的固定清单用于下载校验；安装状态、可选版本更新�
 `ciFullInstall.py --product mainland|global --observe-launch` 可用于已明确授权的托管两服候选实验；`server-install.yml` 串行处理两服并回收临时环境。报告中的首装成功、核心窗口验证和公告页验收分开读取，截图不得提交仓库。
 
 长公告实验使用 `ciFullInstall.py --observation-seconds 2400 --install-timeout-seconds 2700 --screen-classifier ...`，总job120分钟；OCR先自检，登录/CAPTCHA/协议停止，一次restart后公告截图仍需人工或Agent视觉确认。四项矩阵和跨SDK构建方案、临时盘与持久配额分工见[CI专题](ciWorkflow.md)，未直接执行尚未验证的四项游戏矩阵。
+
+27guest的Vision前置识别失败时使用CI临时Tesseract兼容引擎，入口installCIOCR.command只允许Actions环境。先跑OCR自检再大下载；截图不送外部OCR，原始证据不改写。App/build/Go目录测量及依赖hash见CI专题，不将含有重复子目录的du结果直接相加。

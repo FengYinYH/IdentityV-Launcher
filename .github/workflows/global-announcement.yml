@@ -28,6 +28,8 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
+      - name: Install temporary local OCR compatibility engine
+        run: ./releasePackaging/installCIOCR.command
       - name: Graphics and supervisor checks
         run: |
           swiftc -O releasePackaging/ciScreenClassifier.swift -o "$RUNNER_TEMP/idv-screen-classifier"
@@ -65,4 +67,5 @@ jobs:
             ${{ runner.temp }}/idv-first-install-report/result.json
             ${{ runner.temp }}/idv-first-install-report/game-*.png
             ${{ runner.temp }}/graphics-preflight.json
+            ${{ runner.temp }}/ci-ocr-metrics/
           retention-days: 3

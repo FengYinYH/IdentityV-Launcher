@@ -1,6 +1,8 @@
 import importlib.util
 import json
 import re
+import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,6 +13,13 @@ spec.loader.exec_module(ci)
 
 
 class CIInstallTests(unittest.TestCase):
+
+    def test_ocr_installer_refuses_non_actions_context_before_installation(self):
+        env = {k: v for k, v in os.environ.items() if k not in ('GITHUB_ACTIONS', 'RUNNER_OS', 'GITHUB_ENV')}
+        script = Path(__file__).resolve().parents[1] / 'installCIOCR.command'
+        result = subprocess.run([str(script)], env=env, capture_output=True)
+        self.assertEqual(result.returncode, 64)
+
 
     def test_authentication_stops_before_restart_and_candidates_need_verified_window(self):
         self.assertEqual(ci.screen_action({'authenticationRequired': True}, 2, False, True), 'stop_for_user')
