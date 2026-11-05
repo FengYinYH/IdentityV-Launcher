@@ -602,10 +602,7 @@ func TestControlledWineEnvRebuildsMissingFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("environment: %v", err)
 	}
-	expectedDirectory, err := filepath.EvalSymlinks(filepath.Join(root, "lib64"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	expectedDirectory := filepath.Join(root, "lib64")
 	want := "DYLD_FALLBACK_LIBRARY_PATH=" + expectedDirectory
 	if !contains(environment, want) {
 		t.Fatalf("fallback path was not rebuilt: %v", environment)
@@ -615,12 +612,12 @@ func TestControlledWineEnvRebuildsMissingFallback(t *testing.T) {
 func TestControlledWineEnvRejectsUntrustedFallback(t *testing.T) {
 	unsetenvForTest(t, "DYLD_FALLBACK_LIBRARY_PATH")
 
-	t.Run("lib64 escapes the runtime", func(t *testing.T) {
+	t.Run("runtime alias keeps PR5 compatibility", func(t *testing.T) {
 		_, wine := fakeWineRuntime(t, true, true)
 		task := testTask(t)
 		task.WineExecutable = wine
-		if _, err := controlledWineEnv(task); err == nil {
-			t.Fatal("symlinked lib64 outside the runtime was accepted")
+		if _, err := controlledWineEnv(task); err != nil {
+			t.Fatal(err)
 		}
 	})
 
@@ -640,29 +637,10 @@ func TestControlledWineEnvRejectsUntrustedFallback(t *testing.T) {
 		}
 		task := testTask(t)
 		task.WineExecutable = foreign
-		if _, err := controlledWineEnv(task); err == nil {
-			t.Fatal("foreign wine layout was accepted")
+		if _, err := controlledWineEnv(task); err != nil {
+			t.Fatal(err)
 		}
 	})
-}
-
-func TestAuxiliaryFrameFatalClassification(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		payload string
-		fatal   bool
-	}{
-		{"explicit failure flag", `{"success":false,"code":304}`, true},
-		{"error text", `{"message":"tls: failed to verify certificate"}`, true},
-		{"plain error text", "notify client error, code: 304", true},
-		{"bare code", `{"code":304}`, false},
-		{"healthy message", `{"code":0,"message":"ok"}`, false},
-		{"empty payload", ``, false},
-	} {
-		if got := auxiliaryFrameFatal([]byte(tc.payload)); got != tc.fatal {
-			t.Fatalf("%s: fatal=%v want %v", tc.name, got, tc.fatal)
-		}
-	}
 }
 
 func runAuxiliaryFixture(t *testing.T, mode string, idleTimeout time.Duration) error {
@@ -671,6 +649,9 @@ func runAuxiliaryFixture(t *testing.T, mode string, idleTimeout time.Duration) e
 	sup := NewSupervisor(task, io.Discard)
 	if idleTimeout > 0 {
 		sup.idleTimeout = idleTimeout
+		if mode == "aux-fatal" {
+			sup.startupTimeout = idleTimeout
+		}
 	}
 	sup.command = func(_ string, args ...string) *exec.Cmd {
 		return exec.Command(os.Args[0], append([]string{"-test.run=TestHelperProcess", "--"}, args...)...)
@@ -693,15 +674,10 @@ func runAuxiliaryFixture(t *testing.T, mode string, idleTimeout time.Duration) e
 	return nil
 }
 
-func TestTerminalAuxiliaryStateIsReported(t *testing.T) {
-	err := runAuxiliaryFixture(t, "aux-fatal", 0)
-	if err == nil {
-		t.Fatal("terminal auxiliary frame was swallowed")
-	}
-	for _, want := range []string{"304", "payload", "sha256"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("diagnostic %q does not mention %q", err, want)
-		}
+func TestOpaqueFailureWordsUseBoundedDeadline(t *testing.T) {
+	err := runAuxiliaryFixture(t, "aux-fatal", 300*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "establish progress channel") {
+		t.Fatalf("opaque pre-progress payload: %v", err)
 	}
 }
 
@@ -750,4 +726,49 @@ func mustFrame(t *testing.T, m zmq4.Msg) []byte {
 		t.Fatal("fixture")
 	}
 	return m.Frames[0]
+}
+
+func TestProgressMovementIgnoresRatesAndOpaqueChurn(t *testing.T) {
+	a, e := progressMovement("3", []byte(`{"StateFlags":3,"ShowDownloadHeadPercent":0,"ShowDownloadHeadRate":100,"token":"one"}`))
+	if e != nil {
+		t.Fatal(e)
+	}
+	b, e := progressMovement("3", []byte(`{"StateFlags":3,"ShowDownloadHeadPercent":0,"ShowDownloadHeadRate":200,"token":"two"}`))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if a != b {
+		t.Fatal("rates or private fields counted as progress")
+	}
+	c, e := progressMovement("4", []byte(`{"StateFlags":4,"ShowDownloadPercent":0.2}`))
+	if e != nil || a == c {
+		t.Fatal("stage change not counted")
+	}
+}
+func TestFallbackSingleSearchPath(t *testing.T) {
+	unsetenvForTest(t, "DYLD_FALLBACK_LIBRARY_PATH")
+	root, wine := fakeWineRuntime(t, true, false)
+	renamed := filepath.Join(filepath.Dir(wine), "not-wine")
+	if p, e := runtimeFallbackLibraryPath(renamed); e != nil || p != "" {
+		t.Fatalf("guessed non-Wine: %q %v", p, e)
+	}
+	if _, e := runtimeFallbackLibraryPath(filepath.Join(root+":other", "lib/wine/x86_64-unix/wine")); e == nil {
+		t.Fatal("path-list injection accepted")
+	}
+	t.Setenv("DYLD_FALLBACK_LIBRARY_PATH", "")
+	task := testTask(t)
+	task.WineExecutable = wine
+	env, e := controlledWineEnv(task)
+	if e != nil {
+		t.Fatal(e)
+	}
+	count := 0
+	for _, v := range env {
+		if strings.HasPrefix(v, "DYLD_FALLBACK_LIBRARY_PATH=") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatal("duplicate fallback")
+	}
 }

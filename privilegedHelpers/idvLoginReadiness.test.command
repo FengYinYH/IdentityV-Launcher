@@ -187,3 +187,18 @@ printf 'p999\nn127.0.0.1:443\n' > "$FIXTURE/listeners.txt"
 frame 1 1
 assert_startup misconfigured
 print 'IDV Login readiness fixture tests passed.'
+
+# First-import recovery recognizes only this attempt's bounded suffix. It
+# never invokes security, launchctl or the production start path in this test.
+function_source="$(/usr/bin/awk '/^ca_import_needs_foreground_retry\(\) \{/ {capture=1} capture {print} capture && /^}/ {exit}' "$HELPER")"
+[[ -n "$function_source" ]]
+eval "$function_source"
+print -r -- 'SecTrustSettingsSetTrustSettings: no user interaction was possible; 导入CA证书失败' > "$FIXTURE/recovery.log"
+ca_import_needs_foreground_retry "$FIXTURE/recovery.log" 0
+size="$(/usr/bin/stat -f '%z' "$FIXTURE/recovery.log")"
+if ca_import_needs_foreground_retry "$FIXTURE/recovery.log" "$size"; then exit 1; fi
+print -r -- 'EOF when reading a line' > "$FIXTURE/recovery.log"
+if ca_import_needs_foreground_retry "$FIXTURE/recovery.log" 0; then exit 1; fi
+/bin/ln -s "$FIXTURE/recovery.log" "$FIXTURE/recovery-link"
+if ca_import_needs_foreground_retry "$FIXTURE/recovery-link" 0; then exit 1; fi
+print 'First CA import recovery evidence tests passed.'

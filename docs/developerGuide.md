@@ -49,3 +49,7 @@ RC1 升级时，ProductManager 的状态/操作入口在空闲状态执行[默�
 日常开发用 `devIterate.command`；独立构建用 `buildPlayerLauncher.command`、`buildMaintenanceToolbox.command` 和由玩家构建调用的 `buildGameRunner.command`。封包器 `releasePackaging/buildAlpha1Preview.command` **仍是现役脚本**，其中 `Alpha1` 只是保留的历史文件名，实际版本取 App 元数据，不应用文件名推断版本。旧独立 runner 安装器和退役浮窗入口已退出仓库根目录；缘由及恢复旧实现的方法见[历史命令](legacyCommands.md)。其余根脚本的读/写、安装、提权和服务影响以[地图的命令表](../projectMap.md#根目录文件构建与开发入口)为准，不要把 `*.command` 当作说明文档双击。
 
 第一方 bundle ID、Developer ID 签名、TCC、Keychain service/account 与用户运行数据目录分别是兼容契约。改源码目录名不自动迁移它们；需要改变身份时按[身份方案](firstPartyIdentity.md)核旧数据与恢复。已有本地候选不等于可公开发布：公开前还要审查拟推 Git refs、隐私、许可证、最终包和真实安装/游戏结果。
+
+### 自定义安装与已有目录检测（RC5 build 10 候选）
+
+安装入口先选默认位置或专用空文件夹，管理器仍拒绝覆盖非受管非空目录；默认位置不存在时由原有迁移之后的目录准备负责创建。`IdentityVProductManager inspect --product mainland|global --path <客户端根目录>` 从该服官方基础清单执行只读 XXH64 扫描，临时 manifest/repair-list 在系统临时目录，绝不下载修复。当前仅完整匹配基础清单的已有目录可导入，游戏内热更新可能导致不一致，不能据此声称损坏。导入创建独立 prefix 并登记原路径；`externalGameRoot` 保留用户所有权，卸载不删除外部目录，外部目录也不自动进入修复下载。导入按钮在未安装/需修复状态提供。最终构建、全量下载和日用入口验收另记状态。

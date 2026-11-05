@@ -216,3 +216,10 @@
 "游戏运行器已收到请求，但启动准备超时，仍未出现可验证的游戏进程；没有再次启动游戏。" = "The runner received the request, but startup preparation timed out without a verified game process. The game has not been launched again.";
 "游戏进程已出现，但尚未进入可验证的游戏窗口；不会自动再次启动。请打开日志查看启动原因。" = "The game process started, but no verified game window appeared. It will not be launched again automatically. Open the logs to inspect the startup failure.";
 "游戏运行环境绑定已变化，无法确认当前窗口。" = "The runtime binding changed; the current game window cannot be verified.";
+
+"选择安装位置" = "Choose installation location";
+"默认位置" = "Default location";
+"自定义位置" = "Custom location";
+"选择专用空文件夹作为安装位置" = "Choose an empty folder dedicated to this installation";
+"客户端检测完成" = "Client inspection complete";
+"正在只读检测所选客户端与官方基础清单，原文件不会修改…" = "Checking the client against the official base manifest without changing files…";

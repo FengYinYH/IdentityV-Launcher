@@ -470,6 +470,9 @@ private func isWithdrawnAuthorization(_ detail: String) -> Bool {
         || (localized.map { !$0.isEmpty && detail.contains($0) } ?? false)
         || detail.localizedCaseInsensitiveContains("authorization was canceled")
         || detail.localizedCaseInsensitiveContains("authorization was cancelled")
+        // A system-domain job cannot present this authorization. Retain an
+        // explicit resumable state rather than advising component reinstall.
+        || detail.localizedCaseInsensitiveContains("no user interaction was possible")
 }
 
 private func certificateInfo(fromPEM pem: Data) throws -> CertificateInfo {
@@ -964,6 +967,10 @@ private func runSelfTest() throws {
           try removalPlan(record: record, currentUserPEM: ownedCA, systemCertificates: [ownedCA, rotatedCA]) == .deleteExactSHA1(ownedCA.sha1),
           try removalPlan(record: rotatedRecord, currentUserPEM: rotatedCA, systemCertificates: [ownedCA, rotatedCA]) == .deleteExactSHA1(rotatedCA.sha1) else {
         throw StateError.message("多 CA 台账追加/精确撤销反例失败。")
+    }
+    guard isWithdrawnAuthorization("SecTrustSettingsSetTrustSettings: The authorization was denied since no user interaction was possible."),
+          !isWithdrawnAuthorization("unrelated certificate parser error") else {
+        throw StateError.message("首次授权恢复分类失败。")
     }
     print("IDV Login 原生 config/Hosts 状态工具自检通过。")
 }

@@ -747,7 +747,24 @@ final class ToolboxViewModel: ObservableObject {
         clearLaunchFailure()
         clearInstallCompletionPresentation()
         if action == .install {
-            let directory = Self.defaultInstallDirectory(for: productID)
+            var directory = Self.defaultInstallDirectory(for: productID)
+            let choice = NSAlert()
+            choice.messageText = LauncherLanguage.current.localized("选择安装位置")
+            choice.informativeText = "默认位置：\(directory.path)\n也可选择一个专用空文件夹；游戏文件会放在其中的 game 文件夹。已有客户端请使用导入检测。"
+            choice.addButton(withTitle: "默认位置")
+            choice.addButton(withTitle: "自定义位置")
+            choice.addButton(withTitle: "取消")
+            switch choice.runModal() {
+            case .alertFirstButtonReturn: break
+            case .alertSecondButtonReturn:
+                let panel = NSOpenPanel()
+                panel.message = LauncherLanguage.current.localized("选择专用空文件夹作为安装位置")
+                panel.canChooseFiles = false; panel.canChooseDirectories = true
+                panel.canCreateDirectories = true; panel.allowsMultipleSelection = false
+                guard panel.runModal() == .OK, let selected = panel.url else { return }
+                directory = selected
+            default: return
+            }
             // The manager migrates RC1 before creating the new default root;
             // creating it here would manufacture a migration target conflict.
             startInstallerDownload(productID: productID, manager: manager, destinationParent: directory)
@@ -764,7 +781,24 @@ final class ToolboxViewModel: ObservableObject {
                 showOperation("未选择要导入的客户端目录。")
                 return
             }
-            runProductAction(action, productID: productID, manager: manager, extraArguments: ["--path", directory.path])
+            activeProductAction = .importExisting
+            activeProductID = productID
+            showOperation("正在只读检测所选客户端与官方基础清单，原文件不会修改…")
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let result = Self.runProductManager(manager, arguments: ["inspect", "--product", productID.rawValue, "--path", directory.path])
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.activeProductAction = nil; self.activeProductID = nil
+                    guard result.status == 0 else { self.showOperation(result.output, isError: true); return }
+                    let confirmation = NSAlert()
+                    confirmation.messageText = LauncherLanguage.current.localized("客户端检测完成")
+                    confirmation.informativeText = result.output + "\n导入只登记目录并建立兼容环境，保留原游戏文件。"
+                    confirmation.addButton(withTitle: "导入")
+                    confirmation.addButton(withTitle: "取消")
+                    guard confirmation.runModal() == .alertFirstButtonReturn else { return }
+                    self.runProductAction(action, productID: productID, manager: manager, extraArguments: ["--path", directory.path])
+                }
+            }
             return
         }
         if (action == .launch || action == .restart), idvLoginEnabled {

@@ -488,11 +488,11 @@ enum GameProductActionPolicy {
     static func actions(for state: GameProductState, product: GameProductID = .mainland, canRemove: Bool = false) -> [GameProductAction] {
         var actions: [GameProductAction]
         switch state {
-        case .notInstalled: actions = [.install]
+        case .notInstalled: actions = [.install, .importExisting]
         case .available: actions = [.launch, .stop, .restart, .repair]
-        case .needsRepair: actions = [.repair]
+        case .needsRepair: actions = [.repair, .importExisting]
         case .updating: actions = []
-        case .error: actions = [.repair]
+        case .error: actions = [.repair, .importExisting]
         case .unknown: actions = []
         }
         if canRemove { actions.append(.remove) }
@@ -852,10 +852,10 @@ struct ProductManagerModelSelfTest {
             global?.state == .available,
             global?.canRemove == true,
             global?.isSelected == true,
-            GameProductActionPolicy.actions(for: .notInstalled) == [.install],
+            GameProductActionPolicy.actions(for: .notInstalled) == [.install, .importExisting],
             GameProductActionPolicy.actions(for: .available, canRemove: true) == [.launch, .stop, .restart, .repair, .remove],
-            GameProductActionPolicy.actions(for: .needsRepair, canRemove: true) == [.repair, .remove],
-            GameProductActionPolicy.actions(for: .notInstalled, canRemove: true) == [.install, .remove],
+            GameProductActionPolicy.actions(for: .needsRepair, canRemove: true) == [.repair, .importExisting, .remove],
+            GameProductActionPolicy.actions(for: .notInstalled, canRemove: true) == [.install, .importExisting, .remove],
             GameProductActionPolicy.actions(for: .updating).isEmpty,
             GameProductActionPolicy.actions(for: .unknown("future")).isEmpty,
             GameProductPresentation.makeAll(from: document, selectedProductID: .mainland)

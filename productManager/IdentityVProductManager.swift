@@ -174,6 +174,8 @@ private struct Installation: Codable {
     var prefix: ManagedLocation?
     var installer: InstallerRecord?
     var installedVersion: String?
+    // Imported game bytes remain user-owned, including during uninstall.
+    var externalGameRoot: Bool? = nil
 }
 
 /// A download is deliberately published only after the planner has verified
@@ -265,6 +267,7 @@ private struct LegacyInstallationEngine: Codable {
 private struct RepairPlanSummary: Decodable {
     let repairs: Int
     let valid: Bool
+    var planCompleted: Bool? = nil
 }
 private enum RepairExecutionDecision: Equatable {
     case noDownload
@@ -911,7 +914,7 @@ private func removalItems(for product: ProductID, state: ProductState) throws ->
         throw ManagerError.message("此版本没有受管游戏文件可清除。")
     }
     let candidates = try [
-        (ManagedRemovalKind.gameRoot, installation.gameRoot),
+        (ManagedRemovalKind.gameRoot, installation.externalGameRoot == true ? nil : installation.gameRoot),
         (ManagedRemovalKind.prefix, installation.prefix)
     ].compactMap { entry -> ManagedRemovalItem? in
         guard let location = entry.1 else { return nil }
@@ -2098,6 +2101,9 @@ private func publishMainlandRunnerBinding(gameRoot: ManagedLocation, prefix: Man
 }
 
 private func repairManagedProduct(_ item: CatalogProduct, product: ProductID, state: inout ProductState) throws -> String {
+    if state.installations[product]?.externalGameRoot == true {
+        throw ManagerError.message("外部导入目录保留原文件；请用导入检测重新检查，未自动下载或覆盖。")
+    }
     guard let installation = state.installations[product], let gameRootLocation = installation.gameRoot,
           let gameRoot = resolve(gameRootLocation), gameExecutable(in: gameRoot) != nil else {
         throw ManagerError.message("未找到可验证的\(item.displayName)游戏目录；请重新连接原磁盘或导入客户端。")
@@ -2257,18 +2263,25 @@ private func run(_ command: String, product: ProductID) throws {
         print("\(item.displayName)游戏本体已安装并校验完成。")
     case "import":
         guard let raw = argument(after: "--path") else { throw ManagerError.message("导入需要 --path <客户端目录>。") }
-        let root = URL(fileURLWithPath: raw, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL
-        guard (try? root.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
-            throw ManagerError.message("所选路径不是可读取的客户端目录。")
+        let checked = try inspectExistingGame(item, path: raw)
+        guard checked.summary.valid else { throw ManagerError.message(inspectionDescription(checked)) }
+        for (otherProduct, other) in state.installations where otherProduct != product {
+            if let location = other.gameRoot, let otherRoot = resolve(location), pathsOverlap(checked.root, otherRoot) {
+                throw ManagerError.message("所选目录与另一服务器的记录重叠，未导入。")
+            }
         }
-        guard gameExecutable(in: root, validateHeader: true) != nil else { throw ManagerError.message("所选目录未找到有效的 dwrg.exe。") }
-        let location = try makeLocation(root)
-        var installation = state.installations[product] ?? Installation()
-        installation.gameRoot = location
-        // A product must not borrow another product's prefix.  The wake-time installer creates it.
-        installation.prefix = nil
-        state.installations[product] = installation; try save(state)
-        print("已导入\(item.displayName)游戏文件；尚未创建独立兼容环境，请完成安装后修复。")
+        guard !gameIsRunningForDirectoryMigration() else { throw ManagerError.message("请先结束正在运行的游戏再导入；未修改游戏文件。") }
+        let runtime = try selectedRuntimeForDirectInstall()
+        let prefix = supportDirectory.appendingPathComponent("Prefixes/\(product.rawValue)-import-\(UUID().uuidString)", isDirectory: true)
+        var committed = false
+        defer { if !committed { try? fileManager.removeItem(at: prefix) } }
+        try prepareDirectInstallPrefix(prefix, runtime: runtime, installRoot: checked.root, gameRoot: checked.root, product: product, allowExistingPrefix: false)
+        if product == .mainland { try publishMainlandRunnerBinding(gameRoot: try makeLocation(checked.root), prefix: try makeLocation(prefix)) }
+        var installation = Installation(gameRoot: try makeLocation(checked.root), prefix: try makeLocation(prefix), installedVersion: checked.manifest.versionCode)
+        installation.externalGameRoot = true
+        state.installations[product] = installation
+        try save(state); committed = true
+        print("官方基础清单校验通过，已登记客户端并建立独立兼容环境；原游戏文件保留，卸载只移除启动器记录与兼容环境。")
     case "prepare-launch":
         try validateProductReadyForLaunch(item, product: product, state: state)
         let app = try embeddedGameRunnerApp()
@@ -2308,10 +2321,10 @@ private func run(_ command: String, product: ProductID) throws {
         guard let pid = waitForManagedGameStart(product: product) else {
             throw ManagerError.message("游戏运行器已收到请求，但启动准备超时，仍未出现可验证的游戏进程；没有再次启动游戏。")
         }
-        guard let binding = legacyBinding(), let runtimeRoot = resolve(binding.runtime) else {
-            throw ManagerError.message("游戏运行环境绑定已变化，无法确认当前窗口。")
-        }
-        let runtime = try verifiedCatalogRuntime(engineID: binding.selectedEngineId, runtime: runtimeRoot)
+        // Global-only installs have no mainland legacy installation.json.
+        // Resolve the same catalog-verified runtime used by direct installs;
+        // the activator still checks this exact executable and the child PID.
+        let runtime = try selectedRuntimeForDirectInstall()
         let activator = app.appendingPathComponent("Contents/Resources/IdentityVGameActivator")
         guard fileManager.isExecutableFile(atPath: activator.path) else {
             throw ManagerError.message("启动器缺少维护组件 IdentityVGameActivator，请重新安装启动器。")
@@ -2707,6 +2720,50 @@ private func buildDirectManifest(
     )
 }
 
+private struct ExistingGameInspection {
+    let root: URL
+    let manifest: DirectManifestDocument
+    let summary: RepairPlanSummary
+}
+
+private func officialContentManifest(for item: CatalogProduct) throws -> DirectManifestDocument {
+    if item.id == .global {
+        let text = try runTool(executableDirectory().appendingPathComponent("IdentityVGlobalAdapter"), arguments: ["resolve-manifest"])
+        guard let global = try? JSONDecoder().decode(GlobalManifestDocument.self, from: Data(text.utf8)) else { throw ManagerError.message("国际服官方清单格式无效。") }
+        return try sharedDownloadManifest(from: global)
+    }
+    return try resolveDirectManifest(for: item)
+}
+
+/// Scan only: planner output and repair list stay outside the selected tree.
+/// An official base-manifest mismatch is not proof of corruption: an in-game
+/// hot update can legitimately change those files. Never repair during import.
+private func inspectExistingGame(_ item: CatalogProduct, path: String) throws -> ExistingGameInspection {
+    let root = URL(fileURLWithPath: path, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL
+    guard (try? root.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+          fileManager.isReadableFile(atPath: root.path),
+          gameExecutable(in: root, validateHeader: true)?.deletingLastPathComponent().path == root.path else {
+        throw ManagerError.message("请选择直接包含有效 dwrg.exe 的可读取客户端目录。")
+    }
+    let manifest = try officialContentManifest(for: item)
+    let work = fileManager.temporaryDirectory.appendingPathComponent("IdentityV-inspect-\(UUID().uuidString)", isDirectory: true)
+    try fileManager.createDirectory(at: work, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    defer { try? fileManager.removeItem(at: work) }
+    let manifestURL = work.appendingPathComponent("manifest.json")
+    try JSONEncoder.pretty.encode(manifest).write(to: manifestURL)
+    let output = try runTool(executableDirectory().appendingPathComponent("IdentityVManifestPlanner"), arguments: ["plan", "--manifest", manifestURL.path, "--root", root.path, "--repair-list", work.appendingPathComponent("repairs.txt").path])
+    guard let line = output.split(whereSeparator: \.isNewline).last,
+          let summary = try? JSONDecoder().decode(RepairPlanSummary.self, from: Data(line.utf8)), summary.planCompleted == true else {
+        throw ManagerError.message("官方清单检测未完成，未导入。")
+    }
+    return ExistingGameInspection(root: root, manifest: manifest, summary: summary)
+}
+
+private func inspectionDescription(_ result: ExistingGameInspection) -> String {
+    let status = result.summary.valid ? "所有官方基础清单文件一致，可导入。" : "有 \(result.summary.repairs) 个文件缺失或与官方基础清单不一致；可能属于其他服务器或游戏内热更新，未导入也未修复。"
+    return "官方版本 \(result.manifest.versionCode)，检查 \(result.manifest.files.count) 个文件。\n\(status)\n检测仅覆盖该服务器当前官方基础清单，不包含额外热更新、账号和登录状态。"
+}
+
 private func resolveDirectManifest(for item: CatalogProduct) throws -> DirectManifestDocument {
     guard let descriptor = item.directDownload else {
         throw ManagerError.message("\(item.displayName)尚未提供可验证的完整游戏直下适配器。")
@@ -3088,6 +3145,23 @@ private func runSelfTest() throws {
     let testRoot = fileManager.temporaryDirectory.appendingPathComponent("identityv-product-manager-\(UUID().uuidString)", isDirectory: true)
     try fileManager.createDirectory(at: testRoot, withIntermediateDirectories: true)
     defer { try? fileManager.removeItem(at: testRoot) }
+
+    // Imported trees remain user-owned even when their launcher record is removed.
+    let externalRoot = testRoot.appendingPathComponent("existing-game", isDirectory: true)
+    let externalPrefix = testRoot.appendingPathComponent("import-prefix", isDirectory: true)
+    try fileManager.createDirectory(at: externalRoot, withIntermediateDirectories: false)
+    try fileManager.createDirectory(at: externalPrefix, withIntermediateDirectories: false)
+    let preserved = externalRoot.appendingPathComponent("settings.dat")
+    try Data("private fixture".utf8).write(to: preserved)
+    var imported = Installation(gameRoot: try makeLocation(externalRoot), prefix: try makeLocation(externalPrefix))
+    imported.externalGameRoot = true
+    var importState = ProductState(); importState.installations[.global] = imported
+    let removal = try removalItems(for: .global, state: importState)
+    guard !removal.contains(where: { $0.kind == .gameRoot }),
+          removal.contains(where: { $0.kind == .prefix }),
+          try Data(contentsOf: preserved) == Data("private fixture".utf8) else {
+        throw ManagerError.message("Imported tree ownership boundary failed")
+    }
 
     // This fixture writes far beyond the usual pipe capacity on *both* file
     // descriptors before it exits. These calls exercise the real lifecycle
@@ -3710,6 +3784,14 @@ private func runMain() throws {
             filename: resolved.lastPathComponent
         )
         print(String(decoding: try JSONEncoder.pretty.encode(document), as: UTF8.self))
+        return
+    }
+    if command == "inspect" {
+        guard let rawProduct = argument(after: "--product"), let product = ProductID(rawValue: rawProduct), let path = argument(after: "--path") else { throw ManagerError.message("inspect 需要 --product 和 --path。") }
+        guard let item = try loadCatalog().products.first(where: { $0.id == product }) else { throw ManagerError.message("未知产品。") }
+        let result = try inspectExistingGame(item, path: path)
+        print(inspectionDescription(result))
+        if !result.summary.valid { throw ManagerError.message("检测完成：未达到当前官方基础清单的一致性要求，原文件未修改。") }
         return
     }
     if command == "resolve-manifest" {
