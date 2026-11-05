@@ -935,6 +935,9 @@ final class ToolboxViewModel: ObservableObject {
                 self.activeProductAction = nil
                 self.activeProductID = nil
                 if result.status == 0 {
+                    if (action == .launch || action == .restart), self.lastLaunchFailure?.productID == productID {
+                        self.clearLaunchFailure()
+                    }
                     self.showOperation(result.output.isEmpty ? "已请求\(action.localizedTitle)\(productID.localizedName)。" : result.output)
                 } else {
                     let detail = result.output.isEmpty ? "退出码 \(result.status)" : result.output
@@ -999,7 +1002,7 @@ final class ToolboxViewModel: ObservableObject {
                     : result.preflightOutput
                 self.presentLaunchFailure(
                     productID: productID,
-                    code: "IDV-LAUNCH-201",
+                    code: LaunchFailureClassifier.gameLaunchCode(for: detail, fallback: "IDV-LAUNCH-201"),
                     summary: LaunchFailureClassifier.boundedReason(
                         from: detail,
                         fallback: "游戏启动前检查没有通过，请修复游戏后重试。"
@@ -2898,6 +2901,11 @@ struct ToolboxProcessMatcherSelfTest {
             LaunchFailureClassifier.gameLaunchCode(for: "游戏进程已出现，但尚未进入可验证的游戏窗口") == "IDV-LAUNCH-204",
             LaunchFailureClassifier.gameLaunchCode(for: "macOS 未能启动内嵌游戏运行器") == "IDV-LAUNCH-202",
             LaunchFailureClassifier.gameLaunchCode(for: "启动前检查失败") == "IDV-LAUNCH-201",
+            LaunchFailureClassifier.gameLaunchCode(for: "另一个安装、导入或切换操作仍在进行，请稍后重试。") == "IDV-LAUNCH-205",
+            LaunchFailureClassifier.gameLaunchCode(for: "另一个安装、更新或游戏操作仍在进行，请稍后重试。") == "IDV-LAUNCH-205",
+            LaunchFailureClassifier.gameLaunchCode(for: "unknown") == "IDV-LAUNCH-299",
+            LaunchFailureClassifier.gameLaunchCode(for: "unknown preflight", fallback: "IDV-LAUNCH-201") == "IDV-LAUNCH-201",
+            launchFailure.explanation.contains("超时"),
             launchFailure.title == "国服启动失败",
             launchFailure.alertMessage.contains("错误代码：IDV-LAUNCH-203"),
             RuntimeProcessMatcher.isGameCommand(game),

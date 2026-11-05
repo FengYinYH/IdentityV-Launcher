@@ -436,3 +436,19 @@
 "打开后台" = "Open Admin";
 "IDV Login 后台尚不可用，请确认组件运行正常后重试。" = "The IDV Login dashboard is unavailable. Check that the component is running correctly and try again.";
 "无法打开浏览器，请检查默认浏览器设置。" = "Unable to open the browser. Check your default browser settings.";
+
+/* Launcher support-code explanations. */
+"启动器组件不可用；请重新安装启动器。" = "Launcher component unavailable; reinstall the launcher.";
+"启动前检查未通过；请按具体提示处理。" = "Preflight checks failed; follow the detailed message.";
+"未能分派内嵌运行器；请检查日志和启动器安装。" = "Could not dispatch the embedded runner; check logs and the launcher installation.";
+"等待游戏进程超时；游戏可能稍后出现，请先检查现有窗口，避免重复启动。" = "Timed out waiting for the game process; it may appear later. Check existing windows before retrying.";
+"已出现游戏进程，但窗口尚未验证；请先查看游戏窗口和日志。" = "A game process appeared, but its window was not verified. Check the game window and logs.";
+"操作锁忙碌，本次请求未执行；等待当前操作完成，游戏已打开时无需重试。" = "The operation lock is busy; this request did not run. Wait for the current operation; no retry is needed if the game is already open.";
+"未安装 IDV Login；请安装组件或关闭跟随启动。" = "IDV Login is not installed; install it or disable follow-game startup.";
+"IDV Login 辅助程序过旧；请更新组件。" = "The IDV Login helper is outdated; update the component.";
+"IDV Login 辅助程序返回未就绪；请按具体提示处理。" = "The IDV Login helper did not report readiness; follow the detailed message.";
+"系统未能调用 IDV Login 辅助程序；请检查组件安装。" = "The system could not invoke the IDV Login helper; check the component installation.";
+"尚未确认 IDV Login 首次授权提示；请从启动器继续。" = "The first IDV Login authorization notice has not been acknowledged; continue from the launcher.";
+"启动器未能进一步分类；请保留完整代码及具体提示，并查看日志。" = "The launcher could not classify this further. Keep the full code and detailed message, and check logs.";
+"上次启动请求未完成" = "Last launch request did not complete";
+"启动器错误代码" = "Launcher error code";

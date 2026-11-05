@@ -627,14 +627,20 @@ private struct LauncherStatusWindow: View {
 
     private func launchFailureStatus(_ failure: LaunchFailurePresentation) -> some View {
         VStack(spacing: 8) {
-            Text("启动失败")
+            Text("上次启动请求未完成")
                 .font(.title3.weight(.semibold))
+            Text("启动器错误代码")
+                .font(.caption2)
             Text(failure.code)
                 .font(.caption.monospaced().weight(.medium))
             Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(failure.summary)))
                 .font(.caption)
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(failure.explanation)))
+                .font(.caption2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(Color.orange)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

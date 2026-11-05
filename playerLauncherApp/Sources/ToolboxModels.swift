@@ -102,6 +102,24 @@ struct LaunchFailurePresentation: Identifiable, Equatable {
         productID.map { "\($0.localizedName)启动失败" } ?? "启动失败"
     }
 
+    /// These are launcher support codes, never vendor/HTTP/OS exit codes.
+    var explanation: String {
+        switch code {
+        case "IDV-LAUNCH-101": return "启动器组件不可用；请重新安装启动器。"
+        case "IDV-LAUNCH-201": return "启动前检查未通过；请按具体提示处理。"
+        case "IDV-LAUNCH-202": return "未能分派内嵌运行器；请检查日志和启动器安装。"
+        case "IDV-LAUNCH-203": return "等待游戏进程超时；游戏可能稍后出现，请先检查现有窗口，避免重复启动。"
+        case "IDV-LAUNCH-204": return "已出现游戏进程，但窗口尚未验证；请先查看游戏窗口和日志。"
+        case "IDV-LAUNCH-205": return "操作锁忙碌，本次请求未执行；等待当前操作完成，游戏已打开时无需重试。"
+        case "IDVL-START-101": return "未安装 IDV Login；请安装组件或关闭跟随启动。"
+        case "IDVL-START-102": return "IDV Login 辅助程序过旧；请更新组件。"
+        case "IDVL-START-103": return "IDV Login 辅助程序返回未就绪；请按具体提示处理。"
+        case "IDVL-START-104": return "系统未能调用 IDV Login 辅助程序；请检查组件安装。"
+        case "IDVL-START-105": return "尚未确认 IDV Login 首次授权提示；请从启动器继续。"
+        default: return "启动器未能进一步分类；请保留完整代码及具体提示，并查看日志。"
+        }
+    }
+
     var alertMessage: String {
         "\(summary)\n\n错误代码：\(code)"
     }
@@ -120,13 +138,14 @@ enum LaunchFailureClassifier {
         return String(safe.prefix(360))
     }
 
-    static func gameLaunchCode(for output: String) -> String {
+    static func gameLaunchCode(for output: String, fallback: String = "IDV-LAUNCH-299") -> String {
+        if output.contains("另一个安装、导入或切换操作仍在进行") || output.contains("另一个安装、更新或游戏操作仍在进行") { return "IDV-LAUNCH-205" }
         if output.contains("尚未进入可验证的游戏窗口") { return "IDV-LAUNCH-204" }
         if output.contains("启动准备超时") { return "IDV-LAUNCH-203" }
         if output.contains("20 秒内没有出现可验证的游戏进程") { return "IDV-LAUNCH-203" }
         if output.contains("内嵌游戏运行器") { return "IDV-LAUNCH-202" }
         if output.contains("启动前检查") { return "IDV-LAUNCH-201" }
-        return "IDV-LAUNCH-299"
+        return fallback
     }
 }
 
