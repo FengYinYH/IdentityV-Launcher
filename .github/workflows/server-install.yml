@@ -1,4 +1,4 @@
-name: RC5 bounded server install and launch observation
+name: RC5 bounded international install and launch observation
 on:
   push:
     branches: [ci/rc5-server-observation-20261105]
@@ -15,9 +15,9 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        product: [mainland, global]
+        product: [global]
     env:
-      RC5_CANDIDATE_COMMIT: 97605502a685ae765c213fee4d1620ea4348d79e
+      RC5_CANDIDATE_COMMIT: a8d27ba67b813b9a9c44d7ec99db3861e3012268
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
