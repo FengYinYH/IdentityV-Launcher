@@ -115,6 +115,7 @@ for runner_source in \
 done
 for runner_test in \
   "$PROJECT_ROOT/gameRunnerApp/tests/gameRootBinding.test.command" \
+  "$PROJECT_ROOT/gameRunnerApp/tests/globalProductsLayout.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/privateDesktopIsolation.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/coreAudioCapturePolicy.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/fontFallbackContract.test.command" \

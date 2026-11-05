@@ -72,6 +72,26 @@ plist_raw() {
   print -r -- "$value"
 }
 
+# ProductManager encodes `[ProductID: Installation]` with Swift's default
+# Dictionary coding. ProductID is a String-backed enum, not a String key, so
+# products.json stores installations as a flat [key, value, key, value] array
+# rather than an object. Accept that canonical form and the object form.
+global_installation_raw() {
+  local field="$1" value key index=0
+  if value="$(plist_raw "$PRODUCTS_FILE" "installations.global.$field")"; then
+    print -r -- "$value"
+    return 0
+  fi
+  while (( index < 64 )) && key="$(plist_raw "$PRODUCTS_FILE" "installations.$index")"; do
+    if [[ "$key" == "global" ]]; then
+      plist_raw "$PRODUCTS_FILE" "installations.$(( index + 1 )).$field"
+      return
+    fi
+    index=$(( index + 2 ))
+  done
+  return 1
+}
+
 validate_relative_path() {
   local relative_path="$1"
   [[ -n "$relative_path" && "$relative_path" != /* ]] || return 1
@@ -177,10 +197,10 @@ esac
 if [[ "$PRODUCT" == "global" ]]; then
   [[ -r "$PRODUCTS_FILE" ]] || abort_launcher "products.json is missing; install the global client first"
   [[ "$(plist_raw "$PRODUCTS_FILE" schemaVersion || true)" == "1" ]] || abort_launcher "unsupported products schema"
-  PREFIX_VOLUME_UUID="$(plist_raw "$PRODUCTS_FILE" "installations.global.prefix.volumeUUID" || true)"
-  PREFIX_RELATIVE_PATH="$(plist_raw "$PRODUCTS_FILE" "installations.global.prefix.relativePath" || true)"
-  GAME_VOLUME_UUID="$(plist_raw "$PRODUCTS_FILE" "installations.global.gameRoot.volumeUUID" || true)"
-  GAME_RELATIVE_PATH="$(plist_raw "$PRODUCTS_FILE" "installations.global.gameRoot.relativePath" || true)"
+  PREFIX_VOLUME_UUID="$(global_installation_raw "prefix.volumeUUID" || true)"
+  PREFIX_RELATIVE_PATH="$(global_installation_raw "prefix.relativePath" || true)"
+  GAME_VOLUME_UUID="$(global_installation_raw "gameRoot.volumeUUID" || true)"
+  GAME_RELATIVE_PATH="$(global_installation_raw "gameRoot.relativePath" || true)"
   WINDOWS_GAME_ROOT="IdentityVGlobal"
   GAME_LAUNCH_ARGUMENTS=()
 else
