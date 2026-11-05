@@ -280,3 +280,7 @@ Agent 安装实测中，前次隔离国际服任务已下载 14,570,838 bytes �
 ### 精确空间失败的跨组件传播
 
 锁定核心的真实206重放已提供单字段整数 `NeedSpaceSize`。supervisor只对这一精确形态（正Int64、无重复或额外字段、无尾随数据）返回 `download_disk_space_required` 与 `requiredBytes`；其他206仍为通用终止失败。原始第三帧不进入公开日志，仍只保留长度/hash元数据。类型化失败通过受限JSON从supervisor传到管理器，管理器给玩家可读空间提示；由Agent任务调用时额外发出相同稳定机器字段，普通GUI日志格式保持原行为。取消退出130不覆盖已收到的明确空间失败。Go覆盖真实帧数值、无效/模糊对象和IPC终止，Swift覆盖真实Process/pipe边界、错误退出与成功退出区别、任务UUID和未知消息不误分类；这些fixture不代替空间充足时的完整下载。
+
+### macOS 15 的零值容量估计
+
+新的干净macOS15虚拟机实测中，ImportantUsage与OpportunisticUsage均返回0，普通容量与NSFileSystemFreeSize同时为74,457,219,072字节，且无API错误。此前直接min会误拒绝。现仅用有效正数ImportantUsage约束普通实际容量，零/负/缺失估计回退普通容量；普通容量本身为0仍拒绝，普通容量缺失仍失败，不回退乐观可清理估计。管理器回归纳入这组真实数值，同时保留真实空间低于需求、可清理估计偏大及正数较小估计案例。最终包仍需该VM实际首装回归，不把build13结果当新行为。

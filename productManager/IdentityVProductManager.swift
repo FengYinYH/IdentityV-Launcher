@@ -1228,7 +1228,10 @@ private func guaranteedAvailableCapacity(actual: Int64?, important: Int64?) thro
     guard let actual, actual >= 0 else {
         throw ManagerError.message("无法读取所选安装位置的可用空间。")
     }
-    guard let important, important >= 0 else { return actual }
+    // Some supported macOS guests return 0 for both usage estimates
+    // while ordinary capacity and NSFileSystemFreeSize agree on free bytes.
+    // Zero is not evidence that a positive ordinary capacity is unusable.
+    guard let important, important > 0 else { return actual }
     return min(actual, important)
 }
 
@@ -3151,7 +3154,10 @@ private func runSelfTest() throws {
           try guaranteedAvailableCapacity(actual: actualCapacity, important: importantCapacity) < requiredCapacity,
           try guaranteedAvailableCapacity(actual: actualCapacity, important: nil) == actualCapacity,
           try guaranteedAvailableCapacity(actual: actualCapacity, important: -1) == actualCapacity,
-          try guaranteedAvailableCapacity(actual: actualCapacity, important: 0) == 0,
+          try guaranteedAvailableCapacity(actual: actualCapacity, important: 0) == actualCapacity,
+          try guaranteedAvailableCapacity(actual: 74_457_219_072, important: 0) == 74_457_219_072,
+          try guaranteedAvailableCapacity(actual: 74_457_219_072, important: 0) >= requiredCapacity,
+          try guaranteedAvailableCapacity(actual: 0, important: 0) == 0,
           try guaranteedAvailableCapacity(actual: 0, important: importantCapacity) == 0,
           try guaranteedAvailableCapacity(actual: 100, important: 50) == 50 else {
         throw ManagerError.message("physical/purgeable capacity preflight failed")
