@@ -7,8 +7,8 @@
 ### 修复
 
 - 国际服首次安装长时间停在 0 KB：下载核心监督器在 Hardened Runtime 下拿不到 Wine 的 DYLD 库搜索路径，现按已选 Wine 的固定布局恢复 `lib64`，拒绝无效搜索路径并保留缺库诊断（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
-- 下载核心的辅助通知或重复速率不再无限延长进度期限；已知失败和超时显示受限诊断，不再根据任意 304 文本猜测终止。
-- 修复仅安装国际服时的启动确认误报，以及 IDV Login 首次 CA 导入无法交互后的有界恢复。
+- 下载核心的辅助通知或重复速率不再无限延长进度期限；清单下载重试耗尽的 304 会立即明确失败，并保留受限诊断；不根据任意文本猜测错误。
+- 修复仅安装国际服或两服运行环境不同时的启动确认误报，以及 IDV Login 首次 CA 导入无法交互后的有界恢复。
 
 - 国际服游戏内更新后，基础清单修复也会保护有效热更新，避免回退正常客户端。
 
@@ -19,8 +19,8 @@
 ### 修正
 
 - 國際服首次安裝長時間停在 0 KB：下載核心監督器在 Hardened Runtime 下取不到 Wine 的 DYLD 函式庫搜尋路徑，現改為依已選 runtime 重建 `lib64`，拒絕無效搜尋路徑並保留缺庫診斷（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
-- 輔助通知或重複速率不再無限延長進度期限；已知失敗與逾時會顯示受限診斷，不根據任意 304 文字猜測終止。
-- 修復僅安裝國際服時的啟動確認誤報，並為 IDV Login 首次 CA 授權失敗加入有界恢復。
+- 輔助通知或重複速率不再無限延長進度期限；清單下載重試耗盡的 304 會立即明確失敗，並保留受限診斷；不根據任意文字猜測錯誤。
+- 修復僅安裝國際服或兩服執行環境不同時的啟動確認誤報，並為 IDV Login 首次 CA 授權失敗加入有界恢復。
 
 - 國際服遊戲內更新後，基礎清單修復也會保護有效熱更新，避免回退正常客戶端。
 
@@ -31,8 +31,8 @@
 ### Fixed
 
 - First install of the global build no longer stalls at 0 KB: under Hardened Runtime the download-core supervisor lost Wine's DYLD library path, so it now rebuilds `lib64` from the selected runtime and rejects invalid search paths and reports missing libraries ([#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)).
-- Auxiliary notifications and changing rates no longer extend stalled transfers indefinitely. Known failures and timeouts show bounded diagnostics; opaque 304 text is not guessed to be terminal.
-- Fixed global-only launch confirmation errors and added bounded recovery when the initial IDV Login CA authorization cannot interact with the user.
+- Auxiliary notifications and changing rates no longer extend stalled transfers indefinitely. Manifest retry exhaustion (304) now fails immediately with bounded diagnostics, without guessing from arbitrary payload text.
+- Fixed launch confirmation errors in global-only installs and when the two products use different runtimes and added bounded recovery when the initial IDV Login CA authorization cannot interact with the user.
 
 - Global in-game hot updates now receive the same base-repair rollback protection as the mainland client.
 

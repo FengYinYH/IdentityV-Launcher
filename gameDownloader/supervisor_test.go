@@ -105,11 +105,25 @@ func TestHelperProcess(t *testing.T) {
 			os.Exit(5)
 		}
 	}
+	if strings.HasPrefix(mode, "manifest-") {
+		payload := "manifest https://example.invalid/private?token=secret, try count exceeded"
+		if mode == "manifest-empty" {
+			payload = ""
+		}
+		if mode == "manifest-json" {
+			payload = `{"message":"private secret"}`
+		}
+		for i := 0; i < 10; i++ {
+			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "304", payload}))
+			time.Sleep(25 * time.Millisecond)
+		}
+		// If 304 were ignored, normal progress/completion below could falsely
+		// succeed. The supervisor must return before that path is accepted.
+	}
 	if mode == "aux-fatal" {
-		// A 304 whose payload declares a failure must end the run instead of
-		// being treated as harmless chatter while the UI sits at 0 KB.
+		// Opaque auxiliary error words alone do not prove terminal failure.
 		for i := 0; i < 20; i++ {
-			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "304", `{"success":false,"code":304,"message":"tls: failed to verify certificate"}`}))
+			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "2001", `{"success":false,"message":"tls: failed to verify certificate"}`}))
 			time.Sleep(40 * time.Millisecond)
 		}
 		time.Sleep(5 * time.Second)
@@ -124,10 +138,10 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(0)
 	}
 	if mode == "aux-idle" {
-		// Informational 304 frames must not keep the progress idle timer
+		// Informational 2001 frames must not keep the progress idle timer
 		// alive; the supervisor has to time out even while they arrive.
 		for i := 0; i < 80; i++ {
-			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "304", `{"code":304}`}))
+			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "2001", `{"code":2001}`}))
 			time.Sleep(40 * time.Millisecond)
 		}
 		os.Exit(0)
@@ -301,7 +315,7 @@ func TestProgressProtocolRejectsMalformed(t *testing.T) {
 	if validState("101") || validState("206") || validState("-1") || validState("12") {
 		t.Fatal("failure or unknown state accepted")
 	}
-	if !auxiliaryState("10") || !auxiliaryState("304") || validState("10") {
+	if !auxiliaryState("10") || auxiliaryState("304") || validState("10") {
 		t.Fatal("opaque control acknowledgement is not isolated")
 	}
 	if !auxiliaryState("2001") || !auxiliaryState("2002") || !auxiliaryState("2005") || !auxiliaryState("2006") || auxiliaryState("2003") {
@@ -644,9 +658,13 @@ func TestControlledWineEnvRejectsUntrustedFallback(t *testing.T) {
 }
 
 func runAuxiliaryFixture(t *testing.T, mode string, idleTimeout time.Duration) error {
+	return runAuxiliaryFixtureOutput(t, mode, idleTimeout, io.Discard)
+}
+
+func runAuxiliaryFixtureOutput(t *testing.T, mode string, idleTimeout time.Duration, output io.Writer) error {
 	t.Helper()
 	task := runTask(t)
-	sup := NewSupervisor(task, io.Discard)
+	sup := NewSupervisor(task, output)
 	if idleTimeout > 0 {
 		sup.idleTimeout = idleTimeout
 		if mode == "aux-fatal" {
@@ -686,7 +704,7 @@ func TestAuxiliaryFramesDoNotExtendIdleDeadline(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("want an idle timeout, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "304") {
+	if !strings.Contains(err.Error(), "2001") {
 		t.Fatalf("timeout diagnostic must name the last auxiliary state: %v", err)
 	}
 }
@@ -771,4 +789,57 @@ func TestFallbackSingleSearchPath(t *testing.T) {
 	if count != 1 {
 		t.Fatal("duplicate fallback")
 	}
+}
+
+func TestManifestRetry304IsTerminalForRawEmptyAndJSONPayload(t *testing.T) {
+	for _, mode := range []string{"manifest-raw", "manifest-empty", "manifest-json"} {
+		t.Run(mode, func(t *testing.T) {
+			var output bytes.Buffer
+			started := time.Now()
+			err := runAuxiliaryFixtureOutput(t, mode, 10*time.Second, &output)
+			if err == nil || !strings.Contains(err.Error(), "manifest download retries exhausted (state 304;") {
+				t.Fatalf("304 must fail without JSON parsing: %v", err)
+			}
+			if time.Since(started) >= 8*time.Second {
+				t.Fatal("304 waited for startup/idle expiry")
+			}
+			combined := output.String() + err.Error()
+			if strings.Contains(combined, "secret") || strings.Contains(combined, "example.invalid") || strings.Contains(output.String(), `"state":"8"`) {
+				t.Fatalf("304 leaked raw payload or accepted completion: %s", combined)
+			}
+			var event struct {
+				State            string `json:"state"`
+				PayloadByteCount int    `json:"payloadByteCount"`
+				PayloadSHA256    string `json:"payloadSha256"`
+			}
+			if json.Unmarshal(bytes.TrimSpace(output.Bytes()), &event) != nil || event.State != "304" || len(event.PayloadSHA256) != 64 {
+				t.Fatalf("missing bounded diagnostic metadata: %s", output.String())
+			}
+		})
+	}
+}
+
+func TestManifestRetry304ContractMatchesPinnedCore(t *testing.T) {
+	data, err := os.ReadFile("../downloaderCoreComponent.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var component struct {
+		Files []struct {
+			Filename string `json:"filename"`
+			SHA256   string `json:"sha256"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(data, &component); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range component.Files {
+		if file.Filename == "downloadIPC.exe" {
+			if file.SHA256 != manifestRetryCoreSHA256 {
+				t.Fatal("core changed: re-audit 304 protocol before updating its contract")
+			}
+			return
+		}
+	}
+	t.Fatal("missing pinned downloadIPC.exe")
 }

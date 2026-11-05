@@ -2078,6 +2078,24 @@ private func activeLegacyRuntime(for installation: Installation) throws -> (runt
     return (runtime, prefix, verified.wine, verified.environment)
 }
 
+/// Match the runner's per-product binding before starting it. Mainland may
+/// legitimately retain legacy runtime A while Global selects shared runtime B.
+/// Never fall back to the other binding after validation fails.
+private func launchWineExecutable(
+    for product: ProductID,
+    installation: Installation?,
+    legacy: (Installation) throws -> URL = { try activeLegacyRuntime(for: $0).wine },
+    shared: () throws -> URL = { try selectedRuntimeForDirectInstall().wine }
+) throws -> URL {
+    switch product {
+    case .mainland:
+        guard let installation else { throw ManagerError.message("国服缺少可验证的启动绑定；未启动游戏。") }
+        return try legacy(installation)
+    case .global:
+        return try shared()
+    }
+}
+
 /// The app runner already validates this document against its bundled catalog:
 /// volume UUID + relative paths, runtime hashes, executable paths and the
 /// prefix/game-root binding are all checked before Wine starts.  The manager
@@ -2324,6 +2342,7 @@ private func run(_ command: String, product: ProductID) throws {
         print(detail.isEmpty ? "\(item.displayName)启动前检查已通过。" : detail)
     case "launch", "restart":
         try validateProductReadyForLaunch(item, product: product, state: state)
+        let expectedWine = try launchWineExecutable(for: product, installation: state.installations[product])
         let app = try embeddedGameRunnerApp()
         // Run the helper bundle's shell runner directly.  Its ordinary entry
         // point detaches into `--run` before Wine starts, so the game owns its
@@ -2356,17 +2375,15 @@ private func run(_ command: String, product: ProductID) throws {
         guard let pid = waitForManagedGameStart(product: product) else {
             throw ManagerError.message("游戏运行器已收到请求，但启动准备超时，仍未出现可验证的游戏进程；没有再次启动游戏。")
         }
-        // Global-only installs have no mainland legacy installation.json.
-        // Resolve the same catalog-verified runtime used by direct installs;
-        // the activator still checks this exact executable and the child PID.
-        let runtime = try selectedRuntimeForDirectInstall()
+        // Keep the pre-launch, product-specific identity fixed even if a
+        // different server's selected runtime exists or changes meanwhile.
         let activator = app.appendingPathComponent("Contents/Resources/IdentityVGameActivator")
         guard fileManager.isExecutableFile(atPath: activator.path) else {
             throw ManagerError.message("启动器缺少维护组件 IdentityVGameActivator，请重新安装启动器。")
         }
         do {
             _ = try runTool(activator, arguments: ["--check-target", "--pid", String(pid),
-                "--expected-executable", runtime.wine.path, "--timeout", "90"])
+                "--expected-executable", expectedWine.path, "--timeout", "90"])
         } catch {
             // The helper also fails immediately when the process exits or
             // changes identity. Do not falsely label every failure a 90s wait.
@@ -2925,6 +2942,34 @@ private func writeLittleEndianUInt32(_ value: UInt32, to data: inout Data, at of
 }
 
 private func runSelfTest() throws {
+    let legacyWineA = URL(fileURLWithPath: "/fixture/runtime-A/bin/wine")
+    let sharedWineB = URL(fileURLWithPath: "/fixture/runtime-B/bin/wine")
+    let installationFixture = Installation()
+    let unavailable: () throws -> URL = { throw ManagerError.message("fixture unavailable runtime") }
+    guard try launchWineExecutable(for: .mainland, installation: installationFixture,
+              legacy: { _ in legacyWineA }, shared: unavailable) == legacyWineA,
+          try launchWineExecutable(for: .global, installation: nil,
+              legacy: { _ in throw ManagerError.message("global must not use legacy") }, shared: { sharedWineB }) == sharedWineB,
+          try launchWineExecutable(for: .mainland, installation: installationFixture,
+              legacy: { _ in legacyWineA }, shared: { sharedWineB }) == legacyWineA else {
+        throw ManagerError.message("per-product launch runtime selection failed")
+    }
+    for product in ProductID.allCases {
+        var rejected = false
+        do {
+            _ = try launchWineExecutable(for: product, installation: installationFixture,
+                legacy: { _ in if product == .mainland { return try unavailable() }; return legacyWineA },
+                shared: { if product == .global { return try unavailable() }; return sharedWineB })
+        } catch { rejected = true }
+        guard rejected else { throw ManagerError.message("invalid launch runtime accepted") }
+    }
+    var rejectedMissingMainland = false
+    do {
+        _ = try launchWineExecutable(for: .mainland, installation: nil,
+            legacy: { _ in legacyWineA }, shared: { sharedWineB })
+    } catch { rejectedMissingMainland = true }
+    guard rejectedMissingMainland else { throw ManagerError.message("missing mainland binding borrowed shared runtime") }
+
     let migrationFixture = fileManager.temporaryDirectory
         .appendingPathComponent("identityv-manager-upgrade-\(UUID().uuidString)", isDirectory: true)
     try fileManager.createDirectory(at: migrationFixture, withIntermediateDirectories: true)

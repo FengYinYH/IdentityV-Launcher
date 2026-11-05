@@ -188,3 +188,28 @@ RC2最终核验另发现产品管理器验证国际服的 `C:\\Games\\IdentityVG
 按所有者指定的模型偏好，由 Terra 执行模拟点击测试。实际进程来自确切 build 12 候选目录，简中、繁中、英文均检查游戏位置旁的导入按钮，未见截断。文件选择器可选 dwrg.exe，调用实际 inspect 并出现确认；隔离国际服完成热更新后按基础清单为 444 文件、6 处不匹配，显示可能热更新/服务器未验证的提示，取消后保留用户原路径。以国服检查该国际服目录出现更多差异，同样没有自动导入或修改文件。
 
 错误可执行文件 dwrg_repair.exe 没有进入检测确认，路径保持原值；未捕获四秒操作提示，不能宣称错误提示已验收，也没有凭这一点猜测新增修复。因两服已有安装，实际默认/自定义安装取消流程仍待干净 VM。测试后恢复原语言选择和国服，正常退出候选，独立 PID 复核确认进程不存在。新 helper、CA、hosts 与登录组件的系统运行状态未被此 UI 回归改变。
+
+
+## build 13：304 锁定定义与按实际产品 runtime 确认（2026-11-05）
+
+本节取代此前“304 仅不透明辅助状态、等待超时”的暂定结论。核心来源为本仓清单锁定的 downloadIPC.exe，34,378,168 bytes，SHA-256 `5c11d3188d271c1df88d36d98bb440437d29e8a41c88dfd38602ce3c60c56f82`，上游固定资源为 https://github.com/KKeygen/idv-login/blob/9b1ff598da6cb9ae6a952a8978ccf88bc8b2ae5c/binaries/downloadIPC.exe 。独立静态审查定位如下，本轮再次复核实际文件 SHA 和 `0x14042ec46` 的 304 立即数及随后的 Panic 调用：
+
+| 位置（PE 虚拟地址） | 可复核事实 |
+| --- | --- |
+| `common.DownloadManifestByUrl` `0x14042e9a0` | 清单取得函数，不是 HTTP 状态处理器 |
+| `0x14042eb1b` / `0x14042ef5b` | 计数初始化 0；每次 Downloader.Download 返回后递增 |
+| `0x14042eb49` / `0x14042eb4d` | 比较计数 10，≤10 继续尝试；超过时进入失败分支 |
+| `0x14042eb63` | 拼接 `, try count exceeded ` 和清单上下文；不是正常缓存通知 |
+| `0x14042ec46` / `0x14042ec4c` | 将 `r8d` 设为 `0x130`（304），调用 `base.(*errorCollector).Panic` |
+| `base.ErrorHandle` `0x140353f61`–`0x140353f71` | 从恢复的错误对象取消息与代码，交给 NotifyClientError |
+| `NotifyClientError` `0x140353380` | 将字符串及代码入错误 channel，日志模板为 code/msg |
+| `main.ExceptionCallback.func1` `0x14049b6b1`–`0x14049b6bc` | 读取同一字符串与代码，传给注册的回调 |
+| `main.main` `0x14049cfd7`–`0x14049cfe0` | 异常回调注册到与进度相同的 sendMsg；函数值 `0x140734a40` 指向 `0x14049bc60` |
+| `main.sendMsg` `0x14049bc92`–`0x14049bd02` | content ID、十进制代码、原始字符串分别转为字节；第三帧没有强制 JSON 包装 |
+
+
+这些控制流证明当前锁定核心的清单重试计数超过 10 后发出任务错误 304；内部 Downloader 可能还有自己的请求尝试，不能等同恰好 11 个 HTTP 请求。异常和进度共用 sendMsg，第三帧为原始字符串，不保证 JSON。TLS/GnuTLS 可以是底层原因之一，304 也不是 HTTP Not Modified。可通过 `go tool nm` 与 `xcrun llvm-objdump -d --x86-asm-syntax=intel --start-address=0x14042e9a0 --stop-address=0x14042f3e0 "$CORE"` 对该精确文件复核，不运行核心。
+
+监督器现按代码 304 立即失败，不解析/猜测第三帧文本；只输出字节数和 SHA-256，错误明确为清单重试耗尽。原始文本、空帧、JSON 三种合成 ZeroMQ 回归验证立即失败、无完成事件、无路径/token 泄漏；其他辅助帧继续不续期，正常完成与非零退出回归保留。语义仅适用于当前锁定字节；新增跨清单 hash 契约测试，更新核心 pin 必须重新审查，不可将此定义无条件外推。真实厂商 304 尚未在本轮动态重现，这些是静态证据和合成协议回归。
+
+PR #6 的正文指出的仅国际服 legacyBinding 误报路径成立；其补丁主体仍仅处理 Codable 数组/对象解析。新增发现是国服 runner 读取 legacy runtime A，而先前 RC5 统一用共享 runtime B 确认窗口。现在启动前固定当前产品预期 Wine 身份：国服调用 activeLegacyRuntime（匹配安装记录并校验 catalog/hash），国际服调用已验证共享绑定。失败不向另一绑定回退；随后仍验证 PID、精确 loader 和可用窗口，不跳过窗口检查，不自动二次启动。单元回归覆盖仅国服无共享、仅国际服无 legacy、A/B 不同、无国服安装、校验失败不借用另一服；用已退出的本任务子进程调用实际 activator，返回 invalid_target 且非零退出。A/B 不同的真实游戏动态场景尚未制造，不能把 resolver fixture 当实机复现。

@@ -24,6 +24,11 @@ import (
 
 const taskSchemaVersion = 1
 
+// Protocol evidence is scoped to the bootstrap's exact downloadIPC.exe bytes.
+// Updating this pin must re-audit the 304 exception callback (not HTTP 304).
+// The cross-component test prevents a core upgrade silently inheriting it.
+const manifestRetryCoreSHA256 = "5c11d3188d271c1df88d36d98bb440437d29e8a41c88dfd38602ce3c60c56f82"
+
 var ErrCancelled = errors.New("download cancelled by control file")
 
 type Task struct {
@@ -547,6 +552,16 @@ func (s *Supervisor) Run(ctx context.Context) error {
 				return errors.New("invalid progress frame")
 			}
 			state := string(msg.Frames[1])
+			if state == "304" {
+				// DownloadManifestByUrl exhausts its retry counter and raises
+				// 304 via ExceptionCallback. sendMsg forwards the raw string;
+				// even an empty/non-JSON payload is a terminal task failure.
+				payload := msg.Frames[2]
+				if err := s.emitAuxiliary(state, payload); err != nil {
+					return err
+				}
+				return fmt.Errorf("core manifest download retries exhausted (state 304; payload bytes %d, sha256 %x)", len(payload), sha256.Sum256(payload))
+			}
 			if auxiliaryState(state) {
 				payload := msg.Frames[2]
 				digest := sha256.Sum256(payload)
@@ -681,7 +696,7 @@ func auxiliaryState(v string) bool {
 	// frames. idv-login 6.2.3 ignores them; retain only bounded metadata in our
 	// JSONL stream without accepting arbitrary unknown codes.
 	switch v {
-	case "10", "304", "2001", "2002", "2005", "2006":
+	case "10", "2001", "2002", "2005", "2006":
 		return true
 	}
 	return false
