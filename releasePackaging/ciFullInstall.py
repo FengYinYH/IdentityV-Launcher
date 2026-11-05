@@ -59,6 +59,7 @@ class DiskObserver:
         self.root, self.result, self.checkpoint = root, result, checkpoint
         self.initial = shutil.disk_usage(root).free
         self.minimum = self.initial
+        self.last_emission = 0
         result['initialFreeBytes'] = self.initial
         result['spaceSampleIntervalSeconds'] = 5
 
@@ -68,6 +69,10 @@ class DiskObserver:
         self.result['minimumObservedFreeBytes'] = self.minimum
         self.result['observedAdditionalPeakBytes'] = max(0, self.initial - self.minimum)
         self.checkpoint()
+        if time.monotonic() - self.last_emission >= 30:
+            self.last_emission = time.monotonic()
+            print(json.dumps({'event': 'ci-resource', 'stage': self.result.get('stage'),
+                              'freeBytes': free, 'minimumObservedFreeBytes': self.minimum}), flush=True)
         return free
 
 
@@ -144,8 +149,9 @@ def supervise(agent, task_id, disk, event_file, result, timeout=7200, poll=5):
                     result['coreFailure'] = {k: payload[k] for k in ('errorCode', 'coreState', 'requiredBytes') if k in payload}
                 if phase and (not result['phaseTransitions'] or result['phaseTransitions'][-1]['phase'] != phase):
                     # Never copy URLs, raw payloads, messages or file paths.
-                    result['phaseTransitions'].append({'phase': str(phase)[:80],
-                                                       'seconds': round(time.monotonic() - start, 2)})
+                    transition = {'phase': str(phase)[:80], 'seconds': round(time.monotonic() - start, 2)}
+                    result['phaseTransitions'].append(transition)
+                    print(json.dumps({'event': 'ci-install-phase', **transition}), flush=True)
         if record.get('state') in TERMINAL:
             result['installationSeconds'] = round(time.monotonic() - start, 2)
             result['taskState'] = record['state']
