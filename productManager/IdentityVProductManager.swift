@@ -4247,7 +4247,7 @@ private func runMain() throws {
         guard let item = catalog.products.first(where: { $0.id == product }) else {
             throw ManagerError.message("未知产品。")
         }
-        print(String(decoding: try JSONEncoder.pretty.encode(resolveDirectManifest(for: item)), as: UTF8.self))
+        print(String(decoding: try JSONEncoder.pretty.encode(officialContentManifest(for: item)), as: UTF8.self))
         return
     }
     if command == "status" {

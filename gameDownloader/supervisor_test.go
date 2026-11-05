@@ -723,7 +723,11 @@ func TestOpaqueFailureWordsUseBoundedDeadline(t *testing.T) {
 }
 
 func TestAuxiliaryFramesDoNotExtendIdleDeadline(t *testing.T) {
-	err := runAuxiliaryFixture(t, "aux-idle", 300*time.Millisecond)
+	// Cold hosted macOS runners can delay delivery of the first auxiliary
+	// frame beyond 300ms even after normal progress arrives. Keep the idle
+	// deadline well below the fixture's 3.2s auxiliary stream, while allowing
+	// scheduling headroom; resetting it on auxiliary frames still fails.
+	err := runAuxiliaryFixture(t, "aux-idle", 1500*time.Millisecond)
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("want an idle timeout, got %v", err)
 	}
