@@ -6,6 +6,9 @@
 
 ### 修复
 
+- 安装空间预检改用实际可用容量；下载核心明确报告空间不足时显示所需空间。
+- IDV Login 更新提示不再阻挡已安装组件的启动、停止、卸载和跟随设置，移除额外的上游更新屏蔽。
+- 补齐卡死提示、恢复倒计时、麦克风用途及常见运行状态的三语言显示。
 - 国际服首次安装长时间停在 0 KB：下载核心监督器在 Hardened Runtime 下拿不到 Wine 的 DYLD 库搜索路径，现按已选 Wine 的固定布局恢复 `lib64`，拒绝无效搜索路径并保留缺库诊断（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
 - 下载核心的辅助通知或重复速率不再无限延长进度期限；清单下载重试耗尽的 304 会立即明确失败，并保留受限诊断；不根据任意文本猜测错误。
 - 修复仅安装国际服或两服运行环境不同时的启动确认误报，以及 IDV Login 首次 CA 导入无法交互后的有界恢复。
@@ -17,10 +20,13 @@
 - “版本与更新”可检查 GitHub 新版；确认后校验并同址更新、重新启动，清理本次临时安装包；Agent 可调用相同流程。
 
 - 统一“自定义游戏位置”入口，可选择文件或目录，找到已有游戏就检测并同步状态，未找到则询问是否安装；外部游戏目录保留原文件，卸载不删除它们。
-- Agent/CLI 可调用游戏安装、检测、修复与运行管理，提供任务 ID、结构化状态、进度和日志；命令文档随 App 提供，Agent 删除游戏前询问用户确认。
+- Agent/CLI 可调用游戏安装、检测、修复与运行管理，提供任务 ID、结构化状态、进度和日志；命令文档随 App 提供，Agent 卸载游戏前询问用户确认。
 
 ### 修正
 
+- 安裝空間預檢改用實際可用容量；下載核心明確回報空間不足時顯示所需空間。
+- IDV Login 更新提示不再阻擋已安裝元件的啟動、停止、解除安裝及跟隨設定，移除額外的上游更新封鎖。
+- 補齊卡死提示、恢復倒數、麥克風用途與常見執行狀態的三語顯示。
 - 國際服首次安裝長時間停在 0 KB：下載核心監督器在 Hardened Runtime 下取不到 Wine 的 DYLD 函式庫搜尋路徑，現改為依已選 runtime 重建 `lib64`，拒絕無效搜尋路徑並保留缺庫診斷（[#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)）。
 - 輔助通知或重複速率不再無限延長進度期限；清單下載重試耗盡的 304 會立即明確失敗，並保留受限診斷；不根據任意文字猜測錯誤。
 - 修復僅安裝國際服或兩服執行環境不同時的啟動確認誤報，並為 IDV Login 首次 CA 授權失敗加入有界恢復。
@@ -32,10 +38,13 @@
 - 「版本與更新」可檢查 GitHub 新版；確認後驗證並原址更新、重新啟動，清理本次暫存安裝包；Agent 可呼叫相同流程。
 
 - 統一「自訂遊戲位置」入口，可選擇檔案或目錄，找到既有遊戲便檢查並同步狀態，未找到則詢問是否安裝；外部遊戲檔案不會因解除安裝而刪除。
-- Agent/CLI 可呼叫遊戲安裝、檢查、修復與執行管理，提供工作 ID、結構化狀態、進度及日誌；指令文件隨 App 提供，Agent 刪除遊戲前會請使用者確認。
+- Agent/CLI 可呼叫遊戲安裝、檢查、修復與執行管理，提供工作 ID、結構化狀態、進度及日誌；指令文件隨 App 提供，Agent 解除安裝遊戲前會請使用者確認。
 
 ### Fixed
 
+- Installation checks use actual free space and display required capacity when the download core explicitly reports insufficient space.
+- IDV Login update notices no longer disable installed component controls or Start with Game, and the extra upstream update blocker is removed.
+- Localized hang alerts, recovery countdowns, microphone usage descriptions, and common runtime status messages.
 - First install of the global build no longer stalls at 0 KB: under Hardened Runtime the download-core supervisor lost Wine's DYLD library path, so it now rebuilds `lib64` from the selected runtime and rejects invalid search paths and reports missing libraries ([#4](https://github.com/FengYinYH/IdentityV-Launcher/issues/4)).
 - Auxiliary notifications and changing rates no longer extend stalled transfers indefinitely. Manifest retry exhaustion (304) now fails immediately with bounded diagnostics, without guessing from arbitrary payload text.
 - Fixed launch confirmation errors in global-only installs and when the two products use different runtimes and added bounded recovery when the initial IDV Login CA authorization cannot interact with the user.
