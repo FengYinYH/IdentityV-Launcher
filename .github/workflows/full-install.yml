@@ -15,7 +15,7 @@ jobs:
       # Business source is frozen at this integrated RC5 build20 checkpoint.
       RC5_CANDIDATE_COMMIT: 97605502a685ae765c213fee4d1620ea4348d79e
       PYTHONDONTWRITEBYTECODE: '1'
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
         with:
