@@ -409,3 +409,27 @@
 "事务目录：" = "Transaction folder: ";
 
 "更新临时文件未能清理，已保留：" = "Temporary update files could not be removed and were retained: ";
+
+"IDV Login 已就绪。" = "IDV Login is ready.";
+
+"IDV Login 已就绪；本机登录代理可用。" = "IDV Login is ready; the local login proxy is available.";
+
+"IDV Login 已停止。" = "IDV Login has stopped.";
+
+"IDV Login 已就绪；请选择服务器后再启动或重启对应游戏。" = "IDV Login is ready. Select a server before launching or restarting its game.";
+
+"IDV Login 已有进程正在初始化或配置异常；请先等待或关闭后再手动启动。" = "An IDV Login process is starting or misconfigured. Wait or stop it before starting manually.";
+
+"IDV Login 已卸载。" = "IDV Login has been uninstalled.";
+
+"IDV Login 辅助程序需要修复；可关闭“跟随游戏启动”后直接启动游戏。" = "The IDV Login helper needs repair. Turn off Start with Game to launch the game directly.";
+
+"请先安装 IDV Login 组件。" = "Install the IDV Login component first.";
+
+"IDV Login 组件已安装；可直接启动后台。" = "The IDV Login component is installed; you can start its background service.";
+
+"IDV Login 已安装；已默认开启“跟随游戏启动”，不会立即启动后台。" = "IDV Login is installed. Start with Game is enabled by default; its background service will not start yet.";
+
+"请先安装 IDV Login，再开启“跟随游戏启动”。" = "Install IDV Login before enabling Start with Game.";
+
+"Could not uninstall IDV Login: %@" = "Could not uninstall IDV Login: %@";

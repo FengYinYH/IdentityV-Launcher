@@ -558,6 +558,7 @@ python3 "$PROJECT_ROOT/signing/verifyFirstPartyIdentity.py" launcher "$APP_PATH"
   "$RESOURCE_SOURCE" \
   "$SOURCE_ROOT/Sources/LauncherHangMonitor.swift" \
   "$PROMPT_PROTOCOL" "$PROMPT_CLIENT" \
+  "$SOURCE_ROOT/Sources/LauncherLanguage.swift" \
   -o "$LAUNCHER_HANG_SELF_CHECK"
 "$LAUNCHER_HANG_SELF_CHECK"
 /bin/rm -f "$LAUNCHER_HANG_SELF_CHECK"

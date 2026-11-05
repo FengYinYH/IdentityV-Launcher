@@ -115,6 +115,7 @@ enum LauncherLanguage: String, CaseIterable, Identifiable {
             ("^下载控制将在(.+)后可用。$", "Download controls will be available %@."),
             ("^无法更新下载控制：(.+)$", "Could not update download controls: %@"),
             ("^下载核心报告磁盘空间不足，至少需要 (.+)。请清理磁盘后重试或选择其他位置。$", "The download core needs at least %@ of disk space. Free up space or choose another location."),
+            ("^卸载 IDV Login 失败：(.+)$", "Could not uninstall IDV Login: %@"),
             ("^安装游戏失败：(.+)$", "Game installation failed: %@"),
             ("^(.+)失败：(.+)$", "%@ failed: %@"),
             ("^无法(.+)：(.+)$", "Could not %@: %@"),

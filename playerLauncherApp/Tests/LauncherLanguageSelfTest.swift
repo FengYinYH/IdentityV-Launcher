@@ -70,7 +70,24 @@ enum LauncherLanguageSelfTest {
             nestedLookupCount += 1
             return englishLookup(key)
         }
+        let loginMessages = [
+            "IDV Login 已就绪；本机登录代理可用。", "IDV Login 已停止。",
+            "IDV Login 已就绪；请选择服务器后再启动或重启对应游戏。",
+            "IDV Login 已有进程正在初始化或配置异常；请先等待或关闭后再手动启动。",
+            "IDV Login 已卸载。", "IDV Login 辅助程序需要修复；可关闭“跟随游戏启动”后直接启动游戏。",
+            "请先安装 IDV Login 组件。", "IDV Login 组件已安装；可直接启动后台。",
+            "IDV Login 已安装；已默认开启“跟随游戏启动”，不会立即启动后台。"
+        ]
+        let loginChecks = loginMessages.map { source in
+            LauncherLanguage.simplifiedChinese.localizedMessage(source, lookup: simplifiedLookup) == source &&
+            LauncherLanguage.traditionalChinese.localizedMessage(source, lookup: traditionalLookup) == traditional[source] &&
+            LauncherLanguage.english.localizedMessage(source, lookup: englishLookup) == english[source] &&
+            english[source] != nil && traditional[source] != nil
+        }
         let translationChecks = [
+            LauncherLanguage.english.localizedMessage("卸载 IDV Login 失败：opaque diagnostic", lookup: englishLookup) == "Could not uninstall IDV Login: opaque diagnostic",
+            LauncherLanguage.traditionalChinese.localizedMessage("卸载 IDV Login 失败：opaque diagnostic", lookup: traditionalLookup) == "解除安裝 IDV Login 失敗：opaque diagnostic",
+            LauncherLanguage.english.localizedMessage("unknown third-party diagnostic", lookup: englishLookup) == "unknown third-party diagnostic",
             nestedLookupCount <= 18,
             boundedNested.hasPrefix(String(repeating: "Game installation failed: ", count: 6)),
             boundedNested.hasSuffix(String(repeating: "安装游戏失败：", count: 44) + "未知原文"),
@@ -102,7 +119,7 @@ enum LauncherLanguageSelfTest {
                          LauncherLanguage.traditionalChinese.gameDisplayName == "第五人格",
                          LauncherLanguage.english.gameDisplayName == "Identity V",
                          LauncherLanguage.system.gameDisplayName == (LauncherLanguage.system.locale.identifier == "en" ? "Identity V" : "第五人格")]
-        let checks = localeChecks + [defaultLanguage, storedLanguage, invalidValueFallsBack] + translationChecks + gameNames
+        let checks = localeChecks + [defaultLanguage, storedLanguage, invalidValueFallsBack] + translationChecks + loginChecks + gameNames
         guard checks.allSatisfy({ $0 }) else {
             FileHandle.standardError.write(Data("Launcher language self-test failed: \(checks)\n".utf8))
             exit(1)
