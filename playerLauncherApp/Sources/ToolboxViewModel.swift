@@ -634,6 +634,36 @@ final class ToolboxViewModel: ObservableObject {
 
     func performProductAction(_ action: GameProductAction, for productID: GameProductID) {
         guard !runtimePrerequisiteCheckIsRunning, activeProductAction == nil else { return }
+        if action == .repair, let product = products.first(where: { $0.productId == productID }),
+           product.baseManifestVerified != nil, let path = product.gamePath, let manager = productManagerURL() {
+            let alert = NSAlert()
+            alert.messageText = LauncherLanguage.current.localized("检查外部客户端")
+            alert.informativeText = LauncherLanguage.current.localized("启动器不会自动覆盖外部游戏文件。可以只读检查官方基础清单；热更新可能导致差异。若游戏无法使用，请通过官方客户端更新或重新安装。")
+            alert.addButton(withTitle: LauncherLanguage.current.localized("检查游戏"))
+            alert.addButton(withTitle: LauncherLanguage.current.localized("取消"))
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            activeProductAction = .repair
+            activeProductID = productID
+            showOperation("正在检查外部客户端…")
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let result = Self.runProductManager(manager, arguments: ["inspect", "--json", "--product", productID.rawValue, "--path", path])
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.activeProductAction = nil
+                    self.activeProductID = nil
+                    guard result.status == 0, let report = try? JSONDecoder().decode(ExistingClientInspectionReport.self, from: Data(result.output.utf8)), report.schemaVersion == 1, report.productId == productID.rawValue else {
+                        self.showOperation("无法完成外部客户端检查，请查看日志或稍后重试。", isError: true)
+                        return
+                    }
+                    let resultAlert = NSAlert()
+                    resultAlert.messageText = LauncherLanguage.current.localized("外部客户端检查完成")
+                    resultAlert.informativeText = LauncherLanguage.current.localized(report.valid ? "官方基础清单文件一致；热更新文件未包含在本次检查中。未修改游戏文件。" : "部分文件与官方基础清单不同，可能是官方热更新；这不能单独证明游戏损坏。未修改游戏文件。")
+                    resultAlert.addButton(withTitle: LauncherLanguage.current.localized("好"))
+                    resultAlert.runModal()
+                }
+            }
+            return
+        }
         let needsRuntime = [GameProductAction.install, .importExisting, .repair, .launch, .restart].contains(action)
         guard needsRuntime, productManagerIsAvailable, let manager = productManagerURL() else {
             performProductActionAfterPrerequisites(action, for: productID)

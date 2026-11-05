@@ -478,10 +478,12 @@ private struct ProductPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
-                actionGrid
+                actionGrid.fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 0)
                 Label(LocalizedStringKey(LauncherLanguage.current.localized(installationStatusTitle)), systemImage: installationStatusSymbol)
                     .font(.headline.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                     .foregroundStyle(installationStatusColor)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 8)
@@ -546,14 +548,13 @@ private struct ProductPanel: View {
     private func actionLabel(_ item: GameProductAction) -> some View {
         HStack(spacing: 6) {
             if isBusy(item) { ProgressView().controlSize(.small) }
-            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(item.localizedTitle)))
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(item == .repair && product.baseManifestVerified != nil ? "检查游戏" : item.localizedTitle)))
         }
         .fixedSize(horizontal: true, vertical: false)
     }
     private var installationStatusTitle: String {
-        if product.baseManifestVerified == false && !isRunning && !isBusy(.launch) { return LauncherLanguage.current.localized("已登记，完整性待确认") }
         return LauncherLanguage.current.localized(ProductRuntimeStatusLabel.localizationKey(
-            isInstalled: product.state != .notInstalled,
+            isInstalled: product.gamePath != nil || product.state == .available,
             processExists: isRunning,
             windowReady: isWindowReady,
             launchIsBusy: isBusy(.launch)
@@ -563,12 +564,12 @@ private struct ProductPanel: View {
         if isBusy(.launch) { return "hourglass" }
         if isWindowReady { return "checkmark.circle.fill" }
         if isRunning { return "hourglass" }
-        return product.state == .notInstalled ? "arrow.down.circle.fill" : "checkmark.circle.fill"
+        return product.gamePath != nil || product.state == .available ? "checkmark.circle.fill" : "arrow.down.circle.fill"
     }
     private var installationStatusColor: Color {
         if isWindowReady { return .green }
         if isRunning || isBusy(.launch) { return .orange }
-        return product.state == .notInstalled ? .secondary : .blue
+        return product.gamePath != nil || product.state == .available ? .blue : .secondary
     }
 }
 

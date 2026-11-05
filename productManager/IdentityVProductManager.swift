@@ -797,7 +797,8 @@ private func status(for product: CatalogProduct, state: ProductState) -> StatusP
     if installation.installer != nil {
         return StatusProduct(productId: product.id, state: "not-installed", installedVersion: nil, detail: "官方安装器已下载；请在维护窗口完成安装并导入客户端。", canRemove: true)
     }
-    return StatusProduct(productId: product.id, state: "needs-repair", installedVersion: installation.installedVersion, detail: "已记录的游戏、prefix 或 Wine 运行时当前不可用；请重新连接原磁盘或修复。", canRemove: true)
+    let presentRoot = installation.gameRoot.flatMap { resolve($0) }.flatMap { gameExecutable(in: $0) != nil ? $0 : nil }
+    return StatusProduct(productId: product.id, state: "needs-repair", installedVersion: installation.installedVersion, detail: "已记录的游戏、prefix 或 Wine 运行时当前不可用；请重新连接原磁盘或修复。", canRemove: true, gamePath: presentRoot?.path, baseManifestVerified: installation.externalGameRoot == true ? installation.installedVersion != nil : nil)
 }
 
 private func gameIsRunning() -> Bool {

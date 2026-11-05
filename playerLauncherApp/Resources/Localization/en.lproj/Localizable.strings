@@ -452,3 +452,11 @@
 "启动器未能进一步分类；请保留完整代码及具体提示，并查看日志。" = "The launcher could not classify this further. Keep the full code and detailed message, and check logs.";
 "上次启动请求未完成" = "Last launch request did not complete";
 "启动器错误代码" = "Launcher error code";
+"检查游戏" = "Check Game";
+"检查外部客户端" = "Check External Client";
+"启动器不会自动覆盖外部游戏文件。可以只读检查官方基础清单；热更新可能导致差异。若游戏无法使用，请通过官方客户端更新或重新安装。" = "The launcher will not overwrite external game files. You can check the official base manifest without changing files. Hot updates may cause differences. If the game cannot run, update or reinstall it using the official client.";
+"正在检查外部客户端…" = "Checking external client…";
+"无法完成外部客户端检查，请查看日志或稍后重试。" = "Could not check the external client. Check the logs or try again later.";
+"外部客户端检查完成" = "External Client Check Complete";
+"官方基础清单文件一致；热更新文件未包含在本次检查中。未修改游戏文件。" = "The official base manifest matches. Hot-update files were not checked. No game files were changed.";
+"部分文件与官方基础清单不同，可能是官方热更新；这不能单独证明游戏损坏。未修改游戏文件。" = "Some files differ from the official base manifest, possibly due to an official hot update. This alone does not prove the game is damaged. No game files were changed.";
