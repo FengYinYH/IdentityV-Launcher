@@ -121,3 +121,25 @@ run41996455990（checkout53deb64）的国服job21分9秒成功：构建323.90秒
 国际服修复候选a8d27ba的run42000828792完整构建354.50秒、前提5.14秒、真实共享清单1.03秒均成功，得到444文件/17,602,266,736 bytes，版本v3_1278_3c43b662809efa2461d0bf3f51d56cb7。尚未安装：安装前34,725,064,704 bytes（32.34GiB），低于旧CI额外17GiB预留给出的34GiB门槛。不是产品空间错误或下载失败，也未启动游戏。
 
 依据国服实测基础数据之外约2GiB的占用，后续CI预留调整为14GiB：运行时/prefix/临时数据4GiB、热更新4GiB、硬停止底线6GiB，向上取整基础清单后门槛31GiB。产品自身D+2GiB检查与监督6GiB停止规则不变；不删工具链、不购买larger runner。采用同一a8d27ba生产源码，仅再执行国际服，不重复国服；此前国际服尝试均未开始载荷下载。空间不足或上游拒绝仍明确失败，不作无界重试。space-preflight阶段单独输出，避免把预算拒绝称作metadata解析失败。
+
+
+### 32.34GiB余量的测量归属
+
+run42000828792驱动开始（已完成checkout、setup-go和图形检查，尚未完整App构建）可用37,359,611,904 bytes=34.7938GiB；构建/前提/清单后、游戏安装前34,725,064,704 bytes=32.3402GiB，阶段净差2,634,547,200 bytes=2.4536GiB。两数是df式卷余量采样，不是du式项目独占占用；没有对Appbundle、Go cache、Swift module cache或预装工具作分目录测量，不能将全部差额或初始已用空间归因于本项目。setup-go本轮另下载Go1.27.3，发生在驱动initialFree之前。镜像清单明确有Xcode/SDK、多个语言版本、浏览器和预缓存工具，版本为xcode-27-arm64/20261026.0314.1；各自占多少GiB没有实测。
+
+此前run41991243123曾记录卷总150GiB、当时35GiB可用，但不是42000828792的卷总量实测，不作该次精确磁盘分解。未来已有验收任务可在构建前/后增加df -k和特定目录du -sk：RUNNER_TEMP下build、go env GOCACHE/GOMODCACHE、选定Swift module cache、工作树和目标Appbundle；初始仅补预装目录如/Applications、/Library/Developer的只读统计，并区分包含关系避免重复加总。此需求不另触发CI、不删除预装工具，也不部署风栈/BWH。
+
+
+## 两服实验最终结论（已结束，不追加任务）
+
+国际服run [42002240555](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/42002240555) 最终success，job33分24秒（09:25:26–09:58:50 UTC），checkout `3d91b973401283ed736ef9ad33ad7ae98197c98a`，生产修复基线 `a8d27ba67b813b9a9c44d7ec99db3861e3012268`。完整构建483.40秒，首装922.33秒（15分22秒），启动观察/收尾490.13秒。444文件、17,602,266,736 bytes基础清单全量核心校验及ready/版本/事务清理通过，安装任务与子进程exit0；启动任务约46.48秒首次观测为succeeded并验证窗口，停止任务也succeeded。真实进程从15.32秒起连续采样为1，修正后的进程匹配和停止记录均得到此次验证。
+
+四张原始截图已逐张查看：第1张为启动准备中的桌面，第2/3/4张可读IdentityV游戏窗口，Downloading patches进度5.09% → 18.42% → 26.64%，最后约997MB/3744MB。因此确认Metal环境下的实际客户端画面、热更新开始和持续推进；八分钟观察截止时尚未完成补丁，没有公告页。国服此前同样停在热更新21.65%，不是公告页通过。两个原始result.json均保留hotUpdateVerified=false、announcementVerified=false；旁路视觉验收记录区分“开始/推进”和“完成”，不改写原始附件。没有账号登录、点击/按键、对局或限制绕过，不将window/process里程碑冒充公告页。
+
+本次镜像xcode-27-arm64/20261026.0314.1，macOS27.0.1，Region明确westus、Cloud为MacCloud；图形探针实证Apple Paravirtual device、Metal命令completed、1024x768桌面及已有截屏权限。只证明该托管虚拟图形环境，不能替代物理GPU性能、macOS14/15、Gatekeeper/最终签名包及干净权限弹窗验收；也没有记录出口IP/路径或CDN机房，不推断具体网络位置。
+
+国际服初始34.898GiB，安装前34.031GiB，含启动观察采样的最低15.272GiB、相对初始观测额外峰值19.626GiB。构建/首装5秒采样、启动观察15秒采样，不是绝对瞬时峰值。此前32.3402GiB来自另一次42000828792，其构建前34.7938GiB，净差2.4536GiB；两次都没有分目录du数据，不能以这些差额替代项目产物/缓存独占占用。
+
+两服均调用自身停止接口后结束临时job，runner按托管机制回收；没有本机删除游戏、修改日用App、main/设置/Release或上传游戏/runtime/prefix。附件只有限量结果/已过滤日志尾/四张临时游戏画面，保留3天；原始结果和截图本地留私人证据，未提交截图。风栈缓存及BWH不再准备、部署或测试，本任务此前也没有部署这些服务，不撤销用户既有配置或数据。所有本轮运行已终态，不再触发重复测试。
+
+交接：独立产品补丁global-manifest-routing-fix.patch只含一行分流修复、实际CLI正/负夹具和接口文档；另有supervisor-fixture-timing-fix.patch仅修改测试时序，两者曾在共享整合树0eef2de上git apply --check通过，未修改共享树。完整CI实验增量另行提供，正式整合时应更新冻结candidate到整合后的真实SHA，不直接照抄旧实验SHA；不把整合后不同源码视为已经获得同一次验收。
