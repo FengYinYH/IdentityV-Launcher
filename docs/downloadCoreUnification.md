@@ -218,3 +218,30 @@ PR #6 的正文指出的仅国际服 legacyBinding 误报路径成立；其补�
 ### 真实 304 帧接续（2026-11-05）
 
 独立缓存探针在不改变宿主信任的隔离代理环境中，已从锁定真实核心捕获 464 字节明文 304，SHA-256 为 `a6e986445ec4677d9219ed8a5e5e555d37c637a9aa5f80bfb907ba15d9b431da`，内容包含清单下载失败、TLS 信任失败及 try count exceeded；序列为 2→304→重复10。它与静态清单重试失败定义吻合，但不证明原 issue 都是同一 TLS 原因。已将真实第三帧字节在临时测试副本交给同一监督器源码回放，通过立即失败与受限摘要检查；原始载荷留仓外，不编造厂商 JSON。公共回归另外覆盖2→304→重复10的结构，确保已建立进度后也不被辅助状态拖住。
+
+
+## PR #5/#6 作者历史保留评估（2026-11-05，仅隔离实验）
+
+所有者希望正式 GitHub 记录保留贡献者痕迹。本节仅报告隔离实验，没有把评估分支合入现工作分支、推送或改变 PR 状态。核查时 main 为 `0896cd9c0149c52de94a22697d2170429a71af4a`，两个 PR 均 open、merged=false、mergeable=true；作者显示为 Bloody-Regina，对应 PR 提交者 BloodyReginaa。#5 原始头 `c15101a964d6096c9dfff7da186414217ac5bab7`，#6 原始头 `dee483eb8ed99016fbce4815c80d072238c88a8a`，各一个提交且基于同一 main。仓库允许 merge commit、rebase 和 squash；正式操作前还须复核当时的保护规则、检查和最新 PR 头，不能以本次快照替代。
+
+### 实验、冲突与最终树
+
+从当前 main 开始先用 no-ff 保留 #5，再用 no-ff 保留 #6，两步彼此均干净合并。随后合并已验 RC5 `51760a922d8a4c03faf180df06f099f92395fae1`，冲突为 STATUS、supervisor.go 及两份 launchIdentityVRunner，共四处。保留当前严格实现后，自动合并仍额外带入三个文件的 176 行测试/构建变化：旧 PR5 测试将 controlledWineEnv 当单返回值而编译失败，原 PR6 测试依赖 global_installation_raw 名称而无法定位当前 parser。这证明机械解决文本冲突不足以得到可用候选。
+
+临时实验最后将树明确调和到已验 RC5 快照，记录调和的 merge commit `d7ec823462aa0a7ab30f42f8aa406f34ab1aeeaa`；它的父提交为“已合并两原 PR 的实验链”及原 RC5 提交。merge-base 检查确认 #5、#6 和原 RC5 都是该头的祖先；三个原始 SHA 与 author 信息保持不变。实验树与原 RC5 树均为 `d9cfc75beda275ba694814f1388923c259716503`，git diff 为零。调和后 Go 全模块与实际 gameRootBinding 合成回归通过，两份 runner 字节一致。未把 d7ec823 当成已构建/已签名候选。
+
+### 推荐及 GitHub 状态条件
+
+推荐保留上述“原 PR 提交 + 明确调和提交”的 merge 历史，保留现有更严格实现和诊断，不让旧测试接口迫使代码退化。可以在后续获准的独立整合 PR 中携带这些原始祖先，再以 merge commit 合入目标 main；也可先在 GitHub 分别合并原 PR，再立即调和 RC5，但这会让 main 出现中间态，应结合 CI/自动发布行为选择。本轮没有实施任何远端步骤。
+
+本地出现原作者提交不等于 GitHub 已 merged。GitHub 文档说明，当 PR 的原始头提交经其他路径在实际 base 分支可达时，可以标为间接合并；在各原 PR 页面执行获准的 merge 也会留下其正式合并记录。仅把新整合分支留本地或推到别的分支不满足 base 可达条件。对整合分支做 squash/rebase 会改变 SHA，不能再依赖本实验的原始祖先证明。实际采用时仍按规则和检查执行，不能利用间接合并规避保护。参见 [GitHub merge/indirect merge 说明](https://docs.github.com/en/pull-requests/reference/pull-request-merges)。
+
+替代方案：cherry-pick -x 可保留原 author 并引用原 SHA，但会生成新 SHA，不保证原 PR 自动变 merged；分别在原 PR 执行 squash/rebase merge 可留下各自 merged 状态，但不保留所有原始 SHA；仅写致谢或经确认的 Co-authored-by 也能表明贡献，但不等于原 PR 合并。共同作者邮箱应由贡献者确认，不随意编造。GitHub profile/contributors 统计还取决于默认分支可达及提交邮箱与账号关联，不应承诺每行 blame 或即时统计都显示同一作者。参见 [贡献统计条件](https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference)和[共同作者信息](https://docs.github.com/en/pull-requests/how-tos/commit-changes/creating-a-commit-with-multiple-authors)。
+
+测试成本分层：相同最终树允许沿用已有功能证据，仍应运行 Go/严格 parser/关键绑定负例并复核树；若采用新历史，App 的 sourceCommit、对应源码包和材料身份改变，必须从新 clean HEAD 重建/签名/打包、生成新哈希，再做日用入口烟测和最终包身份验收。不能直接把 build13 的旧签名包或 DMG 哈希挂到新历史上，也无需仅因历史变化再下载全部游戏来冒充新增功能验证。后续若代码或输入变化，则按变化扩大回归。
+
+## build 13 本机交付验证
+
+干净源码 51760a9 完整构建与全部检查通过，新增 symlink-root/empty-root 审计回归也通过。完成本地 VM 测试 DMG、对应源码材料 ZIP、只读挂载签名/身份复验及 SHA-256 复算；没有公证。DMG SHA-256 为 `b1d77feb98047b745c3ad2b35e51619e3750b5dc8da22e014722c9f6e03eda8b`，材料 ZIP 为 `f60eb18948c75990cc08d2872630794b38e3a0e23799411f545a0ce104d09a04`。
+
+通过正常安装入口更新日用 App 到 build13，保留旧版备份；安装后与 Terra UI 烟测后，原 products/installation/runtime-binding 字节哈希均未变。Terra 从确切日用路径确认两服状态/路径正常、旧 helper 对应需要更新状态符合预期，正常退出后独立进程核验已无启动器实例。实际用该日用包 manager 在无国服 legacy 记录的隔离 HOME 预检并启动国际服，返回成功且截图确认当天公告，无299；按所有者验收终点完成后正常结束隔离国际服，国服和登录代理保留。A/B 不同的真实游戏、macOS14、全新 CA 和新633系统组件运行仍未由此覆盖。反馈补丁仍未应用。
