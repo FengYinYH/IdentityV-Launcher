@@ -24,7 +24,7 @@ trap cleanup EXIT
   -target arm64-apple-macos14.0 \
   -sdk "$SDK_PATH" \
   "$SOURCE" \
-  "$SCRIPT_DIR/AgentCLI.swift" \
+  "$SCRIPT_DIR/AgentCLI.swift" "$SCRIPT_DIR/../sharedDiagnostics/LauncherOperationLocks.swift" \
   "$SCRIPT_DIR/LegacyDefaultPathMigration.swift" \
   "$SCRIPT_DIR/LegacyDefaultPathMigrationSelfTest.swift" \
   "$SCRIPT_DIR/../playerLauncherApp/Sources/LauncherLanguage.swift" \
@@ -35,6 +35,7 @@ trap cleanup EXIT
 "$MANAGER" self-test
 HOME="$TEST_HOME" "$MANAGER" status --json | /usr/bin/plutil -extract schemaVersion raw - | /usr/bin/grep -qx '1'
 HOME="$TEST_HOME" IDENTITYV_AGENT_TASK_ROOT="$TEST_ROOT/tasks" python3 "$SCRIPT_DIR/tests/managerAgent.test.py" "$MANAGER"
+python3 "$SCRIPT_DIR/tests/updaterAgent.test.py" "$MANAGER"
 if [[ "${1:-}" == "--network-smoke" ]]; then
   HOME="$TEST_HOME" IDENTITYV_AGENT_TASK_ROOT="$TEST_ROOT/tasks" python3 "$SCRIPT_DIR/tests/officialNetworkSmoke.test.py" "$MANAGER"
 fi

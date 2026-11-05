@@ -57,6 +57,7 @@ def verify_launcher(app: Path) -> None:
         "Contents/MacOS/IdentityVLauncher": f"{PREFIX}.launcher",
         "Contents/MacOS/IdentityVHangPrompt": f"{PREFIX}.launcher.hang-prompt",
         "Contents/Helpers/IdentityVMicrophoneAuthorization": f"{PREFIX}.launcher.microphone-authorization",
+        resources + "IdentityVUpdateHelper": f"{PREFIX}.launcher.update-helper",
         resources + "IdentityVProductManager": f"{PREFIX}.launcher.product-manager",
         resources + "IdentityVDownloadSupervisor": f"{PREFIX}.launcher.download-supervisor",
         resources + "IdentityVManifestPlanner": f"{PREFIX}.launcher.manifest-planner",

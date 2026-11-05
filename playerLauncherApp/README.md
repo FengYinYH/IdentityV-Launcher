@@ -33,3 +33,5 @@ runner 另有独立的 ANR/前台低 CPU 取证：十分钟冷却、最多四份
 ```
 
 构建先刷新内嵌 runner、runtime catalog、音频与输入资源，再嵌入原生下载/管理/诊断 helper。签名从内层代码到外层 App 逐层进行，具体身份由 `signing/lib/signIdentityV.sh` 解析；构建自测使用隔离 HOME，不下载游戏、不启动游戏、不安装 helper，也不请求系统权限。构建候选之后如何运行、更新 `/Applications` 和恢复，见[项目维护入口](../README.md)。
+
+“版本与更新”由用户点击后异步检查 GitHub Releases，正式版和预发布统一按版本号比较。只有明确点击“更新”才会下载对应 macOS 安装包，核对摘要、项目签名和 Gatekeeper 后同址替换并重启；确认新版主界面启动后直接清理本次临时包。更新检查不影响游戏或组件操作；实际安装需先结束游戏、等待现有下载/安装完成，且 App 位于当前用户可写的“应用程序”目录。协议、内存缓存与限流处理见[工程记录](../docs/engineeringDecisions.md#github-releases-手动版本检测2026-11-05)。

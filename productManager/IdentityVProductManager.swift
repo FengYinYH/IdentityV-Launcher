@@ -604,15 +604,10 @@ private func atomicallyReplace(_ temporary: URL, with destination: URL) throws {
 }
 
 private func withMutationLock<T>(_ body: () throws -> T) throws -> T {
-    try ensureSupportDirectory()
-    let lockURL = supportDirectory.appendingPathComponent("product-manager.lock")
-    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-    guard descriptor >= 0 else { throw ManagerError.message("无法建立启动器操作锁。") }
-    defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-        throw ProductMutationLockError.busy
-    }
-    defer { flock(descriptor, LOCK_UN) }
+    let lease: LauncherOperationLease
+    do { lease = try LauncherOperationLease.mutation() }
+    catch { throw ProductMutationLockError.busy }
+    defer { lease.release() }
     return try body()
 }
 
@@ -4278,7 +4273,11 @@ private enum IdentityVProductManagerEntry {
         if CommandLine.arguments.dropFirst().first == "agent" {
             exit(AgentCLI.main(Array(CommandLine.arguments.dropFirst(2))))
         }
-        do { try runMain() } catch {
+        do {
+            let admission = CommandLine.arguments.dropFirst().first == "self-test" ? nil : try LauncherOperationLease.admission(exclusive: false)
+            defer { admission?.release() }
+            try runMain()
+        } catch {
             if let details = managerFailureDetails(for: error, agentTaskID: ProcessInfo.processInfo.environment["IDENTITYV_AGENT_TASK_ID"]) {
                 FileHandle.standardError.write(details + Data([10]))
             }

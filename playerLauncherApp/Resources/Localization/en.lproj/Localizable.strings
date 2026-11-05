@@ -45,7 +45,6 @@
 "版本与更新" = "Version & Updates";
 "运行状态" = "Runtime Status";
 "常用操作" = "Quick Actions";
-"重启游戏" = "Restart Game";
 "输入到画面延迟" = "Input-to-Display Latency";
 "停止测量" = "Stop Measurement";
 "开始 18 秒测量" = "Start 18-Second Measurement";
@@ -99,7 +98,6 @@
 "下载速度" = "Download Speed";
 "剩余时间" = "Time Remaining";
 "游戏文件" = "Game Files";
-"兼容环境" = "Compatibility Environment";
 "已暂停" = "Paused";
 "下载失败" = "Download Failed";
 "选择此版本" = "Select This Version";
@@ -307,3 +305,107 @@
 "旧 IDV Login 会话已结束，正在重新启动…" = "The previous IDV Login session ended. Restarting…";
 
 "旧游戏会话已结束并重新启动；IDV Login 保持运行。" = "The previous game session ended and restarted; IDV Login remains running.";
+
+"已检测到新版本，是否更新？" = "A new version is available. Update now?";
+
+"当前版本：%@\n最新版本：%@" = "Current version: %@\nLatest version: %@";
+
+"已经是最新版" = "You’re up to date";
+
+"暂时没有可用的发布版本。" = "No releases are available.";
+
+"检查过于频繁或 GitHub 暂时限流，请在 %@ 后重试。" = "Checks are too frequent or GitHub is rate limiting requests. Try again after %@.";
+
+"暂时无法检查更新，请稍后重试。你可以继续使用启动器的全部功能。" = "Unable to check for updates. Please try again later. All launcher functions remain available.";
+
+"更新未完成" = "Update Incomplete";
+
+"正在下载更新…" = "Downloading update…";
+
+"正在校验更新并准备重启…" = "Verifying the update and preparing to restart…";
+
+"更新版本信息无效。" = "The release information is invalid.";
+
+"发布版本缺少唯一且可校验的 macOS 安装包。" = "The release does not have a unique, verifiable macOS installer.";
+
+"更新校验或安装失败；原有用户数据未修改。" = "Update verification or installation failed. Your existing user data was not modified.";
+
+"安装包大小不匹配，已停止更新。" = "The installer size does not match. The update was stopped.";
+
+"安装包校验失败，已停止更新。" = "Installer verification failed. The update was stopped.";
+
+"新版应用的身份或版本不匹配，已停止更新。" = "The new app identity or version does not match. The update was stopped.";
+
+"新版应用不支持此 Mac 的处理器。" = "The new app does not support this Mac’s processor.";
+
+"自动更新需要将启动器安装在可写的“应用程序”目录中；不会自动请求管理员权限。" = "Automatic updates require the launcher to be in a writable Applications folder. Administrator privileges are not requested automatically.";
+
+"请先结束游戏或等待当前安装、下载完成，再更新启动器。" = "End the game or wait for the current installation or download to finish before updating the launcher.";
+
+"更新事务信息无效，已停止安装。" = "The update transaction is invalid. Installation was stopped.";
+
+"安装包下载失败，请稍后重试。" = "The installer download failed. Please try again later.";
+
+"更新暂存目录已存在，已停止安装。" = "The update staging folder already exists. Installation was stopped.";
+
+"启动器缺少更新助手，请重新安装启动器。" = "The update helper is missing. Please reinstall the launcher.";
+
+"更新助手未能准备就绪；原版本保持不变。" = "The update helper could not get ready. The original version was kept.";
+
+"另一个更新正在进行，请稍后重试。" = "Another update is in progress. Try again later.";
+
+"另一个安装、更新或游戏操作仍在进行，请稍后重试。" = "Another installation, update, or game operation is in progress. Try again later.";
+
+"启动器尚未退出，已停止安装。" = "The launcher is still running. Installation has stopped.";
+
+"启动器更新未完成" = "Launcher Update Incomplete";
+
+"回退目录已存在，已停止安装。" = "A rollback folder already exists. Installation has stopped.";
+
+"安装目标发生变化，旧版备份已保留。" = "The installation target changed. The previous version was kept as a backup.";
+
+"已安装版本发生变化，请重新检查更新。" = "The installed version changed. Check for updates again.";
+
+"新版仍在运行，但未确认启动完成；旧版备份已保留，未自动回退。" = "The new version is running but has not confirmed startup. The previous version remains backed up.";
+
+"新版应用不支持当前 macOS 版本。" = "The new version does not support this macOS version.";
+
+"新版应用的系统版本要求无效。" = "The new version has an invalid system version requirement.";
+
+"新版未能启动，正在恢复原版本。" = "The new version could not start. Restoring the previous version.";
+
+"无法创建更新命令输出。" = "The update command output could not be created.";
+
+"无法创建更新结果记录。" = "The update result could not be recorded.";
+
+"无法确认更新命令退出状态。" = "The update command’s exit status could not be verified.";
+
+"无法确认更新映像挂载状态，临时目录已保留。" = "The update image’s mount status could not be verified. Temporary files were retained.";
+
+"无法锁定更新目标，已停止安装。" = "The update target could not be locked. Installation has stopped.";
+
+"更新临时目录身份无效。" = "The update temporary folder could not be validated.";
+
+"更新助手未返回有效结果；请检查保留的事务。" = "The update helper did not return a valid result. Check the retained transaction.";
+
+"更新启动回执身份不匹配。" = "The update startup acknowledgment does not match.";
+
+"更新命令输出超出限制。" = "The update command output exceeded its limit.";
+
+"更新命令超时，已停止本次命令。" = "The update command timed out and was stopped.";
+
+"更新映像尚未卸载，临时目录已保留。" = "The update image is still mounted. Temporary files were retained.";
+
+"更新校验或安装命令未能启动。" = "The update verification or installation command could not start.";
+
+"更新目录中存在未知挂载，已保留临时目录。" = "An unknown mount exists in the update folder. Temporary files were retained.";
+
+"更新记录格式无效。" = "The update record is invalid.";
+
+"更新记录超出限制。" = "The update record exceeded its size limit.";
+
+"旧版备份：" = "Previous version backup: ";
+
+"事务目录：" = "Transaction folder: ";
+
+"更新临时文件未能清理，已保留：" = "Temporary update files could not be removed and were retained: ";

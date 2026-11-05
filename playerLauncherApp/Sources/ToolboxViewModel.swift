@@ -254,6 +254,17 @@ final class ToolboxViewModel: ObservableObject {
     @Published var shouldConfirmLoginCertificateTrust = false
     @Published private(set) var showsSkipLoginConfirmation = false
     @Published private(set) var launcherUpdateIsChecking = false
+    @Published var showsLauncherUpdateResult = false
+    @Published private(set) var launcherUpdateMessage = ""
+    @Published private(set) var launcherUpdateTitle = ""
+    @Published private(set) var launcherUpdatePageURL: URL?
+    private let launcherUpdateChecker = LauncherUpdateChecker()
+    private let launcherUpdatePreparer = LauncherUpdatePreparer()
+    private var launcherAvailableRelease: LauncherGitHubRelease?
+    private var launcherUpdateTask: Task<Void, Never>?
+    @Published private(set) var launcherUpdateIsInstalling = false
+    @Published private(set) var launcherUpdateCanCancel = false
+    @Published private(set) var launcherUpdateDownloadProgress = 0.0
     @Published private(set) var feedbackIsSending = false
     @Published private(set) var gameRestartIsRunning = false
     @Published private(set) var overlayStopIsRunning = false
@@ -1435,11 +1446,130 @@ final class ToolboxViewModel: ObservableObject {
         showOperation("已开启“跟随游戏启动”；首次使用前会说明本地证书信任授权。")
     }
 
+    /// Receipt never waits for status: the helper still holds admission while
+    /// acknowledging startup. Retry once it releases, rather than leaving the
+    /// initial busy status permanently visible or adding ordinary volume polls.
+    func refreshAfterLauncherUpdate() {
+        Task { [weak self] in
+            for _ in 0..<150 {
+                guard let self else { return }
+                if !self.productStatusRefreshInFlight {
+                    do {
+                        let lease = try LauncherOperationLease.admission(exclusive: false, application: Bundle.main.bundleURL)
+                        lease.release()
+                        self.refreshProductStatus(); self.refreshRuntimeStatus()
+                        return
+                    } catch { }
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            self?.refreshProductStatus()
+        }
+    }
+
     func checkForLauncherUpdate() {
-        // Alpha 1 deliberately has no trusted update feed/signing key yet.
-        // Keep the visible action honest rather than silently contacting an
-        // unconfigured endpoint or presenting a fake one-click updater.
-        showOperation("当前版本 \(LauncherRelease.displayVersion)。此版本尚未提供自动更新；下载新版安装镜像后，退出启动器并替换应用即可。")
+        guard !launcherUpdateIsChecking else { return }
+        launcherUpdateIsChecking = true
+        launcherUpdatePageURL = nil
+        launcherAvailableRelease = nil
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.launcherUpdateIsChecking = false }
+            let language = LauncherLanguage.current
+            let current = LauncherRelease.displayVersion
+            self.launcherUpdateTitle = language.localized("版本与更新")
+            do {
+                switch try await self.launcherUpdateChecker.check(currentVersion: current) {
+                case .available(let release):
+                    self.launcherUpdateTitle = language.localized("已检测到新版本，是否更新？")
+                    self.launcherUpdateMessage = String(format: language.localized("当前版本：%@\n最新版本：%@"), current, LauncherUpdateInstallation.normalized(release.tag_name))
+                    self.launcherUpdatePageURL = release.pageURL
+                    self.launcherAvailableRelease = release
+                case .current:
+                    self.launcherUpdateTitle = language.localized("已经是最新版")
+                    self.launcherUpdateMessage = ""
+                case .noReleases:
+                    self.launcherUpdateMessage = language.localized("暂时没有可用的发布版本。")
+                }
+            } catch LauncherUpdateError.retryAfter(let date) {
+                let formatter = DateFormatter()
+                formatter.locale = language.locale
+                formatter.dateStyle = .none
+                formatter.timeStyle = .medium
+                self.launcherUpdateMessage = String(format: language.localized("检查过于频繁或 GitHub 暂时限流，请在 %@ 后重试。"), formatter.string(from: date))
+            } catch {
+                self.launcherUpdateMessage = language.localized("暂时无法检查更新，请稍后重试。你可以继续使用启动器的全部功能。")
+            }
+            self.showsLauncherUpdateResult = true
+        }
+    }
+
+    func installLauncherUpdate() {
+        guard !launcherUpdateIsInstalling, let release = launcherAvailableRelease else { return }
+        guard downloadProgress == nil, !productActionIsBusy, !loginInstallIsRunning, !loginUninstallIsRunning, !gameRestartIsRunning,
+              !loginMutationIsBusy else {
+            launcherUpdateTitle = LauncherLanguage.current.localized("更新未完成")
+            launcherUpdateMessage = LauncherLanguage.current.localized("请先结束游戏或等待当前安装、下载完成，再更新启动器。")
+            launcherUpdatePageURL = nil
+            return
+        }
+        launcherUpdateIsInstalling = true
+        launcherUpdateCanCancel = true
+        launcherUpdateDownloadProgress = 0
+        launcherUpdateTask = Task { [weak self] in
+            guard let self else { return }
+            var prepared: LauncherUpdatePlan?
+            var helper: Process?
+            defer {
+                self.launcherUpdateIsInstalling = false
+                self.launcherUpdateCanCancel = false
+                self.launcherUpdateTask = nil
+            }
+            do {
+                let plan = try await self.launcherUpdatePreparer.prepare(release, target: Bundle.main.bundleURL) { [weak self] progress in
+                    Task { @MainActor [weak self] in self?.launcherUpdateDownloadProgress = progress }
+                }
+                prepared = plan
+                try Task.checkCancellation()
+                self.launcherUpdateCanCancel = false
+                let process = try LauncherUpdateTransaction.start(plan)
+                helper = process
+                try await LauncherUpdateTransaction.waitUntilReady(process, plan: plan)
+                try LauncherUpdateTransaction.authorize(plan)
+                // The helper has authenticated the stage and acquired its lock.
+                // It cannot rename anything until this exact process exits.
+                NSApplication.shared.terminate(nil)
+            } catch {
+                if let process = helper, process.isRunning {
+                    process.terminate(); _ = await LauncherUpdateTransaction.waitForExit(process)
+                }
+                // The old launcher is still alive, therefore the helper cannot
+                // have entered the rename transaction. Clean only our own plan.
+                if let plan = prepared, (try? LauncherUpdateInstallation.validatePlan(plan)) != nil {
+                    if FileManager.default.fileExists(atPath: plan.root.path) {
+                        do { try LauncherUpdateInstallation.cleanupPrepared(plan) }
+                        catch {
+                            self.launcherUpdateTitle = LauncherLanguage.current.localized("更新未完成")
+                            self.launcherUpdateMessage = LauncherLanguage.current.localized("更新临时文件未能清理，已保留：") + plan.root.path
+                            self.launcherUpdatePageURL = nil
+                            return
+                        }
+                    }
+                }
+                if Task.isCancelled || error is CancellationError { self.showsLauncherUpdateResult = false }
+                else {
+                    self.launcherUpdateTitle = LauncherLanguage.current.localized("更新未完成")
+                    self.launcherUpdateMessage = LauncherLanguage.current.localizedMessage(error.localizedDescription)
+                    self.launcherAvailableRelease = nil
+                    self.launcherUpdatePageURL = nil
+                }
+            }
+        }
+    }
+
+    func cancelLauncherUpdate() {
+        guard launcherUpdateCanCancel else { return }
+        launcherUpdateTask?.cancel()
     }
 
     func prepareFeedback(title: String, description: String,

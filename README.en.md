@@ -20,6 +20,8 @@ Native-resolution rendering and macOS Game Mode in full screen are supported.
 
 Choose the default location or a custom folder during installation. Use “Custom Game Location” beside the address to select a file or folder. If a game is found, the launcher checks the official base manifest and registers it; otherwise it asks whether to install. In-game updates may differ from that manifest; unverified clients are clearly marked and are not automatically repaired. Removing an imported client preserves its external game files.
 
+Version & Updates checks GitHub releases on demand and, after confirmation, verifies the package, updates in place, and restarts.
+
 ## Download and installation
 
 1. Open the downloaded disk image and drag “第五人格启动器.app” into Applications.

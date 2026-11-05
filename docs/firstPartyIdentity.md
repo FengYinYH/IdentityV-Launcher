@@ -7,7 +7,7 @@
 | 玩家桌面 App | `com.xunfeng.identityv.launcher` | `com.fengyin.identityv.launcher`；玩家入口。 |
 | 维护者工具箱 App | `com.xunfeng.identityv.monitor` | `com.fengyin.identityv.toolbox`；产品是一款工具箱，监测只是其中一项能力。 |
 | 玩家 App 内嵌游戏 runner | `com.xunfeng.identityv.mac` | `com.fengyin.identityv.runner`；只负责交给 Wine 启动游戏，不是第二款玩家桌面 App。 |
-| 玩家 App 辅助程序 | `...launcher.hang-prompt`、`...launcher.microphone-authorization`、`...toolbox.{product-manager,download-supervisor,manifest-planner,downloader-core-bootstrap,global-adapter,runtime-bootstrap,diagnostic-exporter}` | 统一到 `com.fengyin.identityv.launcher.<职责>`；原 `toolbox` 是玩家 App 的旧目录名，不再用于新签名。IDV Login downloader 同属玩家 App。 |
+| 玩家 App 辅助程序 | `...launcher.hang-prompt`、`...launcher.microphone-authorization`、`...toolbox.{product-manager,download-supervisor,manifest-planner,downloader-core-bootstrap,global-adapter,runtime-bootstrap,diagnostic-exporter}` | 统一到 `com.fengyin.identityv.launcher.<职责>`；原 `toolbox` 是玩家 App 的旧目录名，不再用于新签名。IDV Login downloader 同属玩家 App；更新助手为 `com.fengyin.identityv.launcher.update-helper`。 |
 | 工具箱采样/展示辅助程序 | `...monitor.sampler`、`...monitor.display` | `com.fengyin.identityv.toolbox.sampler`、`.toolbox.display`；归属独立维护者 App。 |
 | runner 内自研辅助程序和音频 dylib | 原 `...function-keys`、`...game-activator`、`...login-dns-compat`、`...mouse-acceleration-controller`、`...command-grave-forwarder` 及按文件名自动生成的音频签名标识 | 统一到 `com.fengyin.identityv.runner.<职责>`；音频候选按阶段各有确定标识。 |
 | 内嵌安装状态检查工具 | `...privileged-state` | `com.fengyin.identityv.installer.privileged-state`；构建验证只自检，实际安装另按可见授权流程执行。 |

@@ -12,6 +12,17 @@ enum ToolboxLaunchLocationGuard {
 
 #if !TOOLBOX_LAUNCH_LOCATION_SELF_TEST
 @main
+@MainActor
+enum IdentityVLauncherEntry {
+    static func main() async {
+        let args = Array(CommandLine.arguments.dropFirst())
+        if LauncherEntryRouting.isAgentOperation(args) {
+            exit(await LauncherUpdateAgent.run(Array(args.dropFirst())))
+        }
+        IdentityVToolboxApp.main()
+    }
+}
+
 struct IdentityVToolboxApp: App {
     @NSApplicationDelegateAdaptor(ToolboxAppDelegate.self) private var appDelegate
     @StateObject private var model: ToolboxViewModel

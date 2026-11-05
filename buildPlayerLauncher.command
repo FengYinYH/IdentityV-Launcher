@@ -198,6 +198,17 @@ LANGUAGE_SELF_CHECK="$BUILD_ROOT/launcher-language-self-test"
 "$LEGACY_PREF_SELF_CHECK"
 /bin/rm -f "$LEGACY_PREF_SELF_CHECK"
 
+/usr/bin/xcrun swiftc -swift-version 5 -warnings-as-errors -O -parse-as-library \
+  -target arm64-apple-macos14.0 -sdk "$SDK_PATH" -framework AppKit \
+  "$SOURCE_ROOT/Sources/LauncherUpdateChecker.swift" \
+  "$SOURCE_ROOT/Sources/LauncherUpdateInstallation.swift" \
+  "$PROJECT_ROOT/sharedDiagnostics/LauncherOperationLocks.swift" \
+  "$SOURCE_ROOT/Sources/LauncherLanguage.swift" \
+  "$SOURCE_ROOT/UpdateHelper/LauncherUpdateHelper.swift" \
+  -o "$RESOURCES_DIR/IdentityVUpdateHelper"
+/usr/bin/codesign --force --sign - --identifier com.fengyin.identityv.launcher.update-helper "$RESOURCES_DIR/IdentityVUpdateHelper"
+"$SOURCE_ROOT/Tests/updaterSelfTest.command"
+
 /usr/bin/xcrun swiftc \
   -swift-version 5 \
   -warnings-as-errors \
@@ -213,6 +224,7 @@ LANGUAGE_SELF_CHECK="$BUILD_ROOT/launcher-language-self-test"
   "$RESOURCE_SOURCE" \
   "$DENSE_SOURCE" \
   "$LEGACY_PREF_SOURCE" \
+  "$PROJECT_ROOT/sharedDiagnostics/LauncherOperationLocks.swift" \
   "$SOURCE_ROOT"/Sources/*.swift \
   -o "$EXECUTABLE"
 
@@ -268,6 +280,7 @@ done
   -sdk "$SDK_PATH" \
   "$PRODUCT_MANAGER_SOURCE" \
   "$PROJECT_ROOT/productManager/AgentCLI.swift" \
+  "$PROJECT_ROOT/sharedDiagnostics/LauncherOperationLocks.swift" \
   "$PROJECT_ROOT/productManager/LegacyDefaultPathMigration.swift" \
   "$PROJECT_ROOT/productManager/LegacyDefaultPathMigrationSelfTest.swift" \
   "$SOURCE_ROOT/Sources/LauncherLanguage.swift" \
@@ -522,6 +535,10 @@ python3 "$PROJECT_ROOT/signing/verifyFirstPartyIdentity.py" launcher "$APP_PATH"
   "$PROMPT_PROTOCOL" "$PROMPT_CLIENT" \
   "$SOURCE_ROOT/Sources/ToolboxViewModel.swift" \
   "$SOURCE_ROOT/Sources/LauncherLanguage.swift" \
+  "$SOURCE_ROOT/Sources/LauncherUpdateChecker.swift" \
+  "$SOURCE_ROOT/Sources/LauncherUpdateInstallation.swift" \
+  "$SOURCE_ROOT/Sources/LauncherUpdateAgent.swift" \
+  "$PROJECT_ROOT/sharedDiagnostics/LauncherOperationLocks.swift" \
   -o "$PROCESS_SELF_CHECK"
 "$PROCESS_SELF_CHECK"
 /bin/rm -f "$PROCESS_SELF_CHECK"
@@ -546,7 +563,11 @@ python3 "$PROJECT_ROOT/signing/verifyFirstPartyIdentity.py" launcher "$APP_PATH"
 /bin/rm -f "$LAUNCHER_HANG_SELF_CHECK"
 
 "$PRODUCT_MANAGER_DESTINATION" self-test
-"$PROJECT_ROOT/productManager/agentSelfTest.command"
+if [[ "${IDENTITYV_TEST_HEADLESS:-0}" == "1" ]]; then
+  "$PROJECT_ROOT/productManager/agentSelfTest.command" --headless
+else
+  "$PROJECT_ROOT/productManager/agentSelfTest.command"
+fi
 "$DOWNLOAD_SUPERVISOR_DESTINATION" self-test
 "$MANIFEST_PLANNER_DESTINATION" self-test
 "$CORE_BOOTSTRAP_DESTINATION" self-test

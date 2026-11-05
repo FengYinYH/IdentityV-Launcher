@@ -5,7 +5,7 @@ import CoreGraphics
 // Transport only: every operation re-enters the same manager used by the GUI.
 // A task receipt is never evidence that the underlying operation completed.
 enum AgentCLI {
-    static let operations = ["status", "check-runtime-prerequisites", "inspect", "resolve-location", "resolve-download", "resolve-manifest", "verify-installer", "select", "install", "import", "prepare-launch", "launch", "restart", "stop", "remove", "remove-preview", "repair"]
+    static let operations = ["status", "check-runtime-prerequisites", "inspect", "resolve-location", "resolve-download", "resolve-manifest", "verify-installer", "select", "install", "import", "prepare-launch", "launch", "restart", "stop", "remove", "remove-preview", "repair", "launcher-update-check", "launcher-update-install"]
     static var documentationURL: URL { URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.deletingLastPathComponent().appendingPathComponent("agent-cli.md") }
     static var root: URL {
         if let path = ProcessInfo.processInfo.environment["IDENTITYV_AGENT_TASK_ROOT"] { return URL(fileURLWithPath: path, isDirectory: true) }
@@ -156,6 +156,13 @@ enum AgentCLI {
             if let code = record["errorCode"] { payload["errorCode"] = code }
             try event("state", payload)
         }
+        let admission: LauncherOperationLease?
+        do { admission = operation == "launcher-update-install" ? nil : try LauncherOperationLease.admission(exclusive: false) }
+        catch {
+            record["errorCode"] = "launcher_update_busy"; record["error"] = error.localizedDescription
+            record["exitCode"] = 1; try state("failed"); return 1
+        }
+        defer { admission?.release() }
         let cancel = dir.appendingPathComponent("cancel-requested")
         // Signal handlers only request cancellation. The worker forwards once to its exact child.
         let oldTerm = signal(SIGTERM, SIG_IGN), oldInt = signal(SIGINT, SIG_IGN)
@@ -233,7 +240,17 @@ enum AgentCLI {
            let token = preview["removalToken"] as? String {
             executionArguments += ["--expected-removal-token", token]
         }
-        let child = Process(); child.executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL; child.arguments = executionArguments
+        let child = Process()
+        let manager = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
+        if operation.hasPrefix("launcher-update-") {
+            child.executableURL = manager.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("MacOS/IdentityVLauncher")
+            child.arguments = ["--launcher-agent-operation"] + executionArguments
+        } else {
+            child.executableURL = manager; child.arguments = executionArguments
+        }
+        var environment = ProcessInfo.processInfo.environment
+        environment["IDENTITYV_AGENT_TASK_ID"] = record["taskId"] as? String
+        child.environment = environment
         // Files avoid pipe backpressure and preserve complete output even when caller disconnects.
         let stdoutURL = dir.appendingPathComponent("stdout.log"), stderrURL = dir.appendingPathComponent("stderr.log")
         let out = try FileHandle(forWritingTo: stdoutURL), err = try FileHandle(forWritingTo: stderrURL)
@@ -247,21 +264,34 @@ enum AgentCLI {
             buffer.append(reader.readDataToEndOfFile())
             while let newline = buffer.firstIndex(of: 10) {
                 let line = Data(buffer[..<newline]); buffer.removeSubrange(...newline)
-                if let payload = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] { try event("progress", ["payload": payload]) }
+                if let payload = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] {
+                    if operation.hasPrefix("launcher-update-"), payload["event"] as? String == "agent-state",
+                       let value = payload["state"] as? String, ["awaiting_confirmation", "running"].contains(value) {
+                        try state(value)
+                    }
+                    if let cancellable = payload["cancellable"] as? Bool { record["cancellable"] = cancellable }
+                    try event("progress", ["payload": payload])
+                }
             }
             // Plain diagnostics may have no newline; raw bytes remain in stderr.log.
             if buffer.count > 1_048_576 { buffer.removeAll(keepingCapacity: false) }
         }
         while child.isRunning {
             try progress()
-            if !sentCancel && FileManager.default.fileExists(atPath: cancel.path) { sentCancel = true; child.terminate(); try event("cancellation_requested") }
+            if !sentCancel && FileManager.default.fileExists(atPath: cancel.path) {
+                sentCancel = true
+                if operation == "launcher-update-install", record["cancellable"] as? Bool == false {
+                    try event("cancellation_too_late")
+                } else { child.terminate(); try event("cancellation_requested") }
+            }
             record["updatedAt"] = Date().timeIntervalSince1970; try save(record, dir)
             Thread.sleep(forTimeInterval: 0.2)
         }
         child.waitUntilExit(); try progress()
         record["cancellationRequested"] = sentCancel
         record["childExitCode"] = child.terminationStatus
-        let cancelled = sentCancel && (child.terminationReason == .uncaughtSignal || (child.terminationReason == .exit && child.terminationStatus == 130))
+        let cancelled = (sentCancel && child.terminationReason == .uncaughtSignal)
+            || (child.terminationReason == .exit && child.terminationStatus == 130 && (sentCancel || operation == "launcher-update-install"))
         let code: Int32 = cancelled ? 130 : (child.terminationStatus == 0 ? 0 : 1)
         record["exitCode"] = code
         if code != 0 && !cancelled {

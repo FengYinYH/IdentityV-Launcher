@@ -24,10 +24,10 @@ flowchart LR
 
 | 文件夹 | 用途与重要子目录 |
 | --- | --- |
-| `playerLauncherApp/` | 玩家 App。`Sources/` 是界面和业务逻辑，`Resources/currentRoute.md` 是打进 App 的用户说明，`Assets/` 放图标，`Tests/` 放自检，`PromptHelper/` 和 `MicHelper/` 负责对应系统提示；`build/` 是可再生产物。 |
+| `playerLauncherApp/` | 玩家 App。`Sources/` 是界面和业务逻辑，`Resources/currentRoute.md` 是打进 App 的用户说明，`Assets/` 放图标，`Tests/` 放自检（含 `LauncherUpdateCheckerSelfTest.swift` 的手动更新检测合约），`PromptHelper/` 和 `MicHelper/` 负责对应系统提示，`UpdateHelper/` 在明确确认更新后接续同址替换、回退和重启回执；`build/` 是可再生产物。 |
 | `maintenanceToolboxApp/` | 维护者 App。`Sources/` 是浮窗、采集和界面，`Assets/` 放图标；`build/` 是可再生产物。 |
 | `gameRunnerApp/` | 内嵌 runner 的两个模板 `IdentityV-Mac.app`、`IdentityV-AGTK.app` 及 `tests/`；当前玩家 App 出货的是前者，后者保留供历史/开发测试。模板的 `Contents/` 中有启动脚本、资源和受控预编译输入；`AGTK` 是历史名称，不代表当前主路线使用 Apple GPTK。 |
-| `sharedDiagnostics/` | 两款 App 显式编译的健康检查、资源采样和高密度采集状态源码，以及新旧 bundle 域之间的受限偏好迁移；包括 `DenseMonitoring.swift`、`LegacyPreferences.swift`。 |
+| `sharedDiagnostics/` | 两款 App 显式编译的健康检查、资源采样和高密度采集状态源码，以及新旧 bundle 域之间的受限偏好迁移；包括 `DenseMonitoring.swift`、`LegacyPreferences.swift`；`LauncherOperationLocks.swift`供玩家GUI/管理器/Agent/更新助手编译，协调活任务与App替换。 |
 | `gameDownloader/` | 游戏下载、更新和文件校验逻辑。 |
 | `downloaderCoreBootstrap/` | 获取并校验网易下载核心的引导程序；不存放用户账号。 |
 | `productCatalog/` | 两服及其组件的产品目录与锁定配置。 |
@@ -131,3 +131,5 @@ flowchart LR
 `productManager/selfTest.command --network-smoke` 显式启用 `tests/officialNetworkSmoke.test.py`，请求真实两服官方resolver的小型元数据，不下载/安装载荷；默认自检不联网。CI草案保留在独立候选，workflow权限阻碍不影响这些本地入口。
 
 `productManager/idv` 随包复制至 Resources，提供 `idv help/docs/run/start/...` 短入口，仅转交同包管理器的 agent 子命令。帮助菜单提供文档及复制命令，不安装全局命令、不修改 PATH。删除地址预览和自定义位置解析由同一管理核心提供。
+
+更新入口：`LauncherUpdateChecker.swift`读取公开Releases；`LauncherUpdateInstallation.swift`共享准备、校验、恢复与进程超时；`LauncherUpdateAgent.swift`是显式App业务后端，默认入口仍为GUI。`UpdateHelper/`持活锁执行同址替换/重启回执/清理。`playerLauncherApp/Tests/updaterSelfTest.command`只做离线与假App检查，`productManager/tests/updaterAgent.test.py`用真实运输层和mockGUI验证状态，不执行真实更新。完整构建的`IDENTITYV_TEST_HEADLESS=1`只推迟原生确认UI测试，生产确认不变。

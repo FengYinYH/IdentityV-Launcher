@@ -14,6 +14,8 @@
 
 ### 新增
 
+- “版本与更新”可检查 GitHub 新版；确认后校验并同址更新、重新启动，清理本次临时安装包；Agent 可调用相同流程。
+
 - 统一“自定义游戏位置”入口，可选择文件或目录，找到已有游戏就检测并同步状态，未找到则询问是否安装；外部游戏目录保留原文件，卸载不删除它们。
 - Agent/CLI 可调用游戏安装、检测、修复与运行管理，提供任务 ID、结构化状态、进度和日志；命令文档随 App 提供，Agent 删除游戏前询问用户确认。
 
@@ -27,6 +29,8 @@
 
 ### 新增功能
 
+- 「版本與更新」可檢查 GitHub 新版；確認後驗證並原址更新、重新啟動，清理本次暫存安裝包；Agent 可呼叫相同流程。
+
 - 統一「自訂遊戲位置」入口，可選擇檔案或目錄，找到既有遊戲便檢查並同步狀態，未找到則詢問是否安裝；外部遊戲檔案不會因解除安裝而刪除。
 - Agent/CLI 可呼叫遊戲安裝、檢查、修復與執行管理，提供工作 ID、結構化狀態、進度及日誌；指令文件隨 App 提供，Agent 刪除遊戲前會請使用者確認。
 
@@ -39,6 +43,8 @@
 - Global in-game hot updates now receive the same base-repair rollback protection as the mainland client.
 
 ### Added
+
+- Check GitHub releases from Version & Updates, then confirm to verify, update in place, restart, and clean up temporary packages. Agents can use the same flow.
 
 - A unified “Custom Game Location” button accepts files or folders, checks and registers an existing client, or asks to install if none is found. Imported game files remain user-owned and are preserved during removal.
 - Agent/CLI access to game installation, inspection, repair and runtime control, with task IDs, structured status, progress and logs. Command documentation ships with the App; Agent game removal asks the user to confirm.

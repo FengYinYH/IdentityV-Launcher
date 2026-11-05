@@ -94,6 +94,44 @@ struct ProductLauncherView: View {
         } message: {
             Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(model.lastLaunchFailure?.alertMessage ?? "游戏没有进入运行状态，请稍后重试。")))
         }
+        .sheet(isPresented: $model.showsLauncherUpdateResult) {
+            VStack(spacing: 14) {
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable().frame(width: 64, height: 64)
+                if model.launcherUpdateIsInstalling {
+                    Text(LocalizedStringKey(model.launcherUpdateDownloadProgress < 1 ? "正在下载更新…" : "正在校验更新并准备重启…"))
+                        .font(.headline)
+                    ProgressView(value: model.launcherUpdateDownloadProgress)
+                    if model.launcherUpdateCanCancel {
+                        Button("取消", role: .cancel, action: model.cancelLauncherUpdate)
+                    }
+                } else {
+                    Text(model.launcherUpdateTitle).font(.headline)
+                    if !model.launcherUpdateMessage.isEmpty {
+                        Text(model.launcherUpdateMessage).textSelection(.enabled)
+                    }
+                    HStack {
+                        if model.launcherUpdatePageURL != nil {
+                            Button("取消", role: .cancel) { model.showsLauncherUpdateResult = false }
+                            Spacer()
+                            Button("更新", action: model.installLauncherUpdate)
+                                .buttonStyle(.borderedProminent)
+                                .tint(.blue)
+                                .keyboardShortcut(.defaultAction)
+                        } else {
+                            Spacer()
+                            Button("好的") { model.showsLauncherUpdateResult = false }
+                                .keyboardShortcut(.defaultAction)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+            .padding(24)
+            .frame(width: 380)
+            .interactiveDismissDisabled(model.launcherUpdateIsInstalling)
+            .environment(\.locale, LauncherLanguage.current.locale)
+        }
         .sheet(isPresented: $showsFeedback) {
             FeedbackView()
                 .environmentObject(model)
@@ -117,6 +155,9 @@ struct ProductLauncherView: View {
         // after every mutating action; re-running the short-lived manager here
         // would make it touch removable game/runtime volumes every six seconds
         // and repeatedly trigger macOS removable-volume authorization.
+        .onAppear {
+            if LauncherUpdateInstallation.acknowledgeStartup() { model.refreshAfterLauncherUpdate() }
+        }
         .onReceive(statusTimer) { _ in model.refreshRuntimeStatus() }
         .onChange(of: model.downloadProgress != nil) { wasDownloading, isDownloading in
             resizeWindowForCurrentActivity()

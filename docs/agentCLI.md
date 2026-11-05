@@ -1,6 +1,6 @@
 # Agent / CLI 契约（schemaVersion 1）
 
-2026-11-05：RC5必须交付的首版运输层框架，GUI 和 Agent 都复用 `IdentityVProductManager`；没有第二套下载或安装实现。旧命令保持兼容。此版本尚无独立 GUI Agent 面板，也没有把所有维护按钮接入 CLI。先运行 `agent help` 获取本包实际支持的命令，不由文档推断未来能力。
+2026-11-05：RC5必须交付的首版运输层框架，游戏操作复用 `IdentityVProductManager`；启动器更新复用同一Swift更新核心，没有第二套下载或安装实现。旧命令保持兼容。此版本尚无独立 GUI Agent 面板，也没有把所有维护按钮接入 CLI。先运行 `agent help` 获取本包实际支持的命令，不由文档推断未来能力。
 
 ## 入口和示例
 
@@ -58,7 +58,7 @@ MANAGER='/Applications/第五人格启动器.app/Contents/Resources/IdentityVPro
 
 `task.json` 为原子快照：`schemaVersion/taskId/arguments/state/updatedAt`；结束后有 `exitCode/childExitCode/cancellationRequested`；核心失败同时给出`errorCode: core_operation_failed`与有界脱敏`error`摘要，stdout 为不超过 1 MiB 的完整 JSON 时还有 `output`。`updatedAt` 为 Unix 秒。`events.jsonl` 以 `taskId + sequence` 去重；删除任务在通过预览后还有 `removalPreview`，包含实际目标与确认指纹。事件含 `state`、`progress`（原核心 JSON 放在 `payload`）、`cancellation_requested`、`result`。`events` 返回当前历史快照，调用方可轮询并按 sequence 去重；`run` 是实时流，没有另一个持续 follow 连接。未结束的最后一行应等待下次读取再解析。
 
-状态：`queued → awaiting_confirmation（仅删除）/running → succeeded/failed/cancelled`。worker 心跳过 30 秒未更新时，查询额外给出 `observedState: unknown`，不会凭旧 PID 推断成功/失败或结束另一个进程；系统睡眠、worker 崩溃或 SIGKILL 都可能触发，需结合原状态/日志/产品实际状态核查。此版尚无 worker 崩溃后的自动恢复/接管；不要盲目重发变更命令。
+状态：`queued → awaiting_confirmation（删除或启动器更新）/running → succeeded/failed/cancelled`。worker 心跳过 30 秒未更新时，查询额外给出 `observedState: unknown`，不会凭旧 PID 推断成功/失败或结束另一个进程；系统睡眠、worker 崩溃或 SIGKILL 都可能触发，需结合原状态/日志/产品实际状态核查。此版尚无 worker 崩溃后的自动恢复/接管；不要盲目重发变更命令。
 
 前台 run：成功退出 0，操作/协议错误退出 1，已确认信号取消或删除对话框取消退出 130；原核心退出码保存在 childExitCode。start/task/events/logs/cancel 的 0 仅表示本次协议请求成功，终局必须读 task.state。未知命令、缺失任务、错误 UUID 都返回 JSON error 并退出 1。
 
@@ -92,3 +92,23 @@ Agent 的 `remove` 在执行核心前显示原生对话框：**「你的 Agent �
 最终界面回归补充：原生Icon Services冷加载曾使awaiting_confirmation早于实际模态循环，完整构建中的心跳回归捕获此问题。现在完成预检/图标准备后才发布等待确认，并在进入模态前再次检查取消；心跳测试允许有限调度延迟，仍要求实际时间戳前进。隔离SwiftUI副本已实测文件/目录选择、取消、安装确认后取消及三语言布局，未操作玩家游戏。
 
 已确认的锁定核心空间失败会在事件payload中提供 `event: failure`、`errorCode: download_disk_space_required`、`coreState: 206`和`requiredBytes`；任务终局仍为failed，通用任务errorCode继续兼容。未知206不套用此解释。机器键和值不随界面语言变化。
+
+## 启动器本身的更新
+
+```sh
+idv run launcher-update-check
+idv start launcher-update-install
+idv task '<taskId>'
+idv events '<taskId>'
+idv cancel '<taskId>'
+```
+
+这两项不带product或路径参数。check读取公开GitHub Releases，返回output.available/currentVersion及可用版本/pageURL；不下载安装包。install重新检查，发现新版时显示与产品一致的原生“已检测到新版本，是否更新？”确认，不能由参数假定已同意；无控制台会话返回confirmation_unavailable。有更新且确认后才校验大小/SHA、项目Developer ID/Gatekeeper、系统/架构，并同址替换与重启；没有新版则成功返回available=false。
+
+两项使用真实App的显式 `--launcher-agent-operation` 后端，GUI用相同checker/preparer/helper，不复制第二套更新器。Resources/idv保持独立，普通GUI参数及`--launcher-update-receipt`始终进入GUI。检查缓存限于该后端进程，跨任务调用方应遵守GitHub限流；不后台轮询。
+
+事件phase包括checking/downloading/applying；确认时task.state=awaiting_confirmation。下载准备阶段API取消可终止本任务；提交交给助手后cancellable=false，晚到的取消记录cancellation_too_late并等待真实结果，不强杀替换事务。用户在确认框点取消也返回cancelled。成功仅在新GUI回执匹配且旧备份/本次临时包清理完成后产生；helper启动或ready不是成功。失败可能已安装新版但清理未完成，须读取output.installed/cleanupComplete与error，不从failed反推完全回滚。
+
+更新助手独占活admission及现有产品修改锁，admission按实际用户临时区与App canonical路径分组，不随业务HOME变化；普通worker和直接管理器入口持共享lease，覆盖只读扫描及下载/安装整个时段；更新install运输层自身除外，以免等待自身锁。新业务会快速返回busy，不使用旧PID或task.json猜测活动。只读位置解析不修改游戏与安装记录，但可创建内部锁文件。更新需要退出游戏、等待组件/产品事务完成；不强停游戏、不触碰游戏/runtime/账号。CLI在用户确认后可正常请求同址旧GUI退出，并等待新GUI回执。
+
+验证：真实运输层+mock后端覆盖上述UUID、lease、确认/早晚取消及完成语义；原生确认点击和真实签名替换仍待实测。KVM暂停时可运行`productManager/agentSelfTest.command --headless`（完整构建用`IDENTITYV_TEST_HEADLESS=1`），只推迟原生确认UI测试段并明确标记，不影响生产确认。
