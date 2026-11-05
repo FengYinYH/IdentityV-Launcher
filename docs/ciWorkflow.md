@@ -73,3 +73,16 @@ macos-14/macOS14 larger 标签已于11月2日退役，当前不能推荐它作�
 
 
 The Xcode 26.3 retry (run 41990357203) also stopped before downloads: the frozen candidate's Timer closure triggers actor-isolation diagnostics in that compiler. The next experiment selects GitHub's standard `xcode-27` arm64 image (macOS 27), matching the locally validated compiler major version; it changes no application source. GitHub announced this image as generally available on 2026-10-15: https://github.blog/changelog/2026-10-15-xcode-27-runner-image-generally-available/ . This experiment cannot establish macOS 15 runtime compatibility.
+
+
+## build20 托管真实首装通过（最终结果）
+
+2026-11-05，run [41991243123](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/41991243123) 最终 success。冻结业务源码 `97605502a685ae765c213fee4d1620ea4348d79e`，CI checkout `0abaf4044ae3d0297caa77037554aa11109c4103`；差异仅为本专题的 CI/文档七文件，无应用源码改动。使用标准 `xcode-27` arm64 托管镜像 `20261026.0314.1`，实际 macOS 27.0.1 / Xcode 27.1 / Swift 6.4；不是 macOS 15 或 14 的运行验证。前两次旧工具链失败保留上文，不需要为了此次实验修改 Timer 或其他业务源码。
+
+完整 job 11分43秒；驱动673.29秒，其中完整构建325.07秒、运行前提5.16秒、真实清单4.41秒、Agent 首装336.91秒。初始可用37,672,861,696 bytes（35.09GiB）；安装前36,679,831,552 bytes（34.16GiB），超过门槛35,433,480,192 bytes（33GiB）；最低观测可用18,311,401,472 bytes（17.05GiB），相对初始观测增量峰值19,361,460,224 bytes（18.03GiB）。采样间隔5秒，不能将这些数字称为绝对瞬时峰值。
+
+这次真实执行国服新用户目录安装，清单 `v3_4220_229300afaa11f1da1aa4af7379c2a648`，439文件，共17,045,687,138 bytes，清单SHA256 `7c297995238fc8bc8fe3ad7f79eb0f8a088298c458ea4ca30542fcdd085a498c`。任务 `730cbf24-c60b-43f7-af85-e473865e90f8`；runtime/preparing/downloading/verifying/publishing/completed 均被观测到，终态 succeeded，任务和子进程exit0。监督脚本随后验证产品ready、版本一致、目标包含dwrg.exe、安装事务和staging已清理；基础清单全量验证由成功安装核心执行。阶段首次观测（距首装开始秒）：runtime5.11、preparing25.36、downloading142.22、verifying326.64、publishing/completed336.91。这是采样转换时间，不是各阶段精确耗时。
+
+只上传约2KiB结构化result.json（保留3天），无游戏、runtime、prefix或原始构建日志上传；本地保存了结果及GitHub标准job日志。没有启动游戏、账号登录、原生UI/权限弹窗、取消续传/修复或旧macOS验证。本次是adhoc源码构建，不能代替最终签名DMG、公证和Gatekeeper验收。没有修改main、仓库设置或发布Release。
+
+建议采用混合流程：在本地完成开发与快速检查，测试分支/PR以CI执行合约和构建；安装链路变更或候选验收时才选择性运行这类真实首装，避免每个提交重复17GB下载。集成分支可以分批推进，通过PR检查后再合并；Release前仍需真实Mac完成原生UI、权限、实际游戏启动和最终签名包验证。单次首装绿灯不能替代这些检查，也不应要求每次迭代手工建VM。此工作流目前仅绑定独立实验分支，正式PR触发策略仍需另行整合，不会自动修改主分支流程。
