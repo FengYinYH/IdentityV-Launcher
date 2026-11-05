@@ -106,6 +106,9 @@ func TestHelperProcess(t *testing.T) {
 		}
 	}
 	if strings.HasPrefix(mode, "manifest-") {
+		if mode == "manifest-after-progress" {
+			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "2", "{}"}))
+		}
 		payload := "manifest https://example.invalid/private?token=secret, try count exceeded"
 		if mode == "manifest-empty" {
 			payload = ""
@@ -116,6 +119,14 @@ func TestHelperProcess(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "304", payload}))
 			time.Sleep(25 * time.Millisecond)
+		}
+		if mode == "manifest-after-progress" {
+			// Observed real-core order: state 2, raw 304, then repeated 10.
+			for i := 0; i < 80; i++ {
+				_ = p.Send(zmq4.NewMsgFromString([]string{"42", "10", ""}))
+				time.Sleep(25 * time.Millisecond)
+			}
+			os.Exit(0)
 		}
 		// If 304 were ignored, normal progress/completion below could falsely
 		// succeed. The supervisor must return before that path is accepted.
@@ -792,7 +803,7 @@ func TestFallbackSingleSearchPath(t *testing.T) {
 }
 
 func TestManifestRetry304IsTerminalForRawEmptyAndJSONPayload(t *testing.T) {
-	for _, mode := range []string{"manifest-raw", "manifest-empty", "manifest-json"} {
+	for _, mode := range []string{"manifest-raw", "manifest-empty", "manifest-json", "manifest-after-progress"} {
 		t.Run(mode, func(t *testing.T) {
 			var output bytes.Buffer
 			started := time.Now()
@@ -812,8 +823,26 @@ func TestManifestRetry304IsTerminalForRawEmptyAndJSONPayload(t *testing.T) {
 				PayloadByteCount int    `json:"payloadByteCount"`
 				PayloadSHA256    string `json:"payloadSha256"`
 			}
-			if json.Unmarshal(bytes.TrimSpace(output.Bytes()), &event) != nil || event.State != "304" || len(event.PayloadSHA256) != 64 {
-				t.Fatalf("missing bounded diagnostic metadata: %s", output.String())
+			decoder := json.NewDecoder(bytes.NewReader(output.Bytes()))
+			count304 := 0
+			for {
+				if err := decoder.Decode(&event); err == io.EOF {
+					break
+				} else if err != nil {
+					t.Fatal(err)
+				}
+				if event.State == "304" {
+					count304++
+					if len(event.PayloadSHA256) != 64 {
+						t.Fatal("missing bounded payload hash")
+					}
+				}
+				if event.State == "8" {
+					t.Fatal("accepted completion after 304")
+				}
+			}
+			if count304 != 1 {
+				t.Fatalf("missing or duplicate 304 metadata: %s", output.String())
 			}
 		})
 	}

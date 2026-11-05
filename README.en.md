@@ -42,7 +42,7 @@ Game audio follows the current macOS default input and output devices, and this 
 
 A mouse polling rate above 1 kHz may cause severe stuttering. Function-row mapping on external keyboards may also be unreliable.
 
-The project targets macOS 15 and later; the current candidate has only been tested on a real Mac running macOS 27. Some components have a technical minimum OS version of macOS 14, but that does not mean the complete product is verified or supported on macOS 14.
+The target minimum is macOS 14. The current compatibility runtime still requires macOS 15, so macOS 14 support is unfinished. The current candidate has only been tested on a real Mac running macOS 27.
 
 We make no guarantees about stability, performance, or avoiding bans. The author is not responsible for your rank points, deduction points, win rate, or dithering, so be especially careful in ranked matches. If that costs you, ask the author to host a custom match and make it up to you with the Spiral Whip.
 

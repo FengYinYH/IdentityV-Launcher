@@ -55,3 +55,8 @@ RC1 升级时，ProductManager 的状态/操作入口在空闲状态执行[默�
 安装入口选择默认或任意可写位置，不要求空目录。检测所选根目录或 game/DWRG/IdentityV 子目录中的 dwrg.exe；存在时进入只读检测和导入确认，同步产品状态，原文件不交给下载器。非游戏的兄弟文件保留；已有非受管 game/.staging/work 事务目录不覆盖。导入按钮位于游戏位置右侧，caption 字号与 small 控件不增加主操作行。文件选择器选取 dwrg.exe 后以其父目录检测；两服现有启动契约及官方海外 startup_path 均为 dwrg.exe，不通过安装器文件名判断本体。
 
 `IdentityVProductManager inspect --product mainland|global --path <客户端根目录>` 按该服官方基础清单执行只读 XXH64 扫描。检测与导入仍区分基础清单不符和游戏热更新；需要确认后登记，不覆盖原文件。externalGameRoot 保留用户所有权，卸载只移除记录/prefix。路径检测 fixture、管理器的非空目录 sentinel 与事务子目录保护回归通过，完整构建最终检查通过；GUI 最终行高/文件选择器实机验收由 RC5 集成轮完成。
+
+
+### macOS 14 与部署目标审计
+
+第一方 App 的构建通过不涵盖首次下载的 runtime；完整槽须用 `runtimeManifest/auditMachODeploymentTargets.command` 单独扫描。该命令解析输入根的符号链接并拒绝零文件，symlink/empty-root 回归已纳入玩家 App 构建。当前 DXMT Unixlib 仍为 macOS15，因此不能仅修改 Info.plist 或 runtime minimumMacOS 来宣称14支持。独立重建与VM/真实GPU验收矩阵见 [DXMT兼容专题](../runtimeManifest/dxmt080MacOS14Compatibility.md)。

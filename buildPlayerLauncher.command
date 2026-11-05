@@ -570,4 +570,5 @@ HOME="$PRODUCT_TEST_HOME" "$PRODUCT_MANAGER_DESTINATION" status --json | /usr/bi
 # offline self-test independent of the host session; mutation/0600 checks live
 # in IdentityVProductManager's own deterministic self-test.
 
+"$PROJECT_ROOT/runtimeManifest/auditMachODeploymentTargets.test.command"
 print -- "构建完成：$APP_PATH"

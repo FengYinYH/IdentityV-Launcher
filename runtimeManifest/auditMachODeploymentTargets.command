@@ -25,6 +25,9 @@ scan_roots=("$@")
 
 for root in "${scan_roots[@]}"; do
   [[ -e "$root" ]] || { print -u2 -- "Missing audit path: $root"; exit 2; }
+  # Runtime current is normally a symlink. find does not traverse a symlink
+  # supplied as its root, which previously produced a misleading 0-file pass.
+  root=${root:A}
   while IFS= read -r -d '' candidate; do
     /usr/bin/file -b "$candidate" | /usr/bin/grep -q 'Mach-O' || continue
     (( checked += 1 ))
@@ -52,6 +55,11 @@ for root in "${scan_roots[@]}"; do
     done
   done < <(/usr/bin/find "$root" -type f -print0)
 done
+
+if (( checked == 0 )); then
+  print -u2 -- "Deployment target audit failed: no Mach-O files checked."
+  exit 2
+fi
 
 if (( violations > 0 )); then
   print -u2 -- "Deployment target audit failed: $violations violation(s) across $checked Mach-O file(s); highest minos $highest_minos_display."
