@@ -1,27 +1,13 @@
-# 固定 IDV Login 组件
+# IDV Login 固定组件
 
-当前固定上游未修改的 `idv-login` `v6.3.2-stable` 原始 macOS arm64 二进制。唯一发行清单是 `../idvLoginComponent.json`；下载器编译时锁定版本、完整 URL、大小与 SHA-256，测试同时核对启动器的版本/缓存常量，避免只换清单而旧版 UI 仍误判“已安装”。官方 Release 资产为 198,957,312 bytes，SHA-256 `44546da7ec143f73888e8b6e4c4ed53f48d2b03f84c7ca74c20ab8eb310f4045`。
+当前固定上游未修改的 `v6.3.3-beta` macOS arm64 资产，不随 App 重分发。官方资产为 199,215,712 bytes，SHA-256 `dcfef8ddd66fae454d30c296dbdc42496a862ed38cd533e0b4b8032b5db9cac5`；精确源码为 `0cee1f6b5c03b93d999a94bfc6e4baf745456d1b`。6.3.3 当前发布通道是 beta，不虚构 stable 标签。
 
-受管 `cloudRes` 外置策略关闭组件自己的升级提示与远程热更新供给，登录云端配置继续工作；组件升级由启动器的固定版本流程管理。helper 只接受精确支持的 `v6.3.2-stable` 构建标识，未知版本 fail closed。控制点、来源审计、私有配置备份与恢复见[来源与更新策略审计](../docs/idvLoginSourceAudit.md)。
+唯一发行清单是 `../idvLoginComponent.json`；Go 下载器、Swift UI/cache、离线准备入口与许可来源同步锁定。维护者可运行 `./stageIdvLoginReleasePayload.command /绝对路径/idv-login-v6.3.3-beta-mac` 校验大小、哈希与架构，写入忽略的 `releaseCache/6.3.3/`，构建不需要此缓存。
 
-维护者已有官方下载成品时，可离线暂存：
+helper 合约为 10，精确版本门改为 6.3.3 beta。受管 cloudRes 委派保留原冻结模块及其新增的云配置签名校验，只关闭组件自行更新和远程 hotfix 供给。跨版本安装继续隔离旧 overlay、保存账号、配置和证书，并原子切换版本槽；安装前退出活动代理。兼容性检查与真实测试边界见 [来源审计](../docs/idvLoginSourceAudit.md#633-beta-来源与兼容性2026-11-05)。
 
-```zsh
-./stageIdvLoginReleasePayload.command /绝对路径/idv-login-v6.3.2-stable-mac
-```
+## 升级、回退与用户侧下载缓存
 
-它离线校验精确大小、SHA-256 和 arm64 架构，并写入 Git 忽略、权限 `0700/0600` 的 `releaseCache/6.3.2/`，只用于维护者安装准备。构建 App 不需要这个 cache，也不会从 `/Library` 现有安装或旧 App 提取二进制。
+默认安装器拒绝活动游戏。已明确安排保留活动游戏的维护更新可使用 `--allow-running-game-with-stopped-proxy`，但必须先通过 stop helper 停止代理并清理托管 hosts；root 阶段再次复核。该例外不提供给 UI，不自动启动新版组件。回退保留旧版本槽和迁移器产生的旧配置/热修复备份；旧覆盖层只随对应旧版本恢复，不能覆盖新版模块。最终 App 的 InstallerPayload 包含清单、安装器、helper 与迁移工具，不包含组件二进制。
 
-最终 App 的 `InstallerPayload/` 含 manifest、root 安装器、特权 helper 输入、state tool、迁移脚本、预览卸载器和 ThirdPartyNotices，**不含 idv-login 二进制**。用户安装时从固定的上游 Release 下载。
-
-RC1 的 `6.3.0` 到 `6.3.2` 使用现有安装入口：先停止受管后台，再备份配置并隔离旧 Python 热修复覆盖层；新组件落入按版本命名的 `6.3.2` 槽后原子切换 `current`。不能只替换可执行文件：6.3.2 的上游 hook 仍会加载旧配置中标为待验证或已应用的覆盖层。迁移夹具以合成账号、配置和证书资料验证这些非热修复状态保留、旧覆盖层移入可恢复备份、重复同版本迁移不再改写；没有触碰真实账号或安装中的代理。
-
-2026-10-05 更新锁定官方 `v6.3.2-stable`；精确源码 commit `3642748dcf82c326ddb5cb657714be9a0885d7fc`，tag 的 peeled commit 与 GitHub release tag 对应。源 `LICENSE` SHA-256 仍为 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`。资产核验只读完成；未启动二进制、登录代理或做真实账号回归。
-
-默认安装器仍拒绝活动游戏，以免拆除游戏所依赖的代理。维护者已明确确认停止代理、保持游戏时，可使用 `--allow-running-game-with-stopped-proxy`，但必须先通过限定 stop helper 完全停止代理并清理托管 hosts；root 阶段再次核查两项条件，不符合就退出 75。此例外不发给 UI，不退出 Wine 或游戏，也不自动启动新版登录。回退保留旧版本组件槽及迁移器产生的旧配置/热修复备份；旧覆盖层只能随对应旧版本恢复，不能重新覆盖新版模块。
-
-## 用户侧下载缓存
-
-启动器安装时把固定版本下载到用户态的版本缓存槽。下载器先复验已完成文件，兼容复用旧预览版 UUID 槽中通过精确大小、SHA-256 和 arm64 Mach-O 检查的同版成品；未完成的 `.partial` 以 HTTP Range 继续，服务端忽略 Range 时安全从零下载。缓存写入使用进程自动释放的文件锁、`0700/0600` 权限和原子发布，不接受 symlink。
-
-网络中断或安装器失败会保留可续传 partial/已验证成品；成功安装后也保留成品供重新安装。只有用户在管理员授权前明确拒绝本轮安装时，启动器才清理这一稳定槽中的 final 与 partial。
+用户态版本缓存复用通过精确大小、SHA-256 与 arm64 检查的同版成品；partial 以 HTTP Range 续传，服务端忽略 Range 时从零下载。缓存保持文件锁、0700/0600 权限与原子发布，不接受符号链接。网络或安装失败保留缓存；成功安装也保留同版成品供重新安装，只有用户在管理员授权前明确拒绝本轮安装时才清理该版本缓存。

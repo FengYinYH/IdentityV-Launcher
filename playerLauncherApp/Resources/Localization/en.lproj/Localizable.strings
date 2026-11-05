@@ -235,3 +235,13 @@
 "无法确认完整性或服务器；可能包含游戏内更新。仍导入只登记原目录，不修复或覆盖文件。" = "Integrity and server identity are unverified; the client may contain in-game updates. Import only registers the folder and does not repair or overwrite its files.";
 "导入" = "Import";
 "移除启动器记录与兼容环境，保留外部游戏文件。" = "Remove launcher records and the compatibility environment while preserving external game files.";
+
+"默认位置：%@\n可选择任意可写文件夹；检测到已有游戏时同步客户端状态，否则安装到其中的 game 文件夹。" = "Default: %@\nChoose any writable folder. An existing game is detected and its state synchronized; otherwise the game is installed in its game subfolder.";
+
+"选择游戏安装位置" = "Choose game installation location";
+
+"选择游戏本体 dwrg.exe" = "Select the game executable dwrg.exe";
+
+"未选择要导入的游戏本体。" = "No game executable selected.";
+
+"请选择游戏本体 dwrg.exe。" = "Select the game executable dwrg.exe.";

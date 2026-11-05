@@ -27,7 +27,7 @@ class _HotfixOverlayFinder(importlib.abc.MetaPathFinder):
         raise AssertionError("must bypass overlay finder to prevent recursion")
 
 env = types.ModuleType("envmgr")
-env.genv = types.SimpleNamespace(get=lambda key, default=None: "v6.3.2-stable")
+env.genv = types.SimpleNamespace(get=lambda key, default=None: "v6.3.3-beta")
 old_env = sys.modules.get("envmgr")
 old_main = sys.modules.get("__main__")
 old_meta = sys.meta_path[:]
@@ -40,7 +40,7 @@ try:
     namespace = {"__file__": "managed-policy.py"}
     exec(policy, namespace)
     cloud = namespace["CloudRes"]()
-    assert cloud.get_version() == "v6.3.2-stable"
+    assert cloud.get_version() == "v6.3.3-beta"
     assert cloud.get_hotfixes() == []
     assert cloud.login_data() == "unchanged"
     main.handle_update()
@@ -52,7 +52,7 @@ try:
     else:
         raise AssertionError("missing update entry point must fail closed")
     main.handle_update = lambda: None
-    for unsupported in ("v6.3.1-beta", "v6.4.0"):
+    for unsupported in ("v6.3.1-beta", "v6.3.2-stable", "v6.4.0"):
         env.genv.get = lambda key, default=None, value=unsupported: value
         try:
             exec(policy, {"__file__": "managed-policy.py"})

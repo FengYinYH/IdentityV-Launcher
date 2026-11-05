@@ -50,3 +50,11 @@
 仅从本次启动的有界日志区间识别 no-user-interaction 与 CA 导入失败，组件已退出后，在前台 helper 上调用既有公钥快照/所有权/信任校验，再最多 bootstrap 一次。取消或无法交互都返回既有 75 等待态；其他崩溃不重试，旧日志不能触发恢复。恢复判据、取消分类和原状态工具自检通过；没有在测试中导入证书。真实 macOS 授权与全新账号验收仍单列，不能用 fixture 通过代替。
 
 本轮 helper 合约升为 9，UI 会明确要求更新旧合约 8，避免只替换 App 后仍运行旧的 root-owned 启动脚本。组件官方二进制仍固定 6.3.2，同版本 helper 更新保留账号/证书/配置。
+
+## 6.3.3 beta 来源与兼容性（2026-11-05）
+
+所有者要求升级 6.3.3。官方 Release API 当前提供 `v6.3.3-beta`，不存在同版本 stable；源码 tag peeled commit 为 `0cee1f6b5c03b93d999a94bfc6e4baf745456d1b`。已只读下载原始 macOS 资产并核验 199,215,712 bytes、SHA-256 `dcfef8ddd66fae454d30c296dbdc42496a862ed38cd533e0b4b8032b5db9cac5` 与 arm64 Mach-O。GPL 许可正文 SHA-256 仍为 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`；许可生成器源码锁与 Release 标签校验同步更新。
+
+静态读取 CArchive/PYZ（不执行归档代码）确认 Python 3.12、buildinfo.VERSION 为 `v6.3.3-beta`，build commit 与上述来源一致，保留 cloudRes、hotfixmgr、main、buildinfo 模块。源码中 install_import_hook 仍先于 initialize，initialize 导入 cloudRes，handle_update 在后；CloudRes.get_version/get_hotfixes 接口保留。新版本加入云配置签名验证；本项目委派仍加载原始冻结模块，只替换更新/热修复入口，保留签名验证。helper 合约升至 10，旧合约 9 不能被 UI 视为兼容。策略委派 fixture 通过；真实账号登录、首次 CA 授权和升级后的 system job 行为未由此静态核验覆盖，需与 RC5 最终包一并验收。
+
+验证收尾：六个 Go 模块（包含登录下载器真实离线映像 fixture）、受管更新策略（明确拒绝 6.3.2 stable）、helper readiness/首次 CA 恢复/lifecycle、三语 237 keys 与 Swift 模型/进程自检通过。另对合成 6.3.2→6.3.3 状态执行真实迁移函数，验证账号与证书保留、overlay 备份及幂等。官方原始资产通过离线 staging 入口复验；本地最终 App 签名树与 31 个 Mach-O 的 macOS 14 部署目标检查通过。完整构建在旧“拒绝非空目录”自检处失败；按新需求改为允许无关文件、拒绝覆盖已有事务子目录后，仅重编译管理器、重签并续跑全部构建尾段通过。未安装系统 helper、未启动新组件或游戏；未推送、合并、公证或发布。UI 实际排版、文件选择器点击和真实账号升级仍交由 RC5 集成轮验证。

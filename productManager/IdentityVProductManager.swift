@@ -1117,16 +1117,18 @@ private func directInstallWorkspace(product: ProductID, destinationParent rawPar
     // Never use a selected volume/root itself as gameRoot.  Keep every
     // download-owned item beneath one root so managed Y: can expose precisely that
     // root, rather than a broad parent directory or a developer prefix.
-    let title = product == .mainland ? "CN" : "Global"
     let installRoot = parent
     let finalRoot = installRoot.appendingPathComponent("game", isDirectory: true)
     let stagingRoot = installRoot.appendingPathComponent(".staging", isDirectory: true)
-    if fileManager.fileExists(atPath: installRoot.path) {
-        let marker = installRoot.appendingPathComponent(product == .mainland ? ".identityv-direct-install.json" : ".identityv-global-install.json")
-        let safeResume = (try? marker.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]))
-        let isEmpty = (try? fileManager.contentsOfDirectory(atPath: installRoot.path).isEmpty) == true
-        guard isEmpty || (safeResume?.isRegularFile == true && safeResume?.isSymbolicLink != true) else {
-            throw ManagerError.message("所选位置已有非启动器创建的“\(title)”目录；请先导入或选择其他位置。")
+    let marker = installRoot.appendingPathComponent(product == .mainland ? ".identityv-direct-install.json" : ".identityv-global-install.json")
+    let safeResume = try? marker.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+    if safeResume?.isRegularFile != true || safeResume?.isSymbolicLink == true {
+        // Unrelated sibling files are allowed. Never claim pre-existing files
+        // in the transaction-owned children as a resumable download.
+        for child in [finalRoot, stagingRoot, installRoot.appendingPathComponent("work")] {
+            if fileManager.fileExists(atPath: child.path) {
+                throw ManagerError.message("安装工作目录已有文件；若有游戏请选择其 dwrg.exe 导入，或保留文件后更换位置。")
+            }
         }
     }
     let identity = SHA256.hash(data: Data(installRoot.path.utf8)).map { String(format: "%02x", $0) }.joined().prefix(20)
@@ -3183,11 +3185,19 @@ private func runSelfTest() throws {
     try fileManager.createDirectory(at: occupiedRoot, withIntermediateDirectories: false)
     let untouched = occupiedRoot.appendingPathComponent("keep.txt")
     try Data("keep".utf8).write(to: untouched)
-    var refusedOccupied = false
+    _ = try directInstallWorkspace(product: .global, destinationParent: occupiedRoot.path)
+    guard try Data(contentsOf: untouched) == Data("keep".utf8) else {
+        throw ManagerError.message("Custom installation changed unrelated files")
+    }
+    let foreignWork = occupiedRoot.appendingPathComponent("work", isDirectory: true)
+    try fileManager.createDirectory(at: foreignWork, withIntermediateDirectories: false)
+    let workSentinel = foreignWork.appendingPathComponent("keep.txt")
+    try Data("keep work".utf8).write(to: workSentinel)
+    var refusedForeignWork = false
     do { _ = try directInstallWorkspace(product: .global, destinationParent: occupiedRoot.path) }
-    catch { refusedOccupied = true }
-    guard refusedOccupied, try Data(contentsOf: untouched) == Data("keep".utf8) else {
-        throw ManagerError.message("Occupied custom installation root was modified")
+    catch { refusedForeignWork = true }
+    guard refusedForeignWork, try Data(contentsOf: workSentinel) == Data("keep work".utf8) else {
+        throw ManagerError.message("Custom installation claimed unrelated transaction files")
     }
     let readOnlyRoot = testRoot.appendingPathComponent("readonly-install", isDirectory: true)
     try fileManager.createDirectory(at: readOnlyRoot, withIntermediateDirectories: false)
@@ -3344,6 +3354,7 @@ private func runSelfTest() throws {
         _ = try directInstallWorkspace(product: product, destinationParent: destination.path)
         let sentinel = destination.appendingPathComponent("preserve.txt")
         try Data("preserve".utf8).write(to: sentinel)
+        _ = try directInstallWorkspace(product: product, destinationParent: destination.path)
         try prepareDefaultInstallDirectory(product: product, destinationParent: destination.path, userHome: freshHome)
         guard try Data(contentsOf: sentinel) == Data("preserve".utf8) else {
             throw ManagerError.message("default directory preparation changed existing content")

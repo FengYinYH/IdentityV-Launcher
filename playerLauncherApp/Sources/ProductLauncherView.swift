@@ -437,11 +437,23 @@ private struct ProductPanel: View {
                     .background(installationStatusColor.opacity(0.13), in: Capsule())
                     .overlay { Capsule().stroke(installationStatusColor.opacity(0.32), lineWidth: 1) }
             }
-            Text(String(format: LauncherLanguage.current.localized(product.gamePath == nil ? "默认安装位置：%@" : "游戏位置：%@"), locale: LauncherLanguage.current.locale, defaultInstallPath))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .lineLimit(1)
+            HStack(spacing: 8) {
+                Text(String(format: LauncherLanguage.current.localized(product.gamePath == nil ? "默认安装位置：%@" : "游戏位置：%@"), locale: LauncherLanguage.current.locale, defaultInstallPath))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if GameProductActionPolicy.actions(for: product.state, product: product.productId, canRemove: product.canRemove).contains(.importExisting) {
+                    Button { action(.importExisting) } label: {
+                        Text(LocalizedStringKey(LauncherLanguage.current.localized("导入已有客户端")))
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isAnyActionBusy || isBusy(.importExisting))
+                }
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -453,7 +465,7 @@ private struct ProductPanel: View {
             for: product.state,
             product: product.productId,
             canRemove: product.canRemove
-        )
+        ).filter { $0 != .importExisting }
         if actions == [.install] {
             actionButton(.install, prominent: true)
         } else if !actions.isEmpty {

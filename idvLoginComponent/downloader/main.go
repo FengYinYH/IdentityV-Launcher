@@ -649,7 +649,7 @@ func parseArgs(args []string) (manifestPath, cache, payloadImage, payloadManifes
 }
 
 func validatePinned(m manifest) error {
-	if m.Component != "idv-login" || m.Version != "6.3.2" || m.AssetName != "idv-login-v6.3.2-stable-mac" || m.ByteSize != 198957312 || m.SHA256 != "44546da7ec143f73888e8b6e4c4ed53f48d2b03f84c7ca74c20ab8eb310f4045" || m.DownloadURL != "https://github.com/KKeygen/idv-login/releases/download/v6.3.2-stable/idv-login-v6.3.2-stable-mac" {
+	if m.Component != "idv-login" || m.Version != "6.3.3" || m.AssetName != "idv-login-v6.3.3-beta-mac" || m.ByteSize != 199215712 || m.SHA256 != "dcfef8ddd66fae454d30c296dbdc42496a862ed38cd533e0b4b8032b5db9cac5" || m.DownloadURL != "https://github.com/KKeygen/idv-login/releases/download/v6.3.3-beta/idv-login-v6.3.3-beta-mac" {
 		return errors.New("invalid pinned IDV Login manifest")
 	}
 	u, e := url.Parse(m.DownloadURL)

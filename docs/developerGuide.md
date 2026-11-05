@@ -6,9 +6,9 @@
 
 ## 运行与构建关系
 
-本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper 合约为 9；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。
+本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper 合约为 10；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。
 
-IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精确字节锁和许可来源；当前锁定官方 `v6.3.2-stable`，标签与资产以实际 Release 核验，不能由版本号猜测通道。通常先退出游戏再运行安装器。已明确安排保留活动游戏的维护更新，可先停止登录代理，再使用安装器的 `--allow-running-game-with-stopped-proxy`；此参数仍要求代理进程和托管 hosts 均已消失，不提供活动代理绕过。具体证据与回退见[组件说明](../idvLoginComponent/README.md)。
+IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精确字节锁和许可来源；当前锁定官方 `v6.3.3-beta`，标签与资产以实际 Release 核验，不能由版本号猜测通道。通常先退出游戏再运行安装器。已明确安排保留活动游戏的维护更新，可先停止登录代理，再使用安装器的 `--allow-running-game-with-stopped-proxy`；此参数仍要求代理进程和托管 hosts 均已消失，不提供活动代理绕过。具体证据与回退见[组件说明](../idvLoginComponent/README.md)。
 
 玩家 App 的界面和调度位于 `playerLauncherApp/Sources/`。下载与校验依次由 `productCatalog/`、`productManager/`、`manifestPlanner/`、`gameDownloader/` 等模块负责；国服和国际服首装及完整性修复共用 manifest planner 与网易 `downloadIPC.exe` supervisor，国际服通过显式 `oversea` 路由保持 LoadingBay 产品身份。国际服 adapter 仍独立解析并校验官方清单及安装器地址；两服的发布事务和游戏路径绑定保持分开。共链证据及边界见[网易下载核心共链说明](downloadCoreUnification.md)。共享 Wine/DXMT 输入由 `runtimeManifest/` 与 `runtimeBootstrap/` 锁定、取得和核验。玩家点启动游戏后，内嵌的 `gameRunnerApp/IdentityV-Mac.app` 承接启动命令，调用 Wine，再进入游戏。`gameRunnerApp/IdentityV-AGTK.app` 是历史/开发模板，不在当前玩家 App 内出货。
 
@@ -52,4 +52,6 @@ RC1 升级时，ProductManager 的状态/操作入口在空闲状态执行[默�
 
 ### 自定义安装与已有目录检测（RC5 build 10 候选）
 
-安装入口先选默认位置或专用空文件夹，管理器仍拒绝覆盖非受管非空目录；默认位置不存在时由原有迁移之后的目录准备负责创建。`IdentityVProductManager inspect --product mainland|global --path <客户端根目录>` 从该服官方基础清单执行只读 XXH64 扫描，临时 manifest/repair-list 在系统临时目录，绝不下载修复。完整匹配基础清单的目录可直接确认导入；不匹配时显示差异与热更新/服务器不确定性，只有显式确认后才允许以未验证状态登记（CLI 对应 `--accept-base-mismatch`），不自动修复或声称损坏。导入创建独立 prefix 并登记原路径；`externalGameRoot` 保留用户所有权，卸载不删除外部目录，外部目录也不自动进入修复下载。导入按钮在未安装/需修复状态提供。最终构建、全量下载和日用入口验收另记状态。
+安装入口选择默认或任意可写位置，不要求空目录。检测所选根目录或 game/DWRG/IdentityV 子目录中的 dwrg.exe；存在时进入只读检测和导入确认，同步产品状态，原文件不交给下载器。非游戏的兄弟文件保留；已有非受管 game/.staging/work 事务目录不覆盖。导入按钮位于游戏位置右侧，caption 字号与 small 控件不增加主操作行。文件选择器选取 dwrg.exe 后以其父目录检测；两服现有启动契约及官方海外 startup_path 均为 dwrg.exe，不通过安装器文件名判断本体。
+
+`IdentityVProductManager inspect --product mainland|global --path <客户端根目录>` 按该服官方基础清单执行只读 XXH64 扫描。检测与导入仍区分基础清单不符和游戏热更新；需要确认后登记，不覆盖原文件。externalGameRoot 保留用户所有权，卸载只移除记录/prefix。路径检测 fixture、管理器的非空目录 sentinel 与事务子目录保护回归通过，完整构建最终检查通过；GUI 最终行高/文件选择器实机验收由 RC5 集成轮完成。

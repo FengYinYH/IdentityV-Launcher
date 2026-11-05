@@ -30,7 +30,7 @@ To upgrade from RC1, quit the game before replacing the launcher. The old defaul
 
 IDV Login is an optional component. You can download, repair, and play without installing it; use the game's official login flow instead.
 
-The launcher currently supports the official version `6.3.2` and manages component updates.
+The launcher currently supports the official version `6.3.3 beta` and manages component updates.
 
 ## Notes
 
