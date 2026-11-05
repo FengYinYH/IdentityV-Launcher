@@ -74,3 +74,10 @@ App 的 Bundle ID、精确发行号、约定入口和当前架构须匹配；全
 真实Agent运输层加Python mock GUI覆盖任务UUID传递、活lease阻挡、等待确认、早取消、晚取消后等待实际成功结果；mock不显示原生窗口、不冒充实际签名更新。GUI全源码类型检查通过，既存卡死提示Timer actor警告仍保留。管理器完整自检及原接口回归通过。正式签名整包、真实下载/同址替换/新GUI回执/成功清理仍须独立验收。
 
 所有者暂停KVM输入期间，`agentSelfTest.command --headless`或构建环境`IDENTITYV_TEST_HEADLESS=1`仅推迟Python测试中的原生删除确认框段，并明确打印DEFERRED；运输、日志、协议及取消测试照跑。默认仍运行原生段，生产AgentCLI不读取测试flag、没有确认绕过。当前原生更新确认、GUI交互与真实日用替换均未在此候选执行。
+
+
+### 更新结果的物理状态与协议状态
+
+助手的所有成功/失败输出均给出`targetState`与三态`targetReplaced`、`startupConfirmed`、`recoveryRequired`和`cleanupComplete`。兼容字段installed仅是startupConfirmed别名，绝不是磁盘状态。实际swap返回成功立即记replacement；活新版无回执仍保留这个true，另外标记未确认启动及需要恢复。回执通过但清理失败保持replacement/confirmed并要求收尾。回退之后再验证旧项目签名、发行号和build，才能记original/false；回退或验证失败记unknown/null并保留恢复信息。初期未验证目标或无效调用也不猜磁盘状态。
+
+需要手动恢复/收尾时返回已知target与事务根，backupPath仅在备份实际存在时输出，不承诺已删备份可用。状态单测覆盖预替换失败、活新App无回执、确认后清理失败、已验证回退、回退不确定及成功结果；它验证共享状态投影，不是实际NSWorkspace启动/故障验收。原有假App rename/回退检查仍运行，本补充未替换任何真实App或显示窗口。

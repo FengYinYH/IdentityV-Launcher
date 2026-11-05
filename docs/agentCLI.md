@@ -107,7 +107,7 @@ idv cancel '<taskId>'
 
 两项使用真实App的显式 `--launcher-agent-operation` 后端，GUI用相同checker/preparer/helper，不复制第二套更新器。Resources/idv保持独立，普通GUI参数及`--launcher-update-receipt`始终进入GUI。检查缓存限于该后端进程，跨任务调用方应遵守GitHub限流；不后台轮询。
 
-事件phase包括checking/downloading/applying；确认时task.state=awaiting_confirmation。下载准备阶段API取消可终止本任务；提交交给助手后cancellable=false，晚到的取消记录cancellation_too_late并等待真实结果，不强杀替换事务。用户在确认框点取消也返回cancelled。成功仅在新GUI回执匹配且旧备份/本次临时包清理完成后产生；helper启动或ready不是成功。失败可能已安装新版但清理未完成，须读取output.installed/cleanupComplete与error，不从failed反推完全回滚。
+事件phase包括checking/downloading/applying；确认时task.state=awaiting_confirmation。下载准备阶段API取消可终止本任务；提交交给助手后cancellable=false，晚到的取消记录cancellation_too_late并等待真实结果，不强杀替换事务。用户在确认框点取消也返回cancelled。成功仅在新GUI回执匹配且旧备份/本次临时包清理完成后产生；helper启动或ready不是成功。助手结果将物理目标与启动协议分开：`targetState=original|replacement|unknown`，`targetReplaced=false|true|null`；false仅在旧目标已验证（包括已验证回退）时返回，null表示无法确认。`startupConfirmed`表示新版启动回执已确认，旧`installed`仅为它的兼容别名，false绝不证明磁盘仍是旧版。`recoveryRequired`表示需要恢复或收尾；此时返回`targetPath/transactionPath`，仅在备份实际存在时返回`backupPath`。`cleanupComplete`和error仍须读取。活新版无回执时targetReplaced=true、startupConfirmed=false、recoveryRequired=true；回退失败则targetReplaced=null，不从failed或installed=false反推原目标未变。
 
 更新助手独占活admission及现有产品修改锁，admission按实际用户临时区与App canonical路径分组，不随业务HOME变化；普通worker和直接管理器入口持共享lease，覆盖只读扫描及下载/安装整个时段；更新install运输层自身除外，以免等待自身锁。新业务会快速返回busy，不使用旧PID或task.json猜测活动。只读位置解析不修改游戏与安装记录，但可创建内部锁文件。更新需要退出游戏、等待组件/产品事务完成；不强停游戏、不触碰游戏/runtime/账号。CLI在用户确认后可正常请求同址旧GUI退出，并等待新GUI回执。
 

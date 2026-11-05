@@ -22,4 +22,12 @@ xcrun swiftc -swift-version 5 -warnings-as-errors -O -parse-as-library -target a
   "$ROOT/sharedDiagnostics/LauncherOperationLocks.swift" \
   "$ROOT/playerLauncherApp/Sources/LauncherLanguage.swift" \
   "$ROOT/playerLauncherApp/UpdateHelper/LauncherUpdateHelper.swift" -o "$TEST_ROOT/helper"
+xcrun swiftc -swift-version 5 -warnings-as-errors -O -parse-as-library -D LAUNCHER_UPDATE_RESULT_SELF_TEST -target arm64-apple-macos14.0 -sdk "$SDK_PATH" -framework AppKit \
+  "$ROOT/playerLauncherApp/Sources/LauncherUpdateChecker.swift" \
+  "$ROOT/playerLauncherApp/Sources/LauncherUpdateInstallation.swift" \
+  "$ROOT/playerLauncherApp/Sources/LauncherLanguage.swift" \
+  "$ROOT/sharedDiagnostics/LauncherOperationLocks.swift" \
+  "$ROOT/playerLauncherApp/UpdateHelper/LauncherUpdateHelper.swift" \
+  "$ROOT/playerLauncherApp/Tests/LauncherUpdateResultSelfTest.swift" -o "$TEST_ROOT/result"
+"$TEST_ROOT/result"
 print -- 'Updater focused checks passed (no installed App replaced).'
