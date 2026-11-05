@@ -180,16 +180,23 @@ enum AgentCLI {
             }
             record["removalPreview"] = preview
             try save(record, dir)
-            let alert = NSAlert(); alert.messageText = localized("你的 Agent 似乎在删除游戏，确认这样操作吗？")
+            let alert = NSAlert(); alert.messageText = localized("你的 Agent 要卸载以下位置的游戏，是否继续？")
             let resourceDirectory = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.deletingLastPathComponent()
-            if let icon = NSImage(contentsOf: resourceDirectory.appendingPathComponent("IdentityVLauncher.icns")) {
+            // Icon Services applies the same app-icon treatment as Finder.
+            // Loading raw ICNS pixels here showed a square black backing.
+            var bundle = resourceDirectory
+            while bundle.path != "/" && bundle.pathExtension.lowercased() != "app" {
+                bundle.deleteLastPathComponent()
+            }
+            if bundle.pathExtension.lowercased() == "app" {
+                alert.icon = NSWorkspace.shared.icon(forFile: bundle.path)
+            } else if let icon = NSImage(contentsOf: resourceDirectory.appendingPathComponent("IdentityVLauncher.icns")) {
                 alert.icon = icon
             }
             let gamePath = preview["gamePath"] as? String ?? localized("当前游戏目录不可用")
-            let paths = (preview["targets"] as? [[String: String]] ?? []).compactMap { $0["path"] }
-            let ownership = preview["externalGameRoot"] as? Bool == true ? "\n" + localized("外部游戏文件保留，仅清除以下受管项目。") : ""
-            alert.informativeText = localized("游戏位置：") + "\n" + gamePath + ownership + "\n\n" + localized("将移入废纸篓：") + "\n" + paths.joined(separator: "\n")
-            alert.addButton(withTitle: localized("取消")); alert.addButton(withTitle: localized("确认删除"))
+            let ownership = preview["externalGameRoot"] as? Bool == true ? "\n" + localized("外部游戏文件将保留。") : ""
+            alert.informativeText = gamePath + ownership
+            alert.addButton(withTitle: localized("取消")); alert.addButton(withTitle: localized("确认卸载"))
             // The modal run loop must keep heartbeating and service API/signal
             // cancellation. Otherwise cancel writes a marker but leaves this
             // worker (and its dialog) blocked until a human clicks a button.

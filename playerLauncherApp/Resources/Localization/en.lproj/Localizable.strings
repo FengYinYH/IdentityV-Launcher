@@ -279,3 +279,9 @@
 "将移入废纸篓：" = "Will be moved to Trash:";
 
 "确认删除" = "Confirm Removal";
+
+"你的 Agent 要卸载以下位置的游戏，是否继续？" = "Your Agent wants to uninstall the game at this location. Continue?";
+
+"外部游戏文件将保留。" = "External game files will be preserved.";
+
+"确认卸载" = "Confirm Uninstall";
