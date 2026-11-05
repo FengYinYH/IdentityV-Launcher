@@ -568,6 +568,7 @@ final class ToolboxViewModel: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.runtimeStatus = next
+                self.idvLoginEnabled = UserDefaults.standard.bool(forKey: LoginFollowPreference.key)
                 self.refreshDenseMonitoring(with: processDetails)
                 self.statusRefreshInFlight = false
                 if next.loginProxyReady && self.operationMessage == "正在启动 IDV Login…" {
@@ -1421,21 +1422,12 @@ final class ToolboxViewModel: ObservableObject {
     func declineInitialIdvLoginOffer() { declineIdvLoginPrompt() }
 
     func setIdvLoginFollowGameEnabled(_ enabled: Bool) {
-        if !enabled {
-            idvLoginEnabled = false
-            UserDefaults.standard.set(false, forKey: "idvLoginFollowGameLaunchEnabled")
-            showOperation("已关闭“跟随游戏启动”；仍可在组件可用时手动启动 IDV Login。")
-            return
-        }
-        guard !enabled || loginComponentIsInstalled else {
-            idvLoginEnabled = false
-            UserDefaults.standard.set(false, forKey: "idvLoginFollowGameLaunchEnabled")
+        guard LoginFollowPreference.set(enabled, installed: loginComponentIsInstalled, defaults: .standard) else {
             showOperation("请先安装 IDV Login，再开启“跟随游戏启动”。", isError: true)
             return
         }
         idvLoginEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: "idvLoginFollowGameLaunchEnabled")
-        showOperation("已开启“跟随游戏启动”；首次使用前会说明本地证书信任授权。")
+        showOperation(enabled ? "已开启“跟随游戏启动”；首次使用前会说明本地证书信任授权。" : "已关闭“跟随游戏启动”；仍可在组件可用时手动启动 IDV Login。")
     }
 
     /// Receipt never waits for status: the helper still holds admission while
@@ -2007,17 +1999,12 @@ final class ToolboxViewModel: ObservableObject {
                 DispatchQueue.main.async { completion(result) }
                 return
             }
-            let process = Process(); let pipe = Pipe(); process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            process.arguments = ["-n", ToolboxPath.startLoginHelper.path]; process.standardOutput = pipe; process.standardError = pipe
             do {
-                try process.run()
-                // Drain while the helper is alive.  Its controlled stderr can
-                // include a system-tool diagnostic; waiting first can fill the
-                // pipe and deadlock before the bounded initialization wait.
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                let output = String(decoding: data, as: UTF8.self)
-                let result = LoginStartupResult.fromHelper(status: process.terminationStatus, output: output)
+                let receipt = try LoginLifecycleProcess.run(
+                    executable: URL(fileURLWithPath: "/usr/bin/sudo"),
+                    arguments: ["-n", ToolboxPath.startLoginHelper.path]
+                )
+                let result = LoginStartupResult.fromHelper(status: receipt.status, output: receipt.output)
                 LoginStartupGate.finish(ticket, result: result)
                 DispatchQueue.main.async {
                     self.refreshRuntimeStatusAfterDelay()
@@ -2162,19 +2149,22 @@ final class ToolboxViewModel: ObservableObject {
             ? "正在结束并重新启动 IDV Login…"
             : "正在关闭 IDV Login；若出现管理员授权窗口，请在系统窗口中确认。")
 
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = ToolboxPath.stopLoginScript
-        process.standardOutput = output
-        process.standardError = output
-        process.terminationHandler = { [weak self] task in
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            let text = String(decoding: data, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let receipt: LoginLifecycleProcess.Result
+            do {
+                receipt = try LoginLifecycleProcess.run(executable: ToolboxPath.stopLoginScript, arguments: [])
+            } catch {
+                DispatchQueue.main.async {
+                    self?.loginStopIsRunning = false
+                    self?.showOperation("无法运行关闭脚本：\(error.localizedDescription)", isError: true)
+                }
+                return
+            }
+            let text = receipt.output.trimmingCharacters(in: .whitespacesAndNewlines)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.loginStopIsRunning = false
-                if task.terminationStatus == 0 {
+                if receipt.status == 0 {
                     self.runtimeStatus.loginProcessStarting = false
                     self.runtimeStatus.loginProxyReady = false
                     self.runtimeStatus.loginReadinessProblem = false
@@ -2205,7 +2195,7 @@ final class ToolboxViewModel: ObservableObject {
                     }
                 } else {
                     self.showOperation(
-                        text.isEmpty ? "关闭 IDV Login 失败，退出码 \(task.terminationStatus)。" : text,
+                        text.isEmpty ? "关闭 IDV Login 失败，退出码 \(receipt.status)。" : text,
                         isError: true
                     )
                     self.refreshRuntimeStatusAfterDelay()
@@ -2213,12 +2203,6 @@ final class ToolboxViewModel: ObservableObject {
             }
         }
 
-        do {
-            try process.run()
-        } catch {
-            loginStopIsRunning = false
-            showOperation("无法运行关闭脚本：\(error.localizedDescription)", isError: true)
-        }
     }
 
     func startProbe() {

@@ -78,7 +78,10 @@ struct IdentityVToolboxApp: App {
                 Button(LocalizedStringKey(selectedLanguage.localized("显示全部"))) { NSApplication.shared.unhideAllApplications(nil) }
             }
             CommandMenu(LocalizedStringKey(selectedLanguage.localized("语言"))) {
-                Picker(LocalizedStringKey(selectedLanguage.localized("语言")), selection: $languageRawValue) {
+                Picker(LocalizedStringKey(selectedLanguage.localized("语言")), selection: Binding(
+                    get: { languageRawValue },
+                    set: { _ = LauncherLanguage.set($0, in: .standard) }
+                )) {
                     ForEach(LauncherLanguage.allCases) { language in
                         Text(language.menuTitle(in: selectedLanguage)).tag(language.rawValue)
                     }

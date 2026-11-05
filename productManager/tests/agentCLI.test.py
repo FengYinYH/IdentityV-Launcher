@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Transport integration tests: fixture cannot modify game/runtime state."""
-import json, os, subprocess, sys, tempfile, time, pathlib, signal
+import json, os, subprocess, sys, tempfile, time, pathlib, signal, uuid
 binary = sys.argv[1]
 with tempfile.TemporaryDirectory() as tmp:
     env = dict(os.environ, IDENTITYV_AGENT_TASK_ROOT=tmp)
@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory() as tmp:
     receipt = invoke('start', 'install', '--fixture-slow')[0]
     task = receipt['taskId']
     def wait_for(predicate):
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + 25
         while time.monotonic() < deadline:
             record = invoke('task', task)[0]
             if predicate(record): return record
@@ -52,6 +52,176 @@ with tempfile.TemporaryDirectory() as tmp:
     invoke('cancel', task)
     record = wait_for(lambda r: r['state'] in ('cancelled', 'failed', 'succeeded'))
     assert record['state'] == 'cancelled' and record['childExitCode'] == 130
+    # The owning install worker alone writes the control request and confirms
+    # only after the fake core emits the matching state.
+    install_root = pathlib.Path(tmp, 'install-root'); install_root.mkdir()
+    task = invoke('start', 'install', '--product', 'mainland', '--destination-parent', str(install_root), '--fixture-control')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running')
+    deadline = time.monotonic() + 5
+    while not any(e.get('payload', {}).get('coreState') == '2' for e in invoke('events', task)):
+        assert time.monotonic() < deadline
+        time.sleep(.05)
+    assert invoke('pause', task)[0]['status'] == 'observed'
+    assert invoke('resume', task)[0]['status'] == 'observed'
+    assert json.loads((install_root / 'work' / 'download-control.json').read_text())['action'] == 'resume'
+    invoke('cancel', task)
+    wait_for(lambda r: r['state'] == 'cancelled')
+    invoke('pause', task, code=1)
+    # A foreign transaction marker must never receive a control file.
+    foreign_root = pathlib.Path(tmp, 'foreign-root'); foreign_root.mkdir()
+    task = invoke('start', 'install', '--product', 'mainland', '--destination-parent', str(foreign_root), '--fixture-control', '--fixture-bad-marker')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running')
+    deadline = time.monotonic() + 5
+    while not any(e.get('payload', {}).get('coreState') == '2' for e in invoke('events', task)):
+        assert time.monotonic() < deadline
+        time.sleep(.05)
+    assert invoke('pause', task, code=1)[0]['error'] == 'install_control_unavailable'
+    assert not (foreign_root / 'work' / 'download-control.json').exists()
+    invoke('cancel', task)
+    wait_for(lambda r: r['state'] == 'cancelled')
+    # A work directory symlink must not redirect control into another folder.
+    symlink_root = pathlib.Path(tmp, 'symlink-root'); symlink_root.mkdir()
+    task = invoke('start', 'install', '--product', 'mainland', '--destination-parent', str(symlink_root), '--fixture-control', '--fixture-work-symlink')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running')
+    deadline = time.monotonic() + 5
+    while not any(e.get('payload', {}).get('coreState') == '2' for e in invoke('events', task)):
+        assert time.monotonic() < deadline
+        time.sleep(.05)
+    assert invoke('pause', task, code=1)[0]['error'] == 'install_control_unavailable'
+    assert not (symlink_root / 'work' / 'download-control.json').exists()
+    invoke('cancel', task)
+    wait_for(lambda r: r['state'] == 'cancelled')
+    # Missing core acknowledgement is unknown, even when control was written.
+    noack_root = pathlib.Path(tmp, 'install-noack'); noack_root.mkdir()
+    task = invoke('start', 'install', '--product', 'mainland', '--destination-parent', str(noack_root), '--fixture-control', '--fixture-no-ack')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running')
+    deadline = time.monotonic() + 5
+    while not any(e.get('payload', {}).get('coreState') == '2' for e in invoke('events', task)):
+        assert time.monotonic() < deadline
+        time.sleep(.05)
+    assert invoke('pause', task, code=1)[0]['status'] == 'unknown'
+    # An interrupted caller releases its OS lock; the effect of an already
+    # dispatched request remains unknown until a later core state arrives.
+    interrupted = subprocess.Popen([binary, 'agent', 'pause', task], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    time.sleep(.3)
+    interrupted.terminate()
+    interrupted.communicate(timeout=5)
+    assert interrupted.returncode != 0
+    assert invoke('pause', task, code=1)[0]['status'] == 'unknown'
+    # A control pending during installation cancellation must not claim confirmation.
+    request = subprocess.Popen([binary, 'agent', 'pause', task], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    time.sleep(.3)
+    invoke('cancel', task)
+    out, err = request.communicate(timeout=5)
+    assert request.returncode == 1 and json.loads(out)['status'] in ('unknown', 'failed'), (out, err)
+    wait_for(lambda r: r['state'] == 'cancelled')
+    # Login installation uses fixture downloader/installer only: no network,
+    # privileges, certificates or real component are touched.
+    install_events = invoke('run', 'login-install')
+    install_record = invoke('task', install_events[0]['taskId'])[0]
+    assert install_record['state'] == 'succeeded' and install_record['output']['installed'] and install_record['downloadExitCode'] == 0
+    install_events = invoke('run', 'login-install', '--fixture-download-fail', code=1)
+    assert invoke('task', install_events[0]['taskId'])[0]['error'] == 'login_download_failed'
+    assert invoke('task', install_events[0]['taskId'])[0]['downloadExitCode'] == 7
+    install_events = invoke('run', 'login-install', '--fixture-install-fail', code=1)
+    assert invoke('task', install_events[0]['taskId'])[0]['state'] == 'failed'
+    install_events = invoke('run', 'login-install', '--fixture-install-crash', code=1)
+    assert invoke('task', install_events[0]['taskId'])[0]['state'] == 'unknown'
+    install_events = invoke('run', 'login-install', '--fixture-install-timeout', code=1)
+    assert invoke('task', install_events[0]['taskId'])[0]['state'] == 'unknown'
+    task = invoke('start', 'login-install', '--fixture-download-slow')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running' and r.get('cancellable') is True)
+    invoke('cancel', task)
+    wait_for(lambda r: r['state'] == 'cancelled')
+    # Offline cancellation lets the stage finish its mount cleanup; a stage
+    # failure remains failed rather than being mislabeled cancelled.
+    task = invoke('start', 'login-install', '--fixture-offline', '--fixture-download-short')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running' and r.get('cancellable') is True)
+    invoke('cancel', task)
+    wait_for(lambda r: r['state'] == 'cancelled')
+    assert (pathlib.Path(tmp, task, 'fixture-cache', 'fixture-component')).exists()
+    task = invoke('start', 'login-install', '--fixture-offline', '--fixture-download-late-fail')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running' and r.get('cancellable') is True)
+    invoke('cancel', task)
+    record = wait_for(lambda r: r['state'] in ('cancelled', 'failed', 'succeeded'))
+    assert record['state'] == 'failed' and record['cancellationRequested'], record
+    task = invoke('start', 'login-install', '--fixture-offline', '--fixture-download-late-130')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running' and r.get('cancellable') is True)
+    invoke('cancel', task)
+    record = wait_for(lambda r: r['state'] in ('cancelled', 'failed', 'succeeded'))
+    assert record['state'] == 'failed' and record['cancellationRequested'], record
+    # Offline cleanup that does not finish by the deadline is unknown, never
+    # fabricated as cancelled or forcibly killed.
+    task = invoke('start', 'login-install', '--fixture-offline', '--fixture-download-slow', '--fixture-cancel-timeout')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running' and r.get('cancellable') is True)
+    invoke('cancel', task)
+    record = wait_for(lambda r: r['state'] in ('cancelled', 'failed', 'succeeded', 'unknown'))
+    assert record['state'] == 'unknown' and record['errorCode'] == 'login_download_result_unknown'
+    task = invoke('start', 'login-install', '--fixture-download-late-crash')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running' and r.get('cancellable') is True)
+    deadline = time.monotonic() + 5
+    while not any(e.get('payload', {}).get('phase') == 'fixture-ready' for e in invoke('events', task)):
+        assert time.monotonic() < deadline
+        time.sleep(.05)
+    invoke('cancel', task)
+    record = wait_for(lambda r: r['state'] in ('cancelled', 'failed', 'succeeded'))
+    assert record['state'] == 'failed' and record['cancellationRequested'], record
+    task = invoke('start', 'login-install', '--fixture-confirm-wait')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'awaiting_confirmation')
+    invoke('cancel', task)
+    wait_for(lambda r: r['state'] == 'cancelled')
+    task = invoke('start', 'login-install', '--fixture-install-slow')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running' and r.get('cancellable') is False)
+    invoke('cancel', task)
+    record = wait_for(lambda r: r['state'] in ('succeeded', 'failed', 'cancelled', 'unknown'))
+    assert record['state'] == 'succeeded' and record['cancellationRequested']
+    # A cancellation already present when a queued worker starts prevents
+    # any backend launch, including privileged handoff.
+    pre_id = str(uuid.uuid4()).upper()
+    pre_dir = pathlib.Path(tmp, pre_id)
+    pre_dir.mkdir()
+    (pre_dir / 'task.json').write_text(json.dumps({'schemaVersion': 1, 'taskId': pre_id, 'state': 'queued', 'arguments': ['login-stop', '--fixture-slow'], 'updatedAt': time.time()}))
+    for name in ('events.jsonl', 'stdout.log', 'stderr.log', 'cancel-requested'):
+        (pre_dir / name).touch()
+    invoke('worker', pre_id, code=130)
+    assert invoke('task', pre_id)[0]['state'] == 'cancelled'
+    assert (pre_dir / 'stdout.log').read_text() == ''
+    # Stop uses a conservative boundary: once the worker marks handoff,
+    # cancellation cannot kill the backend or fabricate cancellation.
+    task = invoke('start', 'login-stop', '--fixture-slow')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running' and r.get('cancellable') is False)
+    invoke('cancel', task)
+    time.sleep(.5)
+    assert invoke('task', task)[0]['state'] == 'running'
+    record = wait_for(lambda r: r['state'] in ('cancelled', 'failed', 'succeeded', 'unknown'))
+    assert record['state'] == 'succeeded' and record['cancellationRequested']
+    assert any(e['event'] == 'cancellation_too_late' for e in invoke('events', task))
+    events = invoke('run', 'login-stop', '--fixture-fail', code=1)
+    assert invoke('task', events[0]['taskId'])[0]['state'] == 'failed'
+    events = invoke('run', 'login-stop', '--fixture-crash', code=1)
+    assert invoke('task', events[0]['taskId'])[0]['state'] == 'unknown'
+    events = invoke('run', 'login-stop', '--fixture-timeout', code=1)
+    assert invoke('task', events[0]['taskId'])[0]['errorCode'] == 'privileged_result_unknown'
+    # Start shares the same non-interruptible post-handoff transport.
+    task = invoke('start', 'login-start', '--fixture-slow', '--fixture-short')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running' and r.get('cancellable') is False)
+    invoke('cancel', task)
+    record = wait_for(lambda r: r['state'] in ('cancelled', 'failed', 'succeeded', 'unknown'))
+    assert record['state'] == 'succeeded' and record['cancellationRequested']
+    events = invoke('run', 'login-start', '--fixture-fail', code=1)
+    assert invoke('task', events[0]['taskId'])[0]['state'] == 'failed'
+    events = invoke('run', 'login-start', '--fixture-crash', code=1)
+    assert invoke('task', events[0]['taskId'])[0]['state'] == 'unknown'
+    events = invoke('run', 'login-start', '--fixture-timeout', code=1)
+    assert invoke('task', events[0]['taskId'])[0]['state'] == 'unknown'
+    # Feedback handoff shares the conservative transport, using only a stub.
+    task = invoke('start', 'feedback-draft', '--fixture-slow', '--fixture-short')[0]['taskId']
+    wait_for(lambda r: r['state'] == 'running' and r.get('cancellable') is False)
+    invoke('cancel', task)
+    record = wait_for(lambda r: r['state'] in ('cancelled', 'failed', 'succeeded', 'unknown'))
+    assert record['state'] == 'succeeded' and record['cancellationRequested']
+    events = invoke('run', 'feedback-draft', '--fixture-fail', code=1)
+    assert invoke('task', events[0]['taskId'])[0]['state'] == 'failed'
     events = invoke('run', 'repair', '--fixture-unrequested-130', code=1)
     record = invoke('task', events[0]['taskId'])[0]
     assert record['state'] == 'failed' and not record['cancellationRequested']

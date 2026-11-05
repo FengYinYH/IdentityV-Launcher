@@ -481,6 +481,7 @@ python3 "$PROJECT_ROOT/signing/verifyFirstPartyIdentity.py" launcher "$APP_PATH"
   -target arm64-apple-macos14.0 \
   -sdk "$SDK_PATH" \
   "$SOURCE_ROOT/Sources/ToolboxModels.swift" \
+  "$SOURCE_ROOT/Sources/LauncherLanguage.swift" \
   -o "$ENV_SELF_CHECK"
 "$ENV_SELF_CHECK"
 /bin/rm -f "$ENV_SELF_CHECK"
@@ -494,6 +495,7 @@ python3 "$PROJECT_ROOT/signing/verifyFirstPartyIdentity.py" launcher "$APP_PATH"
   -target arm64-apple-macos14.0 \
   -sdk "$SDK_PATH" \
   "$SOURCE_ROOT/Sources/ToolboxModels.swift" \
+  "$SOURCE_ROOT/Sources/LauncherLanguage.swift" \
   "$SOURCE_ROOT/Sources/InstallAttemptLog.swift" \
   -o "$INSTALL_ATTEMPT_LOG_SELF_CHECK"
 "$INSTALL_ATTEMPT_LOG_SELF_CHECK"

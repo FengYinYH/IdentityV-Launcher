@@ -27,6 +27,12 @@ enum LauncherLanguage: String, CaseIterable, Identifiable {
         resolve(rawValue: defaults.string(forKey: preferenceKey))
     }
 
+    static func set(_ value: String, in defaults: UserDefaults) -> Bool {
+        guard let language = LauncherLanguage(rawValue: value) else { return false }
+        defaults.set(language.rawValue, forKey: preferenceKey)
+        return true
+    }
+
     var locale: Locale {
         switch self {
         case .system: Self.systemLocale
@@ -176,5 +182,56 @@ enum LauncherLanguage: String, CaseIterable, Identifiable {
         }
         if normalized.hasPrefix("zh") { return Locale(identifier: "zh-Hans") }
         return Locale(identifier: "en")
+    }
+}
+
+/// Shared preference policy for the launcher and its agent backend.
+enum LoginFollowPreference {
+    static let key = "idvLoginFollowGameLaunchEnabled"
+    static func set(_ enabled: Bool, installed: Bool, defaults: UserDefaults) -> Bool {
+        guard !enabled || installed else { return false }
+        defaults.set(enabled, forKey: key)
+        return true
+    }
+}
+
+/// Builds the mail a feedback submission produces. Kept as a pure function so
+/// the one-pass feedback window's contract (recipient, subject, user text as
+/// body, optional attachment) is covered by the existing self-test rather than
+/// only by clicking through the UI.
+enum FeedbackMailComposer {
+    /// The user's one-line summary becomes the subject, because that is what a
+    /// mail list shows and what a maintainer triages by; the product name and
+    /// version stay in front so reports from different builds stay sortable.
+    /// An empty title falls back to the plain product subject.
+    static func subject(title: String, version: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "[反馈与建议] 第五人格启动器 \(version)" }
+        return "[反馈与建议] \(trimmed) · 第五人格启动器 \(version)"
+    }
+
+    static func body(description: String, version: String, reportId: String?, attachesLogs: Bool) -> String {
+        var text = "第五人格启动器 \(version)\n"
+        if let reportId { text += "报告：\(reportId)\n" }
+        text += "\n\(description)\n"
+        text += attachesLogs ? "\n诊断包见附件。\n" : "\n（未附带日志包）\n"
+        return text
+    }
+
+    /// Items handed to NSSharingService: body first, attachment second. The
+    /// subject travels separately through `subject(title:version:)`.
+    static func items(description: String, version: String, reportId: String?, attachment: URL?) -> [Any] {
+        var items: [Any] = [body(description: description, version: version, reportId: reportId,
+                                attachesLogs: attachment != nil)]
+        if let attachment { items.append(attachment) }
+        return items
+    }
+
+    /// One text file for the ZIP, so the attached bundle is self-describing even
+    /// when it is read without the mail it came from.
+    static func packagedDescription(title: String, description: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return description }
+        return "标题：\(trimmed)\n\n\(description)"
     }
 }

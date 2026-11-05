@@ -3,6 +3,21 @@ import Foundation
 @main
 enum LauncherLanguageSelfTest {
     static func main() {
+        let suiteName = "identityv-language-self-test-" + UUID().uuidString
+        let testDefaults = UserDefaults(suiteName: suiteName)!
+        defer { testDefaults.removePersistentDomain(forName: suiteName) }
+        precondition(LauncherLanguage.set("en", in: testDefaults))
+        precondition(LauncherLanguage.configured(from: testDefaults) == .english)
+        precondition(!LauncherLanguage.set("invalid", in: testDefaults))
+        precondition(LauncherLanguage.configured(from: testDefaults) == .english)
+        precondition(LauncherLanguage.set("system", in: testDefaults))
+        precondition(LauncherLanguage.configured(from: testDefaults) == .system)
+        precondition(!LoginFollowPreference.set(true, installed: false, defaults: testDefaults))
+        precondition(!testDefaults.bool(forKey: LoginFollowPreference.key))
+        precondition(LoginFollowPreference.set(true, installed: true, defaults: testDefaults))
+        precondition(testDefaults.bool(forKey: LoginFollowPreference.key))
+        precondition(LoginFollowPreference.set(false, installed: false, defaults: testDefaults))
+        precondition(!testDefaults.bool(forKey: LoginFollowPreference.key))
         let localeCases = [
             ("zh-Hans", "zh-Hans"),
             ("zh_CN", "zh-Hans"),

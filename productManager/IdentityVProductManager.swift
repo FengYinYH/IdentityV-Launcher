@@ -315,6 +315,7 @@ private struct DownloadProgressEvent: Encodable {
     let phase: String
     let bytesWritten: Int64
     let totalBytesExpected: Int64?
+    var coreState: String? = nil
 }
 
 private struct SupervisorProgressEvent: Decodable {
@@ -325,6 +326,7 @@ private struct SupervisorProgressEvent: Decodable {
         let build: Stage
         let verifyPercent: Double
     }
+    let state: String
     let progress: Progress
 }
 
@@ -436,6 +438,7 @@ private final class DownloadProgressReporter {
     private let product: ProductID
     private var lastEmission = Date.distantPast
     private var lastBytes: Int64 = -1
+    private var lastCoreState: String?
 
     init(product: ProductID) { self.product = product }
 
@@ -444,19 +447,23 @@ private final class DownloadProgressReporter {
         phase: String,
         bytesWritten: Int64,
         totalBytesExpected: Int64?,
-        force: Bool = false
+        force: Bool = false,
+        coreState: String? = nil
     ) {
         let now = Date()
-        guard force || bytesWritten != lastBytes && now.timeIntervalSince(lastEmission) >= 0.2 else { return }
+        let stateChanged = coreState != nil && coreState != lastCoreState
+        guard force || stateChanged || bytesWritten != lastBytes && now.timeIntervalSince(lastEmission) >= 0.2 else { return }
         lastEmission = now
         lastBytes = bytesWritten
+        if let coreState { lastCoreState = coreState }
         let payload = DownloadProgressEvent(
             schemaVersion: 1,
             event: event,
             productId: product,
             phase: phase,
             bytesWritten: bytesWritten,
-            totalBytesExpected: totalBytesExpected
+            totalBytesExpected: totalBytesExpected,
+            coreState: coreState
         )
         guard let data = try? JSONEncoder().encode(payload),
               let line = String(data: data, encoding: .utf8) else { return }
@@ -1704,7 +1711,7 @@ private func runSupervisorStreaming(
             let line = Data(lineBuffer[..<newline]); lineBuffer.removeSubrange(...newline)
             guard let event = try? JSONDecoder().decode(SupervisorProgressEvent.self, from: line) else { continue }
             let fraction = supervisorManifestFraction(progress: event.progress, manifestBytes: manifestBytes)
-            reporter.emit(event: "progress", phase: "downloading", bytesWritten: Int64(Double(manifestBytes) * fraction), totalBytesExpected: manifestBytes)
+            reporter.emit(event: "progress", phase: "downloading", bytesWritten: Int64(Double(manifestBytes) * fraction), totalBytesExpected: manifestBytes, coreState: event.state)
         }
     }
     // The supervisor normally reserves stderr for diagnostics.  It must still
@@ -3319,6 +3326,12 @@ private func runSelfTest() throws {
         bytesWritten: 1_024,
         totalBytesExpected: 4_096
     )
+    let pausedProgress = DownloadProgressEvent(schemaVersion: 1, event: "progress", productId: .mainland,
+        phase: "downloading", bytesWritten: 1_024, totalBytesExpected: 4_096, coreState: "6")
+    let pausedObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(pausedProgress)) as? [String: Any]
+    guard pausedObject?["coreState"] as? String == "6" else {
+        throw ManagerError.message("download core state encoding self-test failed")
+    }
     let progressObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(progress)) as? [String: Any]
     guard progressObject?["schemaVersion"] as? Int == 1,
           progressObject?["event"] as? String == "progress",

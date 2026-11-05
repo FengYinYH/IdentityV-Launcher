@@ -31,15 +31,123 @@ private final class LauncherUpdateCancellation: @unchecked Sendable {
 
 @MainActor
 enum LauncherUpdateAgent {
-    static let operations = ["launcher-update-check", "launcher-update-install", "login-admin-open"]
+    static let operations = ["launcher-update-check", "launcher-update-install", "login-admin-open", "language-get", "language-set", "login-follow-get", "login-follow-set", "login-stop", "login-start", "feedback-draft"]
     static func emit(_ value: [String: Any], to handle: FileHandle = .standardError) {
         if let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) {
             handle.write(data); handle.write(Data([10]))
         }
     }
     static func run(_ args: [String]) async -> Int32 {
-        guard args.count == 1, let operation = args.first, operations.contains(operation) else {
+        guard let operation = args.first, operations.contains(operation),
+              (operation == "feedback-draft" ? args.count == 3 : (["language-set", "login-follow-set"].contains(operation) ? args.count == 2 : args.count == 1)) else {
             emit(["error": "invalid_launcher_update_operation"]); return 64
+        }
+        if operation == "language-get" || operation == "language-set" {
+            let defaults = UserDefaults.standard
+            if operation == "language-set", !LauncherLanguage.set(args[1], in: defaults) {
+                emit(["error": "invalid_language"]); return 1
+            }
+            emit(["schemaVersion": 1, "language": LauncherLanguage.configured(from: defaults).rawValue], to: .standardOutput)
+            return 0
+        }
+        if operation == "login-follow-get" || operation == "login-follow-set" {
+            let defaults = UserDefaults.standard
+            if operation == "login-follow-set" {
+                guard ["on", "off"].contains(args[1]) else { emit(["error": "invalid_login_follow_value"]); return 1 }
+                let path = URL(fileURLWithPath: "/Library/Application Support/IdentityVOnMac/Components/idv-login/current/component.json")
+                let data = try? Data(contentsOf: path)
+                let object = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                let installed = (object?["version"] as? String).map { !$0.isEmpty } ?? false
+                guard LoginFollowPreference.set(args[1] == "on", installed: installed, defaults: defaults) else {
+                    emit(["error": "login_component_not_installed"]); return 1
+                }
+            }
+            emit(["schemaVersion": 1, "enabled": defaults.bool(forKey: LoginFollowPreference.key)], to: .standardOutput)
+            return 0
+        }
+        if operation == "feedback-draft" {
+            let title = args[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            let description = args[2].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty || !description.isEmpty else { emit(["error": "feedback_empty"]); return 1 }
+            guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+                  session[kCGSessionOnConsoleKey as String] as? Bool == true else {
+                emit(["error": "confirmation_unavailable"]); return 1
+            }
+            let version = Bundle.main.object(forInfoDictionaryKey: "IdentityVReleaseVersion") as? String
+                ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0-rc.1"
+            let text = FeedbackMailComposer.packagedDescription(title: title, description: description)
+            let items = FeedbackMailComposer.items(description: text, version: version, reportId: nil, attachment: nil)
+            guard let service = NSSharingService(named: .composeEmail), service.canPerform(withItems: items) else {
+                emit(["error": "feedback_mail_unavailable"]); return 1
+            }
+            service.recipients = [Bundle.main.object(forInfoDictionaryKey: "IdentityVFeedbackEmail") as? String ?? "FengYinYH@icloud.com"]
+            service.subject = FeedbackMailComposer.subject(title: title, version: version)
+            service.perform(withItems: items)
+            emit(["schemaVersion": 1, "requested": true], to: .standardOutput)
+            return 0
+        }
+        if operation == "login-start" {
+            let helper = URL(fileURLWithPath: "/Library/PrivilegedHelperTools/identityv-on-mac/start-idv-login.sh")
+            let metadata = URL(fileURLWithPath: "/Library/Application Support/IdentityVOnMac/Components/idv-login/current/component.json")
+            let data = try? Data(contentsOf: metadata)
+            let object = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            guard let version = object?["version"] as? String, !version.isEmpty,
+                  FileManager.default.isExecutableFile(atPath: helper.path),
+                  LoginAdmin.loginHelperContainsCurrentStatusContract(at: helper) else {
+                emit(["error": "login_component_unavailable"]); return 1
+            }
+            let status = await Task.detached { LoginAdmin.readinessStatus() }.value
+            if status == "ready" {
+                emit(["schemaVersion": 1, "ready": true], to: .standardOutput); return 0
+            }
+            guard status == "not-running" else {
+                emit(["error": "login_not_ready", "readiness": status]); return 1
+            }
+            if !UserDefaults.standard.bool(forKey: "idvLoginCertificateTrustNoticeAcknowledged") {
+                guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+                      session[kCGSessionOnConsoleKey as String] as? Bool == true else {
+                    emit(["error": "confirmation_unavailable"]); return 1
+                }
+                emit(["event": "agent-state", "state": "awaiting_confirmation"])
+                let app = NSApplication.shared
+                app.setActivationPolicy(.accessory); app.activate(ignoringOtherApps: true)
+                let alert = NSAlert()
+                alert.messageText = LauncherLanguage.current.localized("idv-login 首次启动需要系统授权")
+                alert.addButton(withTitle: LauncherLanguage.current.localized("取消"))
+                alert.addButton(withTitle: LauncherLanguage.current.localized("确认"))
+                guard alert.runModal() == .alertSecondButtonReturn else {
+                    emit(["error": "authorization_declined"]); return 1
+                }
+                UserDefaults.standard.set(true, forKey: "idvLoginCertificateTrustNoticeAcknowledged")
+                emit(["event": "agent-state", "state": "running"])
+            }
+            do {
+                let receipt = try await Task.detached(priority: .userInitiated) {
+                    try LoginLifecycleProcess.run(executable: URL(fileURLWithPath: "/usr/bin/sudo"), arguments: ["-n", helper.path])
+                }.value
+                if receipt.status == 75 && receipt.output.split(separator: "\n").contains("IDV_LOGIN_AUTHORIZATION=waiting") {
+                    UserDefaults.standard.removeObject(forKey: "idvLoginCertificateTrustNoticeAcknowledged")
+                    emit(["error": "login_authorization_required", "message": "System authorization was not completed; retry after confirming the notice."])
+                    return 1
+                }
+                guard receipt.status == 0 else { emit(["error": "login_start_failed", "childExitCode": receipt.status]); return 1 }
+                emit(["schemaVersion": 1, "ready": true], to: .standardOutput); return 0
+            } catch { emit(["error": "login_start_failed"]); return 1 }
+        }
+        if operation == "login-stop" {
+            let script = Bundle.main.resourceURL?.appendingPathComponent("stopIdentityVIdvLogin.command")
+            guard let script, FileManager.default.isExecutableFile(atPath: script.path) else {
+                emit(["error": "login_stop_unavailable"]); return 1
+            }
+            do {
+                let receipt = try await Task.detached(priority: .userInitiated) {
+                    try LoginLifecycleProcess.run(executable: script, arguments: [])
+                }.value
+                guard receipt.status == 0 else {
+                    emit(["error": "login_stop_failed", "childExitCode": receipt.status]); return 1
+                }
+                emit(["schemaVersion": 1, "stopped": true], to: .standardOutput); return 0
+            } catch { emit(["error": "login_stop_failed"]); return 1 }
         }
         if operation == "login-admin-open" {
             do {
@@ -241,4 +349,22 @@ private enum LoginStatusPollGate {
     static var active = false
     static func tryAcquire() -> Bool { lock.lock(); defer { lock.unlock() }; guard !active else { return false }; active = true; return true }
     static func release() { lock.lock(); active = false; lock.unlock() }
+}
+
+/// Runs the exact helper and drains output before waiting, so a full pipe cannot
+/// deadlock the helper. Callers interpret authorization and exit status.
+enum LoginLifecycleProcess {
+    struct Result { let status: Int32; let output: String }
+    static func run(executable: URL, arguments: [String]) throws -> Result {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = executable
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        let bytes = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return Result(status: process.terminationStatus, output: String(decoding: bytes, as: UTF8.self))
+    }
 }
