@@ -28,6 +28,8 @@ class CIInstallTests(unittest.TestCase):
         self.assertEqual(ci.screen_action({}, 2, False, False), 'observe')
         self.assertEqual(ci.screen_action({}, 2, False, True), 'restart')
         self.assertEqual(ci.screen_action({}, 2, True, True), 'stop_after_restart_candidate')
+        self.assertEqual(ci.screen_action({'restartPrompt': True}, 0, False, True, 2), 'restart')
+        self.assertEqual(ci.screen_action({'restartPrompt': True, 'authenticationRequired': True}, 0, False, True, 2), 'stop_for_user')
 
 
     def test_game_process_pattern_accepts_windows_paths(self):

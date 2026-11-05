@@ -11,12 +11,14 @@ func classify(_ lines: [String]) -> [String: Any] {
     if lines.contains(where: { ["login", "log in", "sign in", "sign-in", "登录", "登入", "账号登录", "帐号登录"].contains($0) }) { auth.append("login_control") }
     let agreement = (text.contains("i agree") && (text.contains("terms") || text.contains("privacy"))) || (text.contains("同意") && text.contains("用户协议"))
     let updating = ["downloading patches", "downloading patch", "下载补丁", "解压补丁", "更新中", "verifying files"].contains { text.contains($0) }
+    let restartPrompt = text.contains("restart your game") && text.contains("update") && text.contains("take")
     let heading = lines.contains { line in
         let key = line.replacingOccurrences(of: #"[^a-z\p{Han}]"#, with: "", options: .regularExpression)
         return ["notice", "notices", "news", "announcements", "announcement", "latestnews", "gamenotice", "servernotice", "systemnotice", "systemannouncement", "公告", "公告详情", "游戏公告"].contains(key)
     }
     return ["authenticationRequired": !auth.isEmpty, "authenticationMarkers": auth,
             "agreementRequiresUser": agreement, "updateScreenVisible": updating,
+            "restartPrompt": restartPrompt,
             "announcementCandidate": heading && !updating && text.count > 100,
             "recognizedLineCount": lines.count]
 }
@@ -138,6 +140,7 @@ do {
         precondition(classify(["Login"]) ["authenticationRequired"] as? Bool == true)
         precondition(classify(["Password"]) ["authenticationRequired"] as? Bool == true)
         precondition(classify(["I agree to the Terms"]) ["agreementRequiresUser"] as? Bool == true)
+        precondition(classify(["You have to restart your game for this update to take effect. Please tap confirm.", "Confirm"]) ["restartPrompt"] as? Bool == true)
         let body = String(repeating: "Maintenance information. ", count: 8)
         precondition(classify(["Notice", body]) ["announcementCandidate"] as? Bool == true)
         precondition(classify(["Notice", body, "Downloading patches..."]) ["announcementCandidate"] as? Bool == false)

@@ -23,7 +23,7 @@ TERMINAL = {'succeeded', 'failed', 'cancelled'}
 GAME_PROCESS_PATTERN = r'(^|[\\/])dwrg[.]exe([[:space:]]|$)'
 ALLOWED_DIFF = {'.github/workflows/full-install.yml', 'releasePackaging/ciFullInstall.py',
                 'releasePackaging/tests/test_ci_full_install.py', 'docs/ciWorkflow.md',
-                'docs/developerGuide.md', 'projectMap.md', 'STATUS.md',
+                'docs/developerGuide.md', 'docs/developmentPlan.md', 'projectMap.md', 'STATUS.md',
                 '.github/workflows/game-launch.yml', 'releasePackaging/ciGraphicsProbe.swift',
                 '.github/workflows/server-install.yml', 'gameDownloader/supervisor_test.go',
                 '.github/workflows/global-announcement.yml', 'releasePackaging/ciScreenClassifier.swift',
@@ -232,9 +232,11 @@ def stop_owned_product(agent, product, timeout=60):
     raise ExperimentError('product_stop_still_pending')
 
 
-def screen_action(verdict, consecutive_candidates, restarted, core_window_ready):
+def screen_action(verdict, consecutive_candidates, restarted, core_window_ready, restart_candidates=0):
     if verdict.get('authenticationRequired') or verdict.get('agreementRequiresUser'):
         return 'stop_for_user'
+    if not restarted and restart_candidates >= 2 and core_window_ready:
+        return 'restart'
     if consecutive_candidates >= 2 and core_window_ready:
         return 'stop_after_restart_candidate' if restarted else 'restart'
     return 'observe'
@@ -265,6 +267,7 @@ def observe_launch(manager, env, game, product, work, reports, result, limit=480
         captures = 0
         next_check = 30
         candidates = 0
+        restart_candidates = 0
         restarted = False
         schedule = [30, 120, 300, 450] if limit <= 480 else [30, 120, 300, 450, 600, 900, 1200, 1500, 1800, 2100, 2300, 2380]
         while time.monotonic() - started < limit:
@@ -302,7 +305,8 @@ def observe_launch(manager, env, game, product, work, reports, result, limit=480
                     sample['screen'] = verdict
                     ready = state.get('state') == 'succeeded' and state.get('exitCode') == 0
                     candidates = candidates + 1 if verdict.get('announcementCandidate') and ready else 0
-                    action = screen_action(verdict, candidates, restarted, state.get('state') == 'succeeded' and state.get('exitCode') == 0)
+                    restart_candidates = restart_candidates + 1 if verdict.get('restartPrompt') and ready else 0
+                    action = screen_action(verdict, candidates, restarted, ready, restart_candidates)
                     if action == 'stop_for_user':
                         report['stopReason'] = 'user_authentication_or_agreement_required'
                         terminal = True
@@ -310,7 +314,8 @@ def observe_launch(manager, env, game, product, work, reports, result, limit=480
                         if not restarted:
                             # A candidate is evidence to inspect, never a CI declaration of success.
                             shutil.copyfile(screen, reports / ('game-' + product + '-before-restart.png'))
-                            report['preRestartAnnouncementCandidate'] = True
+                            report['preRestartAnnouncementCandidate'] = bool(verdict.get('announcementCandidate'))
+                            report['preRestartUpdatePrompt'] = bool(verdict.get('restartPrompt'))
                             receipt = agent('start', 'restart', '--product', product)
                             task = str(uuid.UUID(receipt['taskId']))
                             report['taskId'] = task
