@@ -167,3 +167,5 @@ Runtime-path candidate: controlled Wine fixture reproduced prefix initialization
 build23最终整合构建：干净源码ce809e4，完整无窗口构建、运行器/产品管理器/Agent及32个Mach-O部署目标审计通过；首次签名因时间戳缺失失败，独立干净克隆完整重建通过。配套材料和本地测试DMG已挂载签名/源码身份复验。默认路径首装、较长HOME实体短路径、外置目录和旧版迁移各有分层证据，旧版迁移的保护由自动测试覆盖，极端HOME长度与最终标题页仍未通过实际验收。预检发现现有国际服测试游戏仍运行，不关闭、不替换日用22；等待会话自然结束。
 
 路径边界补充：三语README已同步可操作诊断建议。macOS27.3 Apple Silicon Wine11 ASCII实体runtime 214字节成功、215字节不同HOME/prefix样本失败；100/200/250字节游戏目录仅映射读取成功，真实49字节外置客户端启动至热更新。样本不是普适上限，非ASCII和其他系统未知。build23包源码先于本次文档补充，未重新构建。
+
+所有者要求查看最新README/变更记录并安装最新验证开发版；README路径说明进入build24干净构建，验收前保留活动会话，构建与安装分开记录。
