@@ -6,6 +6,7 @@ import CoreGraphics
 // A task receipt is never evidence that the underlying operation completed.
 enum AgentCLI {
     static let operations = ["status", "check-runtime-prerequisites", "inspect", "resolve-download", "resolve-manifest", "verify-installer", "select", "install", "import", "prepare-launch", "launch", "restart", "stop", "remove", "repair"]
+    static var documentationURL: URL { URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.deletingLastPathComponent().appendingPathComponent("agent-cli.md") }
     static var root: URL {
         if let path = ProcessInfo.processInfo.environment["IDENTITYV_AGENT_TASK_ROOT"] { return URL(fileURLWithPath: path, isDirectory: true) }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/IdentityVOnMac/AgentTasks", isDirectory: true)
@@ -39,8 +40,11 @@ enum AgentCLI {
     }
     static func dispatch(_ args: [String]) throws -> Int32 {
         guard let command = args.first else { throw failure("Use agent help") }
+        if command == "docs" {
+            try output(["schemaVersion": 1, "format": "markdown", "text": String(contentsOf: documentationURL, encoding: .utf8)]); return 0
+        }
         if command == "help" {
-            try output(["schemaVersion": 1, "commands": ["run <operation> [arguments]", "start <operation> [arguments]", "task <id>", "events <id>", "logs <id> stdout|stderr", "cancel <id>"], "operations": operations]); return 0
+            try output(["schemaVersion": 1, "commands": ["docs", "run <operation> [arguments]", "start <operation> [arguments]", "task <id>", "events <id>", "logs <id> stdout|stderr", "cancel <id>"], "operations": operations, "documentationPath": documentationURL.path, "documentationAvailable": FileManager.default.isReadableFile(atPath: documentationURL.path)]); return 0
         }
         if command == "logs" {
             guard args.count == 3, ["stdout", "stderr"].contains(args[2]) else { throw failure("Expected logs <id> stdout|stderr") }

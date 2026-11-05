@@ -42,3 +42,9 @@
 GitHub只读API确认公开main仓库目前workflows/runs/self-hosted runners均为0；新增本地checks工作流未推送或远端执行。[CI调查](docs/ciWorkflow.md)记录官方资源/系统退役/网络/费用限制，并建议合约CI+本地真实Mac的混合流程，release保持独立验收。
 
 Agent候选最终检查：完整玩家构建及包内签名/31枚Mach-O审计通过，完成包的真实CLI status与错误/日志在隔离HOME通过；Agent fixture已加入完整构建，真实manager协议测试加入模块selfTest入口。已有idv-login合成映像测试曾短暂资源不足，单独及随后完整重跑均通过；未跳过。没有日用安装/公证/真实删除确认或全量安装验收，后两项仍是集成门。
+
+所有者追加交付要求：Agent接口和对应文档进入RC5；新增功能以后同步接口/文档，已写入AGENTS与开发者指南。候选新增随包文档与agent docs/help发现入口；CI流程调整不阻挡RC5。仍需将隔离提交安全整合进最终RC5、重建及完成指定实机验收，不能把独立分支完成写成日用包已经更新。
+
+追加CI首跑准备：checks草案支持ci/**临时分支push自动触发，探测托管资源并运行独立的真实官方resolver smoke（无installer/game载荷）。本地完成两服官方地址解析及随包文档精确一致性验证；不冒充GitHub执行。首次远端动作需明确新分支/确切提交后执行，当前没有推送、设置修改或持久runner注册，CI调整不阻挡RC5。
+
+追加交付验证通过：带随包文档的新候选完整构建/签名树/31枚Mach-O审计通过；完成包help/docs与源文档逐字一致、真实状态及错误协议通过。首次CI所用的完整`selfTest.command --network-smoke`已在本地以隔离HOME原样执行通过（两服真实resolver，无载荷）；全六模块vet通过。只读API确认Actions已启用、允许all actions、默认token为read，尚无远端run，下一步仅需报告并推送指定临时ci分支。

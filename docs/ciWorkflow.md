@@ -8,7 +8,7 @@
 
 每波变更先做模块测试和托管 CI，在本机确认影响下载、安装、权限或游戏运行的行为；工作流绿灯后仍可继续多波改动，不必每次 release。候选稳定后锁定 commit，从干净源码重建最终包，再做来源、签名、公证、安装升级、冷机首装和真实游戏验收，最后单独 release。普通 PR 无需公证或接入发行凭据；GitHub 上改代码也仍有本地 checkout 和真实 App 测试，不是把环境差异交给用户发现。
 
-本轮新增本地可审阅的 `.github/workflows/checks.yml`：PR、main/integration push 或手动触发，macos-15 arm64，跑 ProductManager/Agent 合约、六个 Go 模块 test/vet、三语资源检查；30 分钟 timeout，同 ref 更新取消旧检查，不涉及发行。仅工作流草案进入本地树，未在 GitHub 执行，首跑通过后再把真实 check 名加入分支规则。是否启用 Actions、外部 PR 审批、分支保护、账号预算尚未验证；此轮未修改设置。
+本轮新增本地可审阅的 `.github/workflows/checks.yml`：PR、main/integration push 或手动触发，macos-15 arm64，跑 ProductManager/Agent 合约、六个 Go 模块 test/vet、三语资源检查；30 分钟 timeout，同 ref 更新取消旧检查，不涉及发行。仅工作流草案进入本地树，未在 GitHub 执行，首跑通过后再把真实 check 名加入分支规则。随后只读API确认Actions已启用、allowed_actions=all、默认workflow token为read且不可批准PR；外部PR审批、分支保护与账号预算仍未核验，此轮未修改设置。
 
 ## 托管机器能做与不能证明的事
 
@@ -38,3 +38,15 @@ macos-14/macOS14 larger 标签已于11月2日退役，当前不能推荐它作�
 专用 Mac 能固定系统、接真实 GPU、大盘和真实 CDN 环境，适合 nightly/手动可信集成测试；不建议把日用游戏 Mac 直接连到公开 fork PR 自动执行。自托管默认不保证每次干净，需要维护工具链、资料目录、进程/挂载清理和 runner 更新；Actions 本身不收 self-hosted compute 费，硬件/电网/维护仍自付。每次只对已审阅的确切 commit 手动执行可信测试，使用独立测试用户/硬件与隔离游戏目录；真实 macOS 用户权限仍按系统授权。这是公开代码执行的 CI 环境边界，不是给产品 Agent 添加通用只读限制。出处：[Self-hosted runners](https://docs.github.com/en/actions/concepts/runners/self-hosted-runners)、[Secure use](https://docs.github.com/en/actions/reference/security/secure-use)。
 
 当前没有注册 runner，也没有测试过 GitHub 到本机的连接，不能写成已部署。先启用标准合约 CI 并积累耗时/失败数据，再决定是否值得添加专用自托管全量测试，避免为了自动化引入比本地开发更大的维护负担。
+
+## 首次托管 CI 可行性实验（2026-11-05追加）
+
+所有者希望直接尝试CI以减少手工VM处理。现成方案仍是GitHub托管`macos-15` arm64：服务自动准备/回收VM，不需要用户安装虚拟机或注册持久runner。工作流增加runner的系统/架构/内存/CPU/磁盘/Xcode探测；临时`ci/**`分支push可自动触发合约job，以及独立的15分钟`official-network` job。后者使用真实ProductManager解析两服官方安装器地址，不下载installer/game载荷；普通PR/main不自动跑此联网job，手动dispatch也可选择执行当前整份工作流。不是Wine游戏启动或全量下载实验。
+
+本地非破坏性实验：最终候选真实CLI的隔离HOME状态/错误/随包文档一致性通过；经相同核心调用两服`resolve-download`，均成功解析到允许的`gdl.netease.com`/`gdl.easebar.com`域及预期安装器文件名，没有下载或安装载荷。六模块test与完整App构建通过，工作流新增的全六模块vet单独核验。这些是当前Mac上的实证，不冒充GitHub托管网络/资源已通过。网络smoke脚本为`productManager/tests/officialNetworkSmoke.test.py`，模块自检加`--network-smoke`显式启用；默认自检仍不请求官方网络。
+
+首次真实远端实验尚未执行。需要的具体远端动作仅为：把审阅后的确切候选提交推送到该仓库一个新分支`ci/rc5-agent-smoke-20261105`，其push事件即启动本分支工作流；不推main、不合PR、不release、不改仓库设置、不添加持久runner。随后只读查询该分支run并watch结果。由于目前默认分支没有此工作流，不应只对未注册的workflow_dispatch发调用并声称已执行；用ci分支的push触发解决这个首次引入问题。推送前由主任务报告具体branch与commit并按现有授权执行，此子任务没有推送。
+
+结果应先回答：真实托管架构/Xcode/free-space是多少、合约能否全部通过、官方resolver能否访问及耗时。标准14GB公布资源不足以预先保证17.6GB游戏+runtime+事务目录，因此本轮不尝试全量安装，不用小metadata请求宣称真实游戏下载成功。若还要全量/续传/修复，需要先测空间，再选择有足够盘的larger runner（账号可用性/费用另核）或专用自托管Mac；图形、系统权限与账号交互仍不能由这两个job证明。CI流程调整不作为RC5阻挡项，接口与随包文档仍必须进入RC5。
+
+追加核验结果：只读settings API确认`enabled=true`、`allowed_actions=all`、`default_workflow_permissions=read`、`can_approve_pull_request_reviews=false`。精确的CI smoke入口`./productManager/selfTest.command --network-smoke`在本地隔离HOME完整执行通过，包括编译、原核心自检、Agent状态/错误/文档协议和两服真实官方resolver；全六模块vet通过。带随包文档的完整App也重新构建及签名树/31枚Mach-O检查通过；仍无托管run，不能将这些本地结果称作GitHub执行结果。

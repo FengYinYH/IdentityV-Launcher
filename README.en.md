@@ -10,6 +10,8 @@ Download, verify, launch, repair, and uninstall both the Mainland China and Glob
 
 The launcher supports Simplified Chinese, Traditional Chinese, and English, and follows the system language by default.
 
+Agents can use the [command interface](docs/agentCLI.md) to install, inspect, repair and control games, and read task status, progress and logs. The App's `agent help` and `agent docs` provide commands and documentation for the installed version.
+
 In-game key mapping is supported. Command maps to Windows Alt; F1–F9 on MacBook keyboards behave like the corresponding Windows keys, while F10–F12 retain their volume controls. These mappings do not affect keyboard behavior outside the game.
 
 The launcher continuously monitors for possible hangs while it is running. Closing the main window does not stop monitoring; it stops when you quit the launcher. If a problem is detected, you can restart the game with one click or switch to the launcher window and restart it there.

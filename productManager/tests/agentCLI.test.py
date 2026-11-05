@@ -8,7 +8,9 @@ with tempfile.TemporaryDirectory() as tmp:
         result = subprocess.run([binary, 'agent', *args], env=env, capture_output=True, text=True)
         assert result.returncode == code, (args, result.returncode, result.stdout, result.stderr)
         return [json.loads(line) for line in result.stdout.splitlines()]
-    assert 'remove' in invoke('help')[0]['operations']
+    help = invoke('help')[0]
+    assert 'remove' in help['operations'] and help['documentationAvailable']
+    assert invoke('docs')[0]['format'] == 'markdown' and 'taskId' in invoke('docs')[0]['text']
     events = invoke('run', 'status', '--json')
     task = events[0]['taskId']
     assert [e['sequence'] for e in events] == list(range(1, len(events)+1))

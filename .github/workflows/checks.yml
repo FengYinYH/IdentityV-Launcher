@@ -2,7 +2,7 @@ name: Core checks
 on:
   pull_request:
   push:
-    branches: [main, integration]
+    branches: [main, integration, 'ci/**']
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,6 +17,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Runner resources
+        run: |
+          sw_vers
+          uname -m
+          sysctl -n hw.memsize hw.logicalcpu
+          df -h .
+          xcodebuild -version
       - uses: actions/setup-go@v5
         with:
           go-version: stable
@@ -34,3 +41,13 @@ jobs:
           done
       - name: Localization contracts
         run: python3 playerLauncherApp/Tests/launcherLocalizationResourcesSelfTest.py playerLauncherApp
+  official-network:
+    if: startsWith(github.ref, 'refs/heads/ci/') || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Real official resolver smoke, no game payload
+        run: ./productManager/selfTest.command --network-smoke

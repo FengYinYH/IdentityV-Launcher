@@ -11,6 +11,8 @@ def call(*args, code=0):
     assert result.returncode == code, (args, result.returncode, result.stdout, result.stderr)
     return [json.loads(line) for line in result.stdout.splitlines()]
 
+assert call('help')[0]['documentationAvailable']
+assert 'agent start install' in call('docs')[0]['text']
 events = call('run', 'status', '--json')
 record = call('task', events[0]['taskId'])[0]
 assert record['state'] == 'succeeded' and record['exitCode'] == 0

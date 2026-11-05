@@ -126,3 +126,7 @@ flowchart LR
 - `productManager/agentSelfTest.command` 与 `productManager/tests/`：仅编译/运行隔离 fixture 测试，不安装或启动真实游戏。
 - `.github/workflows/checks.yml`：PR/main/integration 的 macOS15 合约检查草案，未远端运行，不构建发行或发布。
 - `docs/agentCLI.md` / `docs/ciWorkflow.md`：已实现命令协议、未实现能力、日志来源与 CI/实机/release 分工。
+
+玩家构建同时复制`docs/agentCLI.md`为App内`Contents/Resources/agent-cli.md`；Agent无需查仓库也可通过`agent help/docs`取得对应版本的调用文档。RC5须交付接口与文档，未来功能同步要求见AGENTS；CI调整不阻挡本版本。
+
+`productManager/selfTest.command --network-smoke` 显式启用 `tests/officialNetworkSmoke.test.py`，请求真实两服官方resolver的小型元数据，不下载/安装载荷；默认自检不联网。CI草案的独立official-network job在临时ci/**分支或手动触发时调用，远端首次push仍未执行。

@@ -1,6 +1,6 @@
 # Agent / CLI 契约（schemaVersion 1）
 
-2026-11-05：首版运输层框架，GUI 和 Agent 都复用 `IdentityVProductManager`；没有第二套下载或安装实现。旧命令保持兼容。此版本尚无独立 GUI Agent 面板，也没有把所有维护按钮接入 CLI。先运行 `agent help` 获取本包实际支持的命令，不由文档推断未来能力。
+2026-11-05：RC5必须交付的首版运输层框架，GUI 和 Agent 都复用 `IdentityVProductManager`；没有第二套下载或安装实现。旧命令保持兼容。此版本尚无独立 GUI Agent 面板，也没有把所有维护按钮接入 CLI。先运行 `agent help` 获取本包实际支持的命令，不由文档推断未来能力。
 
 ## 入口和示例
 
@@ -9,6 +9,7 @@
 ```sh
 MANAGER='/Applications/第五人格启动器.app/Contents/Resources/IdentityVProductManager'
 "$MANAGER" agent help
+"$MANAGER" agent docs
 "$MANAGER" agent run status --json
 "$MANAGER" agent start install --product mainland --destination-parent '/Volumes/GameDisk/IdentityV'
 # 从 accepted 回执取得 taskId；它只表示 worker 已启动，不代表安装完成。
@@ -30,6 +31,8 @@ MANAGER='/Applications/第五人格启动器.app/Contents/Resources/IdentityVPro
 已支持操作：`status --json`、`check-runtime-prerequisites`、`inspect --json --product mainland|global --path PATH`、`verify-installer --path PATH`、`resolve-download --product …`、`resolve-manifest --json --product …`、`select/install/import/prepare-launch/launch/restart/stop/remove/repair --product …`。安装需要 `--destination-parent`，导入需要 `--path`；明确接受基础清单不符时沿用核心的 `--accept-base-mismatch`。修复/安装可能联网、写入较大文件，启动/停止/删除会影响对应产品；导入的外部文件仍按原有所有权契约保留。`launch` 成功按核心已验证游戏进程/窗口的定义，不等于账号登录成功。
 
 暂未接入：登录组件安装/启停及证书流程、偏好设置、系统/维护工具按钮、诊断采样开关、GUI 自身刷新任务的自动登记、下载任务的远程暂停/恢复控制。取消后重新发相同安装命令沿用核心已有的可续传事务；不保证任意修复步骤可回滚。不要把 cancel 当成 pause，也不要只凭退出码 0 判断 `inspect --json` 基础清单有效：还须读取 `output.valid`。
+
+本版调用文档随App放在 `Contents/Resources/agent-cli.md`，`agent help`给出documentationPath和documentationAvailable，`agent docs`返回JSON中的Markdown text。Agent可在未取得源码仓库时直接读取与当前App匹配的接口文档。以后新增业务功能同步接口和文档，要求见AGENTS；CI流程调整独立于RC5交付。
 
 ## 任务、事件和错误
 

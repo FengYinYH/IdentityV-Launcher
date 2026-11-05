@@ -64,3 +64,7 @@ RC1 升级时，ProductManager 的状态/操作入口在空闲状态执行[默�
 ### Agent 与自动化入口
 
 `productManager/AgentCLI.swift` 为同一 ProductManager 可执行文件的 `agent` 子命令，管理任务记录/事件/输出并重新进入原核心操作；不另写安装器。`productManager/agentSelfTest.command` 用无副作用 fixture 验证运输层。完整构建编译新源码；`.github/workflows/checks.yml` 是待首次远端执行的标准合约 CI，不发布 App。操作示例、真实日志/历史诊断区别及未接入能力看[CLI契约](agentCLI.md)，runner资源与协作流程看[CI调查](ciWorkflow.md)。集成时先核对本轮候选分支与并行 RC5 文件改动，禁止直接覆盖他人源码或正本记录。
+
+RC5交付必须同时包含Agent接口和本版文档；完整构建将`docs/agentCLI.md`放入App Resources的`agent-cli.md`，`agent help`给出实际路径/可读性，`agent docs`直接返回Markdown文本。以后新增业务功能同步接口/状态/错误/文档及验证，遵循AGENTS的新规范。CI工作流调整单独推进，不把首次远端CI配置列为RC5的额外发布门。
+
+首次托管CI试验可用临时ci/**分支push自动触发，无需预注册workflow_dispatch或持久runner；具体远端操作先报告。模块`productManager/selfTest.command --network-smoke`会在默认离线合约后，经同一核心请求两服官方安装器地址的小型元数据，不下载载荷；不带该选项仍不请求官方网络。初次检查只读API确认Actions已启用、默认token只读，尚未实际推送/运行托管job。
