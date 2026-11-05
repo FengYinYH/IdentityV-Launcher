@@ -25,11 +25,64 @@ import (
 const taskSchemaVersion = 1
 
 // Protocol evidence is scoped to the bootstrap's exact downloadIPC.exe bytes.
-// Updating this pin must re-audit the 304 exception callback (not HTTP 304).
+// Updating this pin must re-audit 304 retry exhaustion and 206 disk-space payloads (not HTTP codes).
 // The cross-component test prevents a core upgrade silently inheriting it.
-const manifestRetryCoreSHA256 = "5c11d3188d271c1df88d36d98bb440437d29e8a41c88dfd38602ce3c60c56f82"
+const pinnedCoreProtocolSHA256 = "5c11d3188d271c1df88d36d98bb440437d29e8a41c88dfd38602ce3c60c56f82"
 
 var ErrCancelled = errors.New("download cancelled by control file")
+
+// Only the pinned core's exact one-field GetDiskFullMsg shape establishes
+// disk-space semantics. Other state-206 IO failures remain generic.
+type CoreDiskSpaceError struct{ RequiredBytes int64 }
+
+func (e *CoreDiskSpaceError) Error() string {
+	return fmt.Sprintf("core reported insufficient disk space (required bytes: %d)", e.RequiredBytes)
+}
+func diskSpaceRequired(payload []byte) (int64, bool) {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	first, err := decoder.Token()
+	if err != nil || first != json.Delim('{') {
+		return 0, false
+	}
+	key, err := decoder.Token()
+	if err != nil || key != "NeedSpaceSize" {
+		return 0, false
+	}
+	var value int64
+	if decoder.Decode(&value) != nil || value <= 0 {
+		return 0, false
+	}
+	last, err := decoder.Token()
+	if err != nil || last != json.Delim('}') {
+		return 0, false
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return 0, false
+	}
+	return value, true
+}
+func terminalCoreError(state string, payload []byte) error {
+	if state == "206" {
+		if required, ok := diskSpaceRequired(payload); ok {
+			return &CoreDiskSpaceError{RequiredBytes: required}
+		}
+	}
+	return errors.New("core reported terminal state " + state)
+}
+func failureDetails(err error) []byte {
+	var disk *CoreDiskSpaceError
+	if !errors.As(err, &disk) {
+		return nil
+	}
+	bytes, _ := json.Marshal(struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Event         string `json:"event"`
+		ErrorCode     string `json:"errorCode"`
+		CoreState     string `json:"coreState"`
+		RequiredBytes int64  `json:"requiredBytes"`
+	}{1, "failure", "download_disk_space_required", "206", disk.RequiredBytes})
+	return bytes
+}
 
 type Task struct {
 	SchemaVersion        int    `json:"schemaVersion"`
@@ -581,7 +634,12 @@ func (s *Supervisor) Run(ctx context.Context) error {
 				continue
 			}
 			if state == "101" || state == "206" || state == "-1" {
-				return errors.New("core reported terminal state " + state)
+				if state == "206" {
+					if err := s.emitAuxiliary(state, msg.Frames[2]); err != nil {
+						return err
+					}
+				}
+				return terminalCoreError(state, msg.Frames[2])
 			}
 			if !validState(state) {
 				if len(state) <= 3 {

@@ -31,6 +31,9 @@ func main() {
 		// Supervisor errors are deliberately normalized and contain no local
 		// paths or untrusted core output, so the caller can distinguish a task
 		// validation failure from a protocol/process failure.
+		if details := failureDetails(err); len(details) > 0 {
+			fmt.Fprintln(os.Stderr, string(details))
+		}
 		fmt.Fprintln(os.Stderr, "supervisor failed:", err)
 		os.Exit(1)
 	}

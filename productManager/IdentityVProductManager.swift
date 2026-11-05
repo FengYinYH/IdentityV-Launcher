@@ -328,6 +328,34 @@ private struct SupervisorProgressEvent: Decodable {
     let progress: Progress
 }
 
+private struct SupervisorFailureEvent: Decodable {
+    let schemaVersion: Int
+    let event: String
+    let errorCode: String
+    let coreState: String
+    let requiredBytes: Int64
+}
+
+private func supervisorDiskSpaceRequired(in diagnostics: String) -> Int64? {
+    for line in diagnostics.split(separator: "\n") {
+        guard let failure = try? JSONDecoder().decode(SupervisorFailureEvent.self, from: Data(line.utf8)),
+              failure.schemaVersion == 1, failure.event == "failure",
+              failure.errorCode == "download_disk_space_required", failure.coreState == "206",
+              failure.requiredBytes > 0 else { continue }
+        return failure.requiredBytes
+    }
+    return nil
+}
+
+private func managerFailureDetails(for error: Error, agentTaskID: String?) -> Data? {
+    guard let id = agentTaskID, let task = UUID(uuidString: id),
+          let failure = error as? ManagerError, case .diskSpaceRequired(let required) = failure,
+          required > 0 else { return nil }
+    return try? JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "event": "failure",
+        "taskId": task.uuidString, "errorCode": "download_disk_space_required",
+        "coreState": "206", "requiredBytes": required], options: [.sortedKeys])
+}
+
 /// The vendor's main download/build fields have appeared as both fractions
 /// (`0.85`) and percentages (`85`).  Prefer those aggregate fields whenever
 /// either has started.  `downloadHead` describes only the current item, so it
@@ -359,9 +387,12 @@ private func supervisorManifestFraction(
 private enum ManagerError: LocalizedError {
     case message(String)
     case cancelled(String)
+    case diskSpaceRequired(Int64)
     var errorDescription: String? {
         switch self {
         case .message(let text), .cancelled(let text): return text
+        case .diskSpaceRequired(let bytes):
+            return "下载核心报告磁盘空间不足，至少需要 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))。请清理磁盘后重试或选择其他位置。"
         }
     }
 }
@@ -1722,9 +1753,12 @@ private func runSupervisorStreaming(
     let trailingErrors = stderr.fileHandleForReading.readDataToEndOfFile()
     if !trailingErrors.isEmpty { lock.lock(); appendBounded(trailingErrors, to: &diagnostics, limit: 256 * 1_024); lock.unlock() }
     interruptLock.lock(); let wasInterrupted = interrupted; interruptLock.unlock()
+    lock.lock(); let text = String(decoding: diagnostics, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines); lock.unlock()
+    if process.terminationStatus != 0, let required = supervisorDiskSpaceRequired(in: text) {
+        throw ManagerError.diskSpaceRequired(required)
+    }
     if wasInterrupted { throw ManagerError.cancelled("游戏下载已取消。") }
     guard process.terminationStatus == 0 else {
-        lock.lock(); let text = String(decoding: diagnostics, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines); lock.unlock()
         throw ManagerError.message(text.isEmpty ? "游戏下载核心未正常完成。" : text)
     }
 }
@@ -3077,6 +3111,42 @@ private func writeLittleEndianUInt32(_ value: UInt32, to data: inout Data, at of
 }
 
 private func runSelfTest() throws {
+    let spaceEvent = #"{"schemaVersion":1,"event":"failure","errorCode":"download_disk_space_required","coreState":"206","requiredBytes":17719615180}"#
+    let spaceID = "11A6140D-8130-4B22-9C5B-90983264808B"
+    guard supervisorDiskSpaceRequired(in: "diagnostic\n" + spaceEvent) == 17_719_615_180,
+          supervisorDiskSpaceRequired(in: spaceEvent.replacingOccurrences(of: "206", with: "304")) == nil,
+          supervisorDiskSpaceRequired(in: spaceEvent.replacingOccurrences(of: "17719615180", with: "0")) == nil,
+          supervisorDiskSpaceRequired(in: "core reported terminal state 206") == nil,
+          managerFailureDetails(for: ManagerError.diskSpaceRequired(17_719_615_180), agentTaskID: nil) == nil,
+          managerFailureDetails(for: ManagerError.diskSpaceRequired(17_719_615_180), agentTaskID: "bad") == nil,
+          managerFailureDetails(for: ManagerError.message("206"), agentTaskID: spaceID) == nil,
+          let spaceData = managerFailureDetails(for: ManagerError.diskSpaceRequired(17_719_615_180), agentTaskID: spaceID),
+          let spaceOutput = try JSONSerialization.jsonObject(with: spaceData) as? [String: Any],
+          spaceOutput["errorCode"] as? String == "download_disk_space_required",
+          spaceOutput["requiredBytes"] as? Int64 == 17_719_615_180,
+          managerExitCode(for: ManagerError.diskSpaceRequired(17_719_615_180)) == 1 else {
+        throw ManagerError.message("typed disk-space propagation failed")
+    }
+    // Exercise the actual Process/pipe boundary, not just a JSON decoder.
+    // The controlled helper uses the sanitized supervisor contract; no Wine,
+    // network, game data or graphical session is involved.
+    let failureFixture = fileManager.temporaryDirectory.appendingPathComponent("identityv-space-stream-\(UUID().uuidString)", isDirectory: true)
+    try fileManager.createDirectory(at: failureFixture, withIntermediateDirectories: false)
+    defer { try? fileManager.removeItem(at: failureFixture) }
+    let failureHelper = failureFixture.appendingPathComponent("supervisor-fixture")
+    for exitCode in [1, 0] {
+        let script = "#!/bin/sh\nprintf '%s\\n' '" + spaceEvent + "' >&2\nexit \(exitCode)\n"
+        try Data(script.utf8).write(to: failureHelper)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: failureHelper.path)
+        var observedFailure = false
+        do {
+            try runSupervisorStreaming(failureHelper, task: failureFixture.appendingPathComponent("unused.json"),
+                environment: ProcessInfo.processInfo.environment, manifestBytes: 100, reporter: nil)
+        } catch ManagerError.diskSpaceRequired(let required) {
+            observedFailure = required == 17_719_615_180
+        }
+        guard observedFailure == (exitCode != 0) else { throw ManagerError.message("streamed space failure/exit result disagreed") }
+    }
     // A real host observation: important-usage capacity included reclaimable
     // space and passed the old check even though Wine had less than needed.
     let actualCapacity: Int64 = 15_782_969_344
@@ -4208,6 +4278,12 @@ private enum IdentityVProductManagerEntry {
         if CommandLine.arguments.dropFirst().first == "agent" {
             exit(AgentCLI.main(Array(CommandLine.arguments.dropFirst(2))))
         }
-        do { try runMain() } catch { fputs("\(error.localizedDescription)\n", stderr); exit(managerExitCode(for: error)) }
+        do { try runMain() } catch {
+            if let details = managerFailureDetails(for: error, agentTaskID: ProcessInfo.processInfo.environment["IDENTITYV_AGENT_TASK_ID"]) {
+                FileHandle.standardError.write(details + Data([10]))
+            }
+            fputs("\(error.localizedDescription)\n", stderr)
+            exit(managerExitCode(for: error))
+        }
     }
 }

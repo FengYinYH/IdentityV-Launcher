@@ -105,6 +105,18 @@ func TestHelperProcess(t *testing.T) {
 			os.Exit(5)
 		}
 	}
+	if strings.HasPrefix(mode, "disk-") {
+		payload := `{"NeedSpaceSize":17719615180}`
+		if mode == "disk-generic" {
+			payload = `failed to create file private?token=secret`
+		}
+		for i := 0; i < 10; i++ {
+			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "206", payload}))
+			time.Sleep(25 * time.Millisecond)
+		}
+		time.Sleep(5 * time.Second)
+		os.Exit(0)
+	}
 	if strings.HasPrefix(mode, "manifest-") {
 		if mode == "manifest-after-progress" {
 			_ = p.Send(zmq4.NewMsgFromString([]string{"42", "2", "{}"}))
@@ -848,7 +860,7 @@ func TestManifestRetry304IsTerminalForRawEmptyAndJSONPayload(t *testing.T) {
 	}
 }
 
-func TestManifestRetry304ContractMatchesPinnedCore(t *testing.T) {
+func TestTerminalFailureContractMatchesPinnedCore(t *testing.T) {
 	data, err := os.ReadFile("../downloaderCoreComponent.json")
 	if err != nil {
 		t.Fatal(err)
@@ -864,11 +876,57 @@ func TestManifestRetry304ContractMatchesPinnedCore(t *testing.T) {
 	}
 	for _, file := range component.Files {
 		if file.Filename == "downloadIPC.exe" {
-			if file.SHA256 != manifestRetryCoreSHA256 {
-				t.Fatal("core changed: re-audit 304 protocol before updating its contract")
+			if file.SHA256 != pinnedCoreProtocolSHA256 {
+				t.Fatal("core changed: re-audit 304/206 protocol before updating its contract")
 			}
 			return
 		}
 	}
 	t.Fatal("missing pinned downloadIPC.exe")
+}
+
+func TestDiskSpace206ExactSchemaAndStructuredFailure(t *testing.T) {
+	const needed int64 = 17719615180 // captured pinned-core frame; no private paths
+	for _, payload := range []string{`{"NeedSpaceSize":17719615180}`, ` { "NeedSpaceSize" : 17719615180 } `} {
+		required, ok := diskSpaceRequired([]byte(payload))
+		if !ok || required != needed {
+			t.Fatalf("known disk-space shape rejected: %q", payload)
+		}
+	}
+	for _, payload := range []string{``, `null`, `[]`, `{"NeedSpaceSize":0}`, `{"NeedSpaceSize":-1}`, `{"NeedSpaceSize":"17"}`, `{"NeedSpaceSize":1.5}`, `{"NeedSpaceSize":9223372036854775808}`, `{"NeedSpaceSize":1,"NeedSpaceSize":2}`, `{"NeedSpaceSize":1,"message":"secret"}`, `{"NeedSpaceSize":1} {}`, `failed to create file`} {
+		if _, ok := diskSpaceRequired([]byte(payload)); ok {
+			t.Fatalf("ambiguous payload classified: %q", payload)
+		}
+		var disk *CoreDiskSpaceError
+		err := terminalCoreError("206", []byte(payload))
+		if errors.As(err, &disk) || len(failureDetails(err)) != 0 || err.Error() != "core reported terminal state 206" {
+			t.Fatalf("unknown 206 guessed: %v", err)
+		}
+	}
+	if len(failureDetails(terminalCoreError("101", []byte(`{"NeedSpaceSize":1}`)))) != 0 {
+		t.Fatal("other state classified as disk space")
+	}
+	for _, mode := range []string{"disk-valid", "disk-generic"} {
+		var output bytes.Buffer
+		err := runAuxiliaryFixtureOutput(t, mode, 10*time.Second, &output)
+		var disk *CoreDiskSpaceError
+		if (mode == "disk-valid") != errors.As(err, &disk) {
+			t.Fatalf("wrong terminal classification: %v", err)
+		}
+		if strings.Contains(output.String()+err.Error(), "secret") {
+			t.Fatal("206 raw payload leaked")
+		}
+		if mode == "disk-valid" {
+			var detail struct {
+				SchemaVersion int    `json:"schemaVersion"`
+				Event         string `json:"event"`
+				ErrorCode     string `json:"errorCode"`
+				CoreState     string `json:"coreState"`
+				RequiredBytes int64  `json:"requiredBytes"`
+			}
+			if json.Unmarshal(failureDetails(err), &detail) != nil || detail.ErrorCode != "download_disk_space_required" || detail.CoreState != "206" || detail.RequiredBytes != needed {
+				t.Fatalf("invalid structured failure: %s", failureDetails(err))
+			}
+		}
+	}
 }
