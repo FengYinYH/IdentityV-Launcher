@@ -1,0 +1,36 @@
+name: Core checks
+on:
+  pull_request:
+  push:
+    branches: [main, integration]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: core-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: '**/go.sum'
+      - name: Product manager and Agent transport contracts
+        run: |
+          ./productManager/selfTest.command
+          ./productManager/agentSelfTest.command
+      - name: Go core contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for module in gameDownloader manifestPlanner downloaderCoreBootstrap globalAdapter runtimeBootstrap idvLoginComponent/downloader; do
+            (cd "$module" && go test ./... && go vet ./...)
+          done
+      - name: Localization contracts
+        run: python3 playerLauncherApp/Tests/launcherLocalizationResourcesSelfTest.py playerLauncherApp

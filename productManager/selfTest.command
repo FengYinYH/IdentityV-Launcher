@@ -24,6 +24,7 @@ trap cleanup EXIT
   -target arm64-apple-macos14.0 \
   -sdk "$SDK_PATH" \
   "$SOURCE" \
+  "$SCRIPT_DIR/AgentCLI.swift" \
   "$SCRIPT_DIR/LegacyDefaultPathMigration.swift" \
   "$SCRIPT_DIR/LegacyDefaultPathMigrationSelfTest.swift" \
   "$SCRIPT_DIR/../playerLauncherApp/Sources/LauncherLanguage.swift" \

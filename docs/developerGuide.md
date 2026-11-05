@@ -60,3 +60,7 @@ RC1 升级时，ProductManager 的状态/操作入口在空闲状态执行[默�
 ### macOS 14 与部署目标审计
 
 第一方 App 的构建通过不涵盖首次下载的 runtime；完整槽须用 `runtimeManifest/auditMachODeploymentTargets.command` 单独扫描。该命令解析输入根的符号链接并拒绝零文件，symlink/empty-root 回归已纳入玩家 App 构建。当前 DXMT Unixlib 仍为 macOS15，因此不能仅修改 Info.plist 或 runtime minimumMacOS 来宣称14支持。独立重建与VM/真实GPU验收矩阵见 [DXMT兼容专题](../runtimeManifest/dxmt080MacOS14Compatibility.md)。
+
+### Agent 与自动化入口
+
+`productManager/AgentCLI.swift` 为同一 ProductManager 可执行文件的 `agent` 子命令，管理任务记录/事件/输出并重新进入原核心操作；不另写安装器。`productManager/agentSelfTest.command` 用无副作用 fixture 验证运输层。完整构建编译新源码；`.github/workflows/checks.yml` 是待首次远端执行的标准合约 CI，不发布 App。操作示例、真实日志/历史诊断区别及未接入能力看[CLI契约](agentCLI.md)，runner资源与协作流程看[CI调查](ciWorkflow.md)。集成时先核对本轮候选分支与并行 RC5 文件改动，禁止直接覆盖他人源码或正本记录。

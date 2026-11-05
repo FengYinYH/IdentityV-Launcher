@@ -119,3 +119,10 @@ flowchart LR
 | `captureIdentityVDenseMetrics.command` | 采集活动游戏的高密度性能指标并写私人文件；不安装玩家 App。 |
 
 本页只列**现行产品仓**的对象。退出根目录的旧浮窗构建器与独立 runner 安装器及其原因见[历史命令](docs/legacyCommands.md)；历史源码可从 Git 提交读取，不把过期安装器继续当成现役入口。私人项目档案可保存原始现场，本仓文档不依赖其原文或本机路径。新增、删除、改名顶层对象或改变脚本副作用时，同一变更更新本页、首页与开发者指南的相关链接；生成目录只解释用途，不逐个列缓存。发布前复核顶层覆盖、相对链接与清单中的实际构建/安装行为。
+
+### Agent / CI 新入口（2026-11-05）
+
+- `productManager/AgentCLI.swift`：ProductManager 的 agent 命令运输层；任务 UUID、JSON状态/事件、精确子进程取消、任务日志及删除确认；业务仍由原管理器执行。
+- `productManager/agentSelfTest.command` 与 `productManager/tests/`：仅编译/运行隔离 fixture 测试，不安装或启动真实游戏。
+- `.github/workflows/checks.yml`：PR/main/integration 的 macOS15 合约检查草案，未远端运行，不构建发行或发布。
+- `docs/agentCLI.md` / `docs/ciWorkflow.md`：已实现命令协议、未实现能力、日志来源与 CI/实机/release 分工。

@@ -34,3 +34,9 @@
 ## 后续方向与接手
 
 窗口/跨平台UI、登录健康、可选预启动、Metal FX及游戏多开仍按[开发计划](docs/developmentPlan.md)原有边界推进。先读[AGENTS](AGENTS.md)，核对工作树和并行状态，再从[开发者指南](docs/developerGuide.md)、[地图](projectMap.md)与专题续接；不要用reset/clean清理他人的工作。
+
+## 隔离 Agent / CI 候选（2026-11-05）
+
+独立分支增加 ProductManager agent 运输层（任务UUID/后台运行/状态和进度/取消/有界脱敏日志/原生删除确认），原GUI核心不复制；fixture合约通过。没有新增通用只读或确认限制。现存历史日志通过原诊断导出器读取/导出，任务实时事件和历史诊断不混淆。具体支持矩阵与未验收项见[Agent契约](docs/agentCLI.md)。未改日用 App/RC5并行树；本轮是明确隔离候选，待安全调和后做真实会话验收。
+
+GitHub只读API确认公开main仓库目前workflows/runs/self-hosted runners均为0；新增本地checks工作流未推送或远端执行。[CI调查](docs/ciWorkflow.md)记录官方资源/系统退役/网络/费用限制，并建议合约CI+本地真实Mac的混合流程，release保持独立验收。

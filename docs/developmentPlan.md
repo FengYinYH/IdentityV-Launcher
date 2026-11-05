@@ -75,3 +75,7 @@
 ## PLAN-MACOS14：最低系统目标
 
 2026-11-05 所有者明确最低目标为 macOS 14。第一方 App/helpers 的 deployment target 已为 14，但当前下载 runtime 的 DXMT winemetal.so 实际为 15，完整产品尚不满足。优先在隔离环境准备匹配 Wine ABI 的 LLVM15/mingw 构建输入，重建并审计 DXMT 的 14/Metal3.1 分支；不能只改最低版本号。macOS14 VM 覆盖原生界面/安装/下载/续传/校验与游戏进程，真实14 GPU再验图形/输入/音频，15+验Metal3.2回归；详细证据与矩阵见[DXMT兼容专题](../runtimeManifest/dxmt080MacOS14Compatibility.md#rc5-build-13-接续与-macos-14-测试计划2026-11-05)。当前工具链缺口及14实机仍阻碍完整支持声明。
+
+## PLAN-AGENT：共享核心命令与 CI（2026-11-05）
+
+所有者已授权可追踪 taskId、结构化状态/错误/事件及文档；不增加通用只读限制，Agent 删除游戏必须显示指定原生确认框。首版在隔离分支复用 ProductManager 实现命令任务运输层，实际支持/缺口与验证见[Agent CLI](agentCLI.md)，CI 与分支/实机/release 分工见[CI调查](ciWorkflow.md)。尚未把所有 GUI 按钮或自身任务接入协议，不以首版框架声明全功能 Agent 产品已完成。

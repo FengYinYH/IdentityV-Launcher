@@ -3947,6 +3947,9 @@ private func runMain() throws {
 @main
 private enum IdentityVProductManagerEntry {
     static func main() {
+        if CommandLine.arguments.dropFirst().first == "agent" {
+            exit(AgentCLI.main(Array(CommandLine.arguments.dropFirst(2))))
+        }
         do { try runMain() } catch { fputs("\(error.localizedDescription)\n", stderr); exit(1) }
     }
 }
