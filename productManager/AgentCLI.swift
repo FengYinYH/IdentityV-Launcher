@@ -167,7 +167,6 @@ enum AgentCLI {
             try state("cancelled"); return 130
         }
         if operation == "remove" {
-            try state("awaiting_confirmation")
             guard let session = CGSessionCopyCurrentDictionary() as? [String: Any], session[kCGSessionOnConsoleKey as String] as? Bool == true else {
                 record["error"] = "confirmation_unavailable"; record["exitCode"] = 1; try state("failed"); return 1
             }
@@ -200,6 +199,13 @@ enum AgentCLI {
             // The modal run loop must keep heartbeating and service API/signal
             // cancellation. Otherwise cancel writes a marker but leaves this
             // worker (and its dialog) blocked until a human clicks a button.
+            if FileManager.default.fileExists(atPath: cancel.path) {
+                record["exitCode"] = 130; record["cancellationRequested"] = true
+                try state("cancelled"); return 130
+            }
+            // Publish readiness after preflight/Icon Services, immediately
+            // before entering the serviced modal run loop.
+            try state("awaiting_confirmation")
             var confirmationError: Error?
             let timer = Timer(timeInterval: 0.2, repeats: true) { _ in
                 record["updatedAt"] = Date().timeIntervalSince1970

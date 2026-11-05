@@ -81,8 +81,10 @@ with tempfile.TemporaryDirectory() as tmp:
             assert invoke('logs', cid, 'stdout')[0]['text'] == ''
             if proc.poll() is None:
                 before = invoke('task', cid)[0]['updatedAt']
-                time.sleep(.6)
-                assert invoke('task', cid)[0]['updatedAt'] > before, 'modal must keep heartbeating'
+                heartbeat_deadline = time.monotonic() + 3
+                while invoke('task', cid)[0]['updatedAt'] <= before:
+                    assert time.monotonic() < heartbeat_deadline, 'modal must keep heartbeating'
+                    time.sleep(.05)
                 if signal_cancel: proc.send_signal(signal.SIGTERM)
                 else: invoke('cancel', cid)
                 assert proc.wait(timeout=5) == 130

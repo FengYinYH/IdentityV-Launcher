@@ -1195,12 +1195,21 @@ private func clearStaleDownloadControl(_ url: URL) throws {
     try fileManager.removeItem(at: url)
 }
 
-private func availableCapacity(at directory: URL) throws -> Int64 {
-    let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-    guard let capacity = values.volumeAvailableCapacityForImportantUsage, capacity >= 0 else {
+/// Important-usage capacity can include purgeable bytes. Wine/the vendor core
+/// cannot assume macOS will reclaim those bytes before its disk-space checks or
+/// file writes, so the preflight must also respect currently available space.
+private func guaranteedAvailableCapacity(actual: Int64?, important: Int64?) throws -> Int64 {
+    guard let actual, actual >= 0 else {
         throw ManagerError.message("无法读取所选安装位置的可用空间。")
     }
-    return capacity
+    guard let important, important >= 0 else { return actual }
+    return min(actual, important)
+}
+
+private func availableCapacity(at directory: URL) throws -> Int64 {
+    let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityKey, .volumeAvailableCapacityForImportantUsageKey])
+    return try guaranteedAvailableCapacity(actual: values.volumeAvailableCapacity.map { Int64($0) },
+        important: values.volumeAvailableCapacityForImportantUsage)
 }
 
 private func prepareDefaultInstallDirectory(product: ProductID, destinationParent: String, userHome: URL) throws {
@@ -3068,6 +3077,25 @@ private func writeLittleEndianUInt32(_ value: UInt32, to data: inout Data, at of
 }
 
 private func runSelfTest() throws {
+    // A real host observation: important-usage capacity included reclaimable
+    // space and passed the old check even though Wine had less than needed.
+    let actualCapacity: Int64 = 15_782_969_344
+    let importantCapacity: Int64 = 25_580_548_096
+    let requiredCapacity: Int64 = 19_749_750_384
+    guard try guaranteedAvailableCapacity(actual: actualCapacity, important: importantCapacity) == actualCapacity,
+          try guaranteedAvailableCapacity(actual: actualCapacity, important: importantCapacity) < requiredCapacity,
+          try guaranteedAvailableCapacity(actual: actualCapacity, important: nil) == actualCapacity,
+          try guaranteedAvailableCapacity(actual: actualCapacity, important: -1) == actualCapacity,
+          try guaranteedAvailableCapacity(actual: actualCapacity, important: 0) == 0,
+          try guaranteedAvailableCapacity(actual: 0, important: importantCapacity) == 0,
+          try guaranteedAvailableCapacity(actual: 100, important: 50) == 50 else {
+        throw ManagerError.message("physical/purgeable capacity preflight failed")
+    }
+    for invalidActual: Int64? in [nil, -1] {
+        var rejectedCapacity = false
+        do { _ = try guaranteedAvailableCapacity(actual: invalidActual, important: importantCapacity) } catch { rejectedCapacity = true }
+        guard rejectedCapacity else { throw ManagerError.message("unavailable physical capacity accepted") }
+    }
     guard managerExitCode(for: ManagerError.cancelled("fixture cancellation")) == 130,
           ManagerError.cancelled("fixture cancellation").localizedDescription == "fixture cancellation",
           managerExitCode(for: ManagerError.message("游戏下载已取消。")) == 1,
