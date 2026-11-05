@@ -168,3 +168,8 @@ ciScreenClassifier.swift使用CPU Vision OCR，不控制输入。合成CAPTCHA�
 只读API本次查得本仓库1个cache共46,817,029 bytes，11个未过期artifact合计2,149,354 bytes，主要是JSON和限量截图，不含17GB游戏。当前OAuth未暴露账号plan名称，未查得账号其余仓库/Packages总量，不能以本仓库2MB断言所有者套餐剩余额度。就本轮本仓库内容无需手工释放；如账号池被其他项目占满，应由所有者在Billing核实后明确指定清理对象，不擅自删其他数据。
 
 长观察工作流另有明确目标检查：必须得到restart核心窗口成功及重启后公告候选，否则此检查步失败并保留停止原因；基础首装success字段继续单独解释。即使候选检查通过也仍须逐图视觉核验，OCR不替代公告证明。
+
+
+探针run42009924279已完成：macOS15.8.2/Xcode16.4、macOS26.6.2/Xcode26.6均得到Apple Paravirtual device、Metal命令completed、1024x768桌面、已授权截屏、CPU OCR自检通过、Rosetta exit0。两者实际图形前提可用，不等于完整游戏已测。15/26探针前可用分别46,085,804KiB与100,357,024KiB；专用Swift module cache分别153,916KiB与164,856KiB，这是实际分目录数据，只属探针缓存而非App产物。两者卷df总量335,032,320KiB；不要用27镜像的150GiB卷替它们推算。
+
+27长观察run42009967973在OCR前置自检screen_classifier_unavailable停止，尚未App构建或游戏下载，不能算游戏失败。为避免盲目重复大下载，先只重跑27轻量探针：统一Vision输入为8-bit RGB、固定可支持识别revision并尝试CPU优先/正常设备选择；输出所选revision/语言/CPU标记和失败domain/code，不改游戏或设置。15/26已通过的探针不重复跑；新27探针通过后才继续长观察。CPU或中文能力依实际输出解释，英语兼容后端不自动视作中文OCR已验证，未来27国服还需对应语言自检。

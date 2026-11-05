@@ -1,4 +1,4 @@
-name: RC5 macOS 15 and 26 graphics readiness
+name: RC5 hosted graphics readiness
 on:
   push:
     branches: [ci/rc5-graphics-matrix-20261105]
@@ -10,7 +10,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        runner: [macos-15, macos-26]
+        runner: [xcode-27]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 5
     steps:

@@ -1,4 +1,4 @@
-// CI observation only: CPU OCR, no permission requests, input or agreement acceptance.
+// CI observation only: CPU-first OCR, no permission requests, input or agreement acceptance.
 import AppKit
 import Foundation
 import Vision
@@ -18,13 +18,46 @@ func classify(_ lines: [String]) -> [String: Any] {
             "recognizedLineCount": lines.count]
 }
 func recognize(_ image: CGImage) throws -> [String: Any] {
-    let request = VNRecognizeTextRequest()
-    request.recognitionLevel = .accurate
-    request.recognitionLanguages = ["en-US", "zh-Hans"]
-    request.usesCPUOnly = true
-    try VNImageRequestHandler(cgImage: image).perform([request])
-    return classify((request.results ?? []).compactMap { $0.topCandidates(1).first?.string })
+    // AppKit can render a floating-point fixture on newer guests. Normalize
+    // both fixtures and captures to the same 8-bit RGB input for Vision.
+    guard let bitmap = CGContext(data: nil, width: image.width, height: image.height,
+                                 bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                 space: CGColorSpaceCreateDeviceRGB(),
+                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+        throw NSError(domain: "CI.ScreenClassifier.Input", code: 2)
+    }
+    bitmap.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    guard let normalized = bitmap.makeImage() else { throw NSError(domain: "CI.ScreenClassifier.Input", code: 3) }
+    // The default configuration failed on guest 27. Try explicit supported
+    // revisions and normal device selection; this changes only observation.
+    let configurations: [(Int, Bool, [String])] = [(3, true, ["en-US", "zh-Hans"]), (3, false, ["en-US", "zh-Hans"]), (2, true, ["en-US"])]
+    var failures: [[String: Any]] = []
+    for (revision, cpuOnly, languages) in configurations where VNRecognizeTextRequest.supportedRevisions.contains(revision) {
+        let request = VNRecognizeTextRequest()
+        let defaultRevision = request.revision
+        request.revision = revision
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = languages
+        request.usesCPUOnly = cpuOnly
+        do {
+            try VNImageRequestHandler(cgImage: normalized).perform([request])
+            var result = classify((request.results ?? []).compactMap { $0.topCandidates(1).first?.string })
+            result["ocrDefaultRevision"] = defaultRevision
+            result["ocrPriorFailures"] = failures
+            result["ocrRevision"] = revision
+            result["ocrUsesCPUOnly"] = cpuOnly
+            result["ocrRecognitionLanguages"] = languages
+            return result
+        } catch {
+            let e = error as NSError
+            failures.append(["revision": revision, "cpuOnly": cpuOnly, "domain": e.domain, "code": e.code])
+        }
+    }
+    let details = try JSONSerialization.data(withJSONObject: ["screenClassifierAvailable": false, "errors": failures], options: [.sortedKeys])
+    FileHandle.standardError.write(details)
+    throw NSError(domain: "CI.ScreenClassifier", code: 1)
 }
+
 do {
     var result: [String: Any]
     if CommandLine.arguments == [CommandLine.arguments[0], "--self-test"] {
@@ -39,9 +72,12 @@ do {
         NSColor.white.setFill(); NSRect(x: 0, y: 0, width: 640, height: 160).fill()
         ("CAPTCHA" as NSString).draw(at: NSPoint(x: 20, y: 55), withAttributes: [.font: NSFont.systemFont(ofSize: 48), .foregroundColor: NSColor.black])
         image.unlockFocus()
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-              try recognize(cg)["authenticationRequired"] as? Bool == true else { exit(1) }
-        result = ["selfTestPassed": true, "cpuOCRVerified": true]
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { exit(1) }
+        result = try recognize(cg)
+        guard result["authenticationRequired"] as? Bool == true else { exit(1) }
+        result["selfTestPassed"] = true
+        result["ocrVerified"] = true
+        result["cpuOCRVerified"] = result["ocrUsesCPUOnly"] as? Bool ?? false
     } else {
         guard CommandLine.arguments.count == 2,
               let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: CommandLine.arguments[1]) as CFURL, nil),
@@ -51,5 +87,6 @@ do {
     FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]))
     FileHandle.standardOutput.write(Data("\n".utf8))
 } catch {
-    fputs("screen_classifier_unavailable\n", stderr); exit(1)
+    let e = error as NSError
+    fputs("screen_classifier_unavailable domain=\(e.domain) code=\(e.code)\n", stderr); exit(1)
 }
