@@ -178,3 +178,6 @@ ciScreenClassifier.swift使用CPU Vision OCR，不控制输入。合成CAPTCHA�
 兼容后端校准结果：已有本机Tesseract5.5.4对合成英文CAPTCHA及中文验证码都通过；使用真实旧CI补丁帧、对应窗口裁切与内部3倍灰度二值化输入后，updateScreenVisible=true且公告候选false。只改OCR临时副本，原始取证图不变。新CI固定本地Tesseract CPU后端，避免27guest Vision错误；安装依赖仅发生在临时runner，未部署服务、未安装用户Mac软件。
 
 在新验收任务内补充实际分目录du：构建前/后Appbundle、包含App的build根、包含.git/ignored输出的checkout，以及go env给出的build/module caches；路径解析后只输出可用性和KiB，超时记测量不可用不阻塞游戏。几个目录有包含关系，不求和或冒充独占新增量；Swift默认缓存未单列时仍不得推算。OCR工具安装也单独记录df前后、Cellar和临时语言数据du。这些测量不单独触发游戏任务。
+
+
+run42014562448已验证27兼容后端：Tesseract CPU自检成功，英文CAPTCHA与中文验证码均检出；原生Metal/桌面能力保持可用。所选Tesseract Cellar目录25,876KiB、临时两种语言数据6,432KiB，依赖库另属安装区间df差额，不把这两个du项称作全部依赖占用。此次无游戏下载。下一次只恢复27国际服长观察，保留120分钟job/45分钟安装/40分钟观察和一次restart边界，生产基线仍a8d27ba。

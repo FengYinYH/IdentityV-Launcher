@@ -13,7 +13,7 @@ func classify(_ lines: [String]) -> [String: Any] {
     let updating = ["downloading patches", "downloading patch", "下载补丁", "解压补丁", "更新中", "verifying files"].contains { text.contains($0) }
     let heading = lines.contains { line in
         let key = line.replacingOccurrences(of: #"[^a-z\p{Han}]"#, with: "", options: .regularExpression)
-        return ["notice", "notices", "announcements", "announcement", "latestnews", "gamenotice", "公告", "公告详情", "游戏公告"].contains(key)
+        return ["notice", "notices", "news", "announcements", "announcement", "latestnews", "gamenotice", "servernotice", "systemnotice", "systemannouncement", "公告", "公告详情", "游戏公告"].contains(key)
     }
     return ["authenticationRequired": !auth.isEmpty, "authenticationMarkers": auth,
             "agreementRequiresUser": agreement, "updateScreenVisible": updating,
@@ -26,6 +26,7 @@ func recognizeWithTesseract(_ image: CGImage) throws -> [String: Any]? {
           let dataRoot = environment["IDV_CI_TESSDATA_DIR"] else { return nil }
     var input = image
     var crop: CGRect?
+    var didCrop = false
     if let spec = environment["IDV_CI_OCR_TEST_CROP"] {
         let values = spec.split(separator: ",").compactMap { Double($0) }
         if values.count == 4 { crop = CGRect(x: values[0], y: values[1], width: values[2], height: values[3]) }
@@ -40,7 +41,7 @@ func recognizeWithTesseract(_ image: CGImage) throws -> [String: Any]? {
         }
     }
     if let rect = crop, rect.minX >= 0, rect.minY >= 0, rect.maxX <= Double(image.width), rect.maxY <= Double(image.height),
-       let cropped = image.cropping(to: rect) { input = cropped }
+       let cropped = image.cropping(to: rect) { input = cropped; didCrop = true }
     let width = min(input.width * 3, 4096), height = min(input.height * 3, 4096)
     guard let bitmap = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                  bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
@@ -80,7 +81,7 @@ func recognizeWithTesseract(_ image: CGImage) throws -> [String: Any]? {
     var result = classify(lines)
     result["ocrBackend"] = "tesseract_cpu"
     result["ocrRecognitionLanguages"] = languages.contains("chi_sim") ? ["en-US", "zh-Hans"] : ["en-US"]
-    result["ocrInputCropped"] = crop != nil
+    result["ocrInputCropped"] = didCrop
     result["ocrUsesCPUOnly"] = true
     return result
 }
