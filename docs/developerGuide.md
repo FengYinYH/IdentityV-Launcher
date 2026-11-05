@@ -82,3 +82,5 @@ IDV Login 的固定清单用于下载校验；安装状态、可选版本更新�
 ### 运行器会话发布回归
 
 `gameRunnerApp/tests/sessionPublication.test.command`由玩家构建执行，也可单独用zsh运行；只编译/运行无GUI的arm64与x86_64探针及空dylib，需要已有Rosetta，不安装兼容组件，不运行Wine或游戏。它验证Wine子进程注入边界、保持PID/fallback以及固定字段会话的0600原子发布和失败保护；机制与真实来宾边界见[RUN-SESSION](windowAndLoginInvestigation.md#run-session来宾游戏已存在但启动确认失败2026-11-05)。
+
+IDV Login「打开后台」和 `idv run login-admin-open` 共享 `LauncherUpdateAgent.swift` 中 LoginAdmin，复用 ToolboxViewModel 的只读 readiness gate。`playerLauncherApp/Tests/loginAdminSelfTest.command` 验证打开/拒绝/浏览器失败，不操作真实组件；完整玩家构建执行该检查。地址与安全边界见[来源审计](idvLoginSourceAudit.md#rc5-管理后台入口2026-11-05)。

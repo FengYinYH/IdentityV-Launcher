@@ -67,3 +67,11 @@
 此前 `prepare-config` 每次启动都注入 cloudRes 禁更新 overlay，并清空其他 hotfix 记录。现仅移除 `launcher-pinned-update-policy` 及其 pending 项，保留其他上游/用户记录、账号和历史私有备份。旧策略文件留在原位但不再注册。固定下载清单仍负责已知资产校验，不代表要求用户始终运行该版本。已安装状态工具必须正常刷新后，下次组件启动才会应用新迁移；仅替换 App 不会改正在运行的代理。
 
 本机只读确认用户自行更新后，系统组件元数据为 6.3.3-beta、helper 合约为 10；没有干预账号或运行中游戏。这说明启动器的普通组件更新路径成功，不代表已验证未来所有上游自更新行为。迁移自检覆盖保留账号、保留其他 overlay、移除项目策略与重复准备幂等；完整 SwiftUI 源码 typecheck 与模型进程边界自检通过，配置迁移/Hosts/CA 自检通过；旧版/当前/高版本/未安装的更新提示比较均覆盖。整包构建在 runner 签名遇到 Finder 属性而未完成，未安装候选；真实 UI 和登录仍待整合后验收。
+
+## RC5 管理后台入口（2026-11-05）
+
+官方 v6.3.3-beta 源码树 `0cee1f6b5c03b93d999a94bfc6e4baf745456d1b` 的 `src/web_uimgr.py::_do_open_for_game` 明确在 compat 模式使用 `https://localhost/_idv-login/index`；`src/mitm_addon.py::request` 对 localhost 的 `/_idv-login/` 路由本地处理，不向上游转发。v6.3.2-stable 的 `src/uimgr.py` 也使用相同兼容模式地址。源码链接均可在 [官方固定标签](https://github.com/KKeygen/idv-login/tree/v6.3.3-beta/src) 核查。10717 是普通代理端口、8081 是开发 mitmweb，均不作为后台地址。
+
+GUI 在结束运行与卸载之间新增打开后台；活动状态与结束运行使用相同禁用条件，点击再以现有非交互 helper status 验证受管进程树的 127.0.0.1:443 监听和 canonical hosts。初始化或配置异常时不打开页面。CLI `login-admin-open` 调用同一 LoginAdmin 核心；浏览器接受请求与页面功能健康分开。不读取配置、账号列表、页面正文或 token，不改 hosts、监听、证书或活动组件。固定 localhost 地址沿用上游证书与现有信任，不设置忽略 TLS 验证。
+
+独立共享核心测试注入就绪读数和浏览器接收器，验证 ready 恰好打开一次固定无凭据地址，停止/初始化/未知/配置异常/旧 helper 不打开，以及浏览器失败；测试不运行或停止真实组件。真实页面和原生布局验收须另记，不能由此测试推断通过。

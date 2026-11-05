@@ -31,7 +31,7 @@ private final class LauncherUpdateCancellation: @unchecked Sendable {
 
 @MainActor
 enum LauncherUpdateAgent {
-    static let operations = ["launcher-update-check", "launcher-update-install"]
+    static let operations = ["launcher-update-check", "launcher-update-install", "login-admin-open"]
     static func emit(_ value: [String: Any], to handle: FileHandle = .standardError) {
         if let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) {
             handle.write(data); handle.write(Data([10]))
@@ -40,6 +40,16 @@ enum LauncherUpdateAgent {
     static func run(_ args: [String]) async -> Int32 {
         guard args.count == 1, let operation = args.first, operations.contains(operation) else {
             emit(["error": "invalid_launcher_update_operation"]); return 64
+        }
+        if operation == "login-admin-open" {
+            do {
+                try await LoginAdmin.open()
+                emit(["schemaVersion": 1, "opened": true], to: .standardOutput)
+                return 0
+            } catch {
+                emit(["error": "login_admin_unavailable", "message": error.localizedDescription])
+                return 1
+            }
         }
         let cancellation = LauncherUpdateCancellation()
         let task = Task { try await perform(operation, cancellation: cancellation) }
@@ -152,4 +162,83 @@ enum LauncherUpdateAgent {
         let response = alert.runModal(); timer.invalidate(); alert.window.orderOut(nil)
         guard response == .alertFirstButtonReturn, !cancellation.requested else { throw CancellationError() }
     }
+}
+
+/// Both GUI and Agent recheck the existing managed listener/hosts gate before
+/// opening the upstream compat-mode page. Never inspect account configuration.
+@MainActor
+enum LoginAdmin {
+    nonisolated static func readinessStatus() -> String {
+        // Never execute an unrecognised root helper. Older builds interpreted
+        // `--status` as a normal start, which turned each poll into a game
+        // launch. The marker is inspected as ordinary data before sudo.
+        guard loginHelperContainsCurrentStatusContract(at: URL(fileURLWithPath: "/Library/PrivilegedHelperTools/identityv-on-mac/start-idv-login.sh")) else {
+            return "helper-update-required"
+        }
+        guard LoginStatusPollGate.tryAcquire() else { return "starting" }
+        defer { LoginStatusPollGate.release() }
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+        process.arguments = ["-n", URL(fileURLWithPath: "/Library/PrivilegedHelperTools/identityv-on-mac/start-idv-login.sh").path, "--status"]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return "unknown" }
+            let line = String(decoding: data, as: UTF8.self)
+                .split(whereSeparator: \.isNewline)
+                .last
+            guard let line, line.hasPrefix("IDV_LOGIN_READINESS=") else { return "unknown" }
+            switch line.dropFirst("IDV_LOGIN_READINESS=".count) {
+            case "ready", "starting", "misconfigured", "not-running":
+                return String(line.dropFirst("IDV_LOGIN_READINESS=".count))
+            default:
+                return "unknown"
+            }
+        } catch {
+            return "unknown"
+        }
+    }
+
+    nonisolated static func loginHelperContainsCurrentStatusContract(at url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+              values.isRegularFile == true, values.isSymbolicLink != true,
+              let size = values.fileSize, size > 0, size <= 256 * 1_024,
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        // 8–10 share the bounded status/start protocol. Later revisions add
+        // certificate recovery and update policy changes, not a new IPC shape.
+        // Keep unknown and pre-status helpers blocked at the execution boundary.
+        return [8, 9, 10].contains { text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"\($0)\"") }
+    }
+
+    static let url = URL(string: "https://localhost/_idv-login/index")!
+    enum Failure: LocalizedError {
+        case unavailable, browser
+        var errorDescription: String? {
+            switch self {
+            case .unavailable: return LauncherLanguage.configured(from: .standard).localized("IDV Login 后台尚不可用，请确认组件运行正常后重试。")
+            case .browser: return LauncherLanguage.configured(from: .standard).localized("无法打开浏览器，请检查默认浏览器设置。")
+            }
+        }
+    }
+    static func open(
+        readiness: @escaping @Sendable () -> String = { LoginAdmin.readinessStatus() },
+        browser: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    ) async throws {
+        let state = await Task.detached(priority: .utility) { readiness() }.value
+        try Task.checkCancellation()
+        guard state == "ready" else { throw Failure.unavailable }
+        guard browser(url) else { throw Failure.browser }
+    }
+}
+
+/// Process-wide single-flight gate for the root-owned status command.
+private enum LoginStatusPollGate {
+    static let lock = NSLock()
+    static var active = false
+    static func tryAcquire() -> Bool { lock.lock(); defer { lock.unlock() }; guard !active else { return false }; active = true; return true }
+    static func release() { lock.lock(); active = false; lock.unlock() }
 }

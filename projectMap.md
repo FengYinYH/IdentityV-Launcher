@@ -135,3 +135,5 @@ flowchart LR
 更新入口：`LauncherUpdateChecker.swift`读取公开Releases；`LauncherUpdateInstallation.swift`共享准备、校验、恢复与进程超时；`LauncherUpdateAgent.swift`是显式App业务后端，默认入口仍为GUI。`UpdateHelper/`持活锁执行同址替换/重启回执/清理。`playerLauncherApp/Tests/updaterSelfTest.command`只做离线与假App检查，`productManager/tests/updaterAgent.test.py`用真实运输层和mockGUI验证状态，不执行真实更新。完整构建的`IDENTITYV_TEST_HEADLESS=1`只推迟原生确认UI测试，生产确认不变。
 
 `gameRunnerApp/tests/sessionPublication.test.command`：实际runner函数的无GUI跨架构/会话发布回归，使用无副作用探针，不运行Wine/游戏；玩家构建执行。会话字段和既有身份读取契约保持不变，调查见窗口专题RUN-SESSION。
+
+IDV Login 管理页入口：`playerLauncherApp/Sources/LauncherUpdateAgent.swift` 的 LoginAdmin 为 GUI 与 Agent 共用就绪/浏览器核心；`playerLauncherApp/Tests/loginAdminSelfTest.command` 只用注入状态和浏览器接收器验证，不启动/停止组件。

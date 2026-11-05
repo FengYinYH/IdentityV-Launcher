@@ -112,3 +112,11 @@ idv cancel '<taskId>'
 更新助手独占活admission及现有产品修改锁，admission按实际用户临时区与App canonical路径分组，不随业务HOME变化；普通worker和直接管理器入口持共享lease，覆盖只读扫描及下载/安装整个时段；更新install运输层自身除外，以免等待自身锁。新业务会快速返回busy，不使用旧PID或task.json猜测活动。只读位置解析不修改游戏与安装记录，但可创建内部锁文件。更新需要退出游戏、等待组件/产品事务完成；不强停游戏、不触碰游戏/runtime/账号。CLI在用户确认后可正常请求同址旧GUI退出，并等待新GUI回执。
 
 验证：真实运输层+mock后端覆盖上述UUID、lease、确认/早晚取消及完成语义；原生确认点击和真实签名替换仍待实测。KVM暂停时可运行`productManager/agentSelfTest.command --headless`（完整构建用`IDENTITYV_TEST_HEADLESS=1`），只推迟原生确认UI测试段并明确标记，不影响生产确认。
+
+## 打开 IDV Login 管理后台（RC5 后续候选）
+
+```sh
+idv run login-admin-open
+```
+
+此命令不接受额外参数，使用与界面「打开后台」相同的就绪检查和系统浏览器入口。组件的受管本机 443 监听及 hosts 检查通过后，打开 `https://localhost/_idv-login/index`；不自动安装或启动组件，不读取账号配置，不附加凭据，不改变代理或证书。成功输出 `output.opened=true`，仅表示系统接受打开请求，不表示网页已经载入或账号可登录。未运行、初始化、配置异常、旧 helper 无法验证或浏览器拒绝均失败；后端 stderr 错误为 `login_admin_unavailable`，任务层仍使用 `core_operation_failed`，同时读取错误摘要。适配包含该命令的 RC5 候选；对旧包先查询 `idv help`。

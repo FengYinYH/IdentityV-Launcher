@@ -433,3 +433,6 @@
 "请先安装 IDV Login，再开启“跟随游戏启动”。" = "Install IDV Login before enabling Start with Game.";
 
 "Could not uninstall IDV Login: %@" = "Could not uninstall IDV Login: %@";
+"打开后台" = "Open Admin";
+"IDV Login 后台尚不可用，请确认组件运行正常后重试。" = "The IDV Login dashboard is unavailable. Check that the component is running correctly and try again.";
+"无法打开浏览器，请检查默认浏览器设置。" = "Unable to open the browser. Check your default browser settings.";

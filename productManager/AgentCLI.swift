@@ -5,7 +5,7 @@ import CoreGraphics
 // Transport only: every operation re-enters the same manager used by the GUI.
 // A task receipt is never evidence that the underlying operation completed.
 enum AgentCLI {
-    static let operations = ["status", "check-runtime-prerequisites", "inspect", "resolve-location", "resolve-download", "resolve-manifest", "verify-installer", "select", "install", "import", "prepare-launch", "launch", "restart", "stop", "remove", "remove-preview", "repair", "launcher-update-check", "launcher-update-install"]
+    static let operations = ["status", "check-runtime-prerequisites", "inspect", "resolve-location", "resolve-download", "resolve-manifest", "verify-installer", "select", "install", "import", "prepare-launch", "launch", "restart", "stop", "remove", "remove-preview", "repair", "launcher-update-check", "launcher-update-install", "login-admin-open"]
     static var documentationURL: URL { URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.deletingLastPathComponent().appendingPathComponent("agent-cli.md") }
     static var root: URL {
         if let path = ProcessInfo.processInfo.environment["IDENTITYV_AGENT_TASK_ROOT"] { return URL(fileURLWithPath: path, isDirectory: true) }
@@ -242,7 +242,7 @@ enum AgentCLI {
         }
         let child = Process()
         let manager = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
-        if operation.hasPrefix("launcher-update-") {
+        if operation.hasPrefix("launcher-update-") || operation == "login-admin-open" {
             child.executableURL = manager.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("MacOS/IdentityVLauncher")
             child.arguments = ["--launcher-agent-operation"] + executionArguments
         } else {

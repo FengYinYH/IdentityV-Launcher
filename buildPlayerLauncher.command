@@ -564,6 +564,7 @@ python3 "$PROJECT_ROOT/signing/verifyFirstPartyIdentity.py" launcher "$APP_PATH"
 "$LAUNCHER_HANG_SELF_CHECK"
 /bin/rm -f "$LAUNCHER_HANG_SELF_CHECK"
 
+"$SOURCE_ROOT/Tests/loginAdminSelfTest.command"
 "$PRODUCT_MANAGER_DESTINATION" self-test
 if [[ "${IDENTITYV_TEST_HEADLESS:-0}" == "1" ]]; then
   "$PROJECT_ROOT/productManager/agentSelfTest.command" --headless

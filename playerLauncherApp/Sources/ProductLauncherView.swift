@@ -265,7 +265,15 @@ struct ProductLauncherView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("idv-login").font(.title3.weight(.semibold))
+                    HStack(spacing: 8) {
+                        Text("idv-login").font(.title3.weight(.semibold))
+                        if let version = model.runtimeStatus.loginComponentVersion {
+                            Text("版本 \(version)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                     Text("保存账号登录状态\n不用重复扫码登录")
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -293,20 +301,18 @@ struct ProductLauncherView: View {
                         .buttonBorderShape(.capsule)
                         .controlSize(.large)
                         .disabled(model.loginMutationIsBusy || !model.runtimeStatus.loginIsActive)
+                    Button("打开后台", action: model.openLoginAdmin)
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.large)
+                        .disabled(model.loginMutationIsBusy || !model.runtimeStatus.loginIsActive)
                     Button("卸载") { showsLoginUninstallConfirmation = true }
                         .buttonStyle(.bordered)
                         .buttonBorderShape(.capsule)
                         .controlSize(.large)
                         .tint(.red)
                         .disabled(model.loginMutationIsBusy)
-                    Spacer(minLength: 8)
-                    if let version = model.runtimeStatus.loginComponentVersion {
-                        Text("版本 \(version)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
+
                 }
             }
             HStack(spacing: 12) {

@@ -72,14 +72,6 @@ enum RuntimeProcessMatcher {
     }
 }
 
-/// Process-wide single-flight gate for the root-owned status command.
-private enum LoginStatusPollGate {
-    static let lock = NSLock()
-    static var active = false
-    static func tryAcquire() -> Bool { lock.lock(); defer { lock.unlock() }; guard !active else { return false }; active = true; return true }
-    static func release() { lock.lock(); active = false; lock.unlock() }
-}
-
 private struct LoginStartupResult: Equatable {
     let isReady: Bool
     let code: String
@@ -2134,6 +2126,13 @@ final class ToolboxViewModel: ObservableObject {
         }
     }
 
+    func openLoginAdmin() {
+        Task {
+            do { try await LoginAdmin.open() }
+            catch { showOperation(error.localizedDescription); refreshRuntimeStatus() }
+        }
+    }
+
     func stopLoginBackground() {
         stopLoginBackground(restartAfterStopping: false)
     }
@@ -2810,50 +2809,9 @@ final class ToolboxViewModel: ObservableObject {
         }
     }
 
-    nonisolated private static func loginReadinessStatus() -> String {
-        // Never execute an unrecognised root helper. Older builds interpreted
-        // `--status` as a normal start, which turned each poll into a game
-        // launch. The marker is inspected as ordinary data before sudo.
-        guard loginHelperContainsCurrentStatusContract(at: ToolboxPath.startLoginHelper) else {
-            return "helper-update-required"
-        }
-        guard LoginStatusPollGate.tryAcquire() else { return "starting" }
-        defer { LoginStatusPollGate.release() }
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-        process.arguments = ["-n", ToolboxPath.startLoginHelper.path, "--status"]
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return "unknown" }
-            let line = String(decoding: data, as: UTF8.self)
-                .split(whereSeparator: \.isNewline)
-                .last
-            guard let line, line.hasPrefix("IDV_LOGIN_READINESS=") else { return "unknown" }
-            switch line.dropFirst("IDV_LOGIN_READINESS=".count) {
-            case "ready", "starting", "misconfigured", "not-running":
-                return String(line.dropFirst("IDV_LOGIN_READINESS=".count))
-            default:
-                return "unknown"
-            }
-        } catch {
-            return "unknown"
-        }
-    }
-
+    nonisolated static func loginReadinessStatus() -> String { LoginAdmin.readinessStatus() }
     nonisolated fileprivate static func loginHelperContainsCurrentStatusContract(at url: URL) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
-              values.isRegularFile == true, values.isSymbolicLink != true,
-              let size = values.fileSize, size > 0, size <= 256 * 1_024,
-              let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
-        // 8–10 share the bounded status/start protocol. Later revisions add
-        // certificate recovery and update policy changes, not a new IPC shape.
-        // Keep unknown and pre-status helpers blocked at the execution boundary.
-        return [8, 9, 10].contains { text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"\($0)\"") }
+        LoginAdmin.loginHelperContainsCurrentStatusContract(at: url)
     }
 
     nonisolated private static func gamePID(in snapshot: String) -> Int32? {
