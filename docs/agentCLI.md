@@ -46,6 +46,8 @@ MANAGER='/Applications/第五人格启动器.app/Contents/Resources/IdentityVPro
 
 已支持操作：`status --json`、`check-runtime-prerequisites`、`inspect --json --product mainland|global --path PATH`、`resolve-location --json --product mainland|global --path PATH`、`verify-installer --path PATH`、`resolve-download --product …`、`resolve-manifest --json --product …`、`remove-preview --json --product …`、`select/install/import/prepare-launch/launch/restart/stop/remove/repair --product …`。安装需要 `--destination-parent`，导入需要 `--path`；明确接受基础清单不符时沿用核心的 `--accept-base-mismatch`。修复/安装可能联网、写入较大文件，启动/停止/删除会影响对应产品；导入的外部文件仍按原有所有权契约保留。`launch` 成功按核心已验证游戏进程/窗口的定义，不等于账号登录成功。
 
+`resolve-manifest --json --product mainland|global` 返回两服共享的基础清单结构；国服使用对应直下解析器，国际服复用已验证的 GlobalAdapter 和身份转换，不要求国际服存在国服的 directDownload 配置。此命令仅解析元数据，不下载游戏载荷。
+
 `resolve-location` 只读解析已存在的文件或目录：文件使用其父目录，目录使用自身，检测该目录及受支持的客户端子目录。返回 `selectedPath/selectionKind/installDirectory/found/gameRoot?/alreadyRegistered`。`found` 表示发现客户端入口，不表示基础清单或热更新文件已全部校验；需要时继续 `inspect`，再按结果 `import` 或 `install`。没有找到时由调用方决定是否安装，解析命令本身不会写游戏文件。
 
 暂未接入：登录组件安装/启停及证书流程、偏好设置、系统/维护工具按钮、诊断采样开关、GUI 自身刷新任务的自动登记、下载任务的远程暂停/恢复控制。取消后重新发相同安装命令沿用核心已有的可续传事务；不保证任意修复步骤可回滚。不要把 cancel 当成 pause，也不要只凭退出码 0 判断 `inspect --json` 基础清单有效：还须读取 `output.valid`。
