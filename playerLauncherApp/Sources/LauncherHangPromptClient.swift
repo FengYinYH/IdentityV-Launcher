@@ -20,7 +20,7 @@ final class LauncherHangPromptClient {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
-        guard let data = try? JSONEncoder().encode(HangPromptSnapshot(id: id, title: title)) else { return false }
+        guard let data = try? JSONEncoder().encode(HangPromptSnapshot(id: id, title: title, language: LauncherLanguage.current.locale.identifier)) else { return false }
         do {
             try process.run()
             child = process
@@ -58,8 +58,8 @@ final class LauncherHangPromptClient {
     func showRecovery(id: String, remainingSeconds: Int) -> Bool {
         guard let writer, child?.isRunning == true,
               let data = try? JSONEncoder().encode(
-                HangPromptSnapshot(id: id, title: HangPromptRecovery.title(countdown: remainingSeconds),
-                                   kind: "recovered", countdown: remainingSeconds)
+                HangPromptSnapshot(id: id, title: HangPromptRecovery.title(countdown: remainingSeconds, language: LauncherLanguage.current.locale.identifier),
+                                   kind: "recovered", countdown: remainingSeconds, language: LauncherLanguage.current.locale.identifier)
               ) else { return false }
         do {
             try writer.write(contentsOf: data + Data([10]))

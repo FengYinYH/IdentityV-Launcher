@@ -91,7 +91,13 @@ enum LauncherLanguage: String, CaseIterable, Identifiable {
     /// then a small set of stable, high-frequency message shapes. Unrecognized
     /// helper and diagnostic text stays verbatim so its evidence is preserved.
     func localizedMessage(_ source: String, lookup: ((String) -> String)? = nil) -> String {
-        let lookup = lookup ?? localized
+        localizedMessage(source, lookup: lookup ?? localized, depth: 0)
+    }
+
+    private func localizedMessage(_ source: String, lookup: (String) -> String, depth: Int) -> String {
+        // Diagnostic details are untrusted and can contain deeply nested templates.
+        // Keep the remaining text verbatim once the bounded translation budget is exhausted.
+        guard depth < 6 else { return source }
         let exact = lookup(source)
         if exact != source { return exact }
 
@@ -108,6 +114,8 @@ enum LauncherLanguage: String, CaseIterable, Identifiable {
             ("^当前安装阶段不支持暂停；(.+)$", "Pause is unavailable during this installation stage; %@"),
             ("^下载控制将在(.+)后可用。$", "Download controls will be available %@."),
             ("^无法更新下载控制：(.+)$", "Could not update download controls: %@"),
+            ("^下载核心报告磁盘空间不足，至少需要 (.+)。请清理磁盘后重试或选择其他位置。$", "The download core needs at least %@ of disk space. Free up space or choose another location."),
+            ("^安装游戏失败：(.+)$", "Game installation failed: %@"),
             ("^(.+)失败：(.+)$", "%@ failed: %@"),
             ("^无法(.+)：(.+)$", "Could not %@: %@"),
             ("^(.+)\\n\\n错误代码：([A-Z0-9-]+)$", "%@\n\nError code: %@"),
@@ -126,7 +134,6 @@ enum LauncherLanguage: String, CaseIterable, Identifiable {
             ("^游戏没有进入运行状态，请稍后重试。$", "The game did not start. Please try again."),
             ("^完成 Rosetta 安装后，返回启动器再次点击原来的按钮即可继续。$", "After Rosetta finishes installing, return to the launcher and click the same button to continue."),
             ("^已取消游戏下载；(.+)$", "Game download cancelled; %@"),
-            ("^安装游戏失败：(.+)$", "Game installation failed: %@"),
             ("^安装 IDV Login 失败：(.+)$", "IDV Login installation failed: %@"),
             ("^已取消 IDV Login 安装；(.+)$", "IDV Login installation cancelled; %@"),
             ("^请先安装固定的 IDV Login (.+) 组件。$", "Install the pinned IDV Login %@ component first."),
@@ -148,7 +155,7 @@ enum LauncherLanguage: String, CaseIterable, Identifiable {
             let arguments = (1..<match.numberOfRanges).map { index -> CVarArg in
                 guard let range = Range(match.range(at: index), in: source) else { return "" as NSString }
                 let captured = (source as NSString).substring(with: NSRange(range, in: source))
-                return lookup(captured) as NSString
+                return localizedMessage(captured, lookup: lookup, depth: depth + 1) as NSString
             }
             return String(format: lookup(format), locale: locale, arguments: arguments)
         }

@@ -415,7 +415,7 @@ final class ToolboxViewModel: ObservableObject {
         hangRecoveryCountdown = 0
         hangRecoveryIncidentID = nil
         let title = incident.session.productID == .mainland ? "游戏可能卡住了" : "国际服可能卡住了"
-        let shown = launcherHangPrompt.show(id: incident.id, title: title) { [weak self] action in
+        let shown = launcherHangPrompt.show(id: incident.id, title: LauncherLanguage.current.localized(title)) { [weak self] action in
             guard let self else { return }
             self.isPresentingLauncherHangPrompt = false
             self.pendingLauncherHangIncidentID = nil

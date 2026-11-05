@@ -212,9 +212,9 @@ private struct RuntimeIndicator: View {
                 .fill(isRunning ? Color.green : Color.secondary.opacity(0.45))
                 .frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title)
+                Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(title)))
                     .font(.callout.weight(.medium))
-                Text(detail ?? (isRunning ? "运行中" : "未运行"))
+                Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(detail ?? (isRunning ? "运行中" : "未运行"))))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -253,7 +253,7 @@ private struct ActionButton: View {
                 } else {
                     Image(systemName: systemImage)
                 }
-                Text(title)
+                Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(title)))
                 Spacer()
             }
             .frame(maxWidth: .infinity)
@@ -308,9 +308,9 @@ private struct ResultMetric: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(title)
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(title)))
                 .foregroundStyle(.secondary)
-            Text(value)
+            Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(value)))
                 .monospacedDigit()
         }
         .font(.callout)

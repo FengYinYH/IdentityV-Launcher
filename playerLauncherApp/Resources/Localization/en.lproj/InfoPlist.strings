@@ -1,1 +1,2 @@
 "CFBundleDisplayName" = "Identity V Launcher";
+"NSMicrophoneUsageDescription" = "Used for voice chat in Identity V.";

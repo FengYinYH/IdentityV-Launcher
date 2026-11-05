@@ -289,3 +289,21 @@
 "感谢你的建议与反馈，欢迎加入讨论组。" = "Thank you for your suggestions and feedback. Join our discussion groups.";
 
 "QQ 群号已复制到剪贴板" = "QQ group number copied to clipboard";
+
+"游戏可能卡住了" = "The game may be stuck";
+
+"国际服可能卡住了" = "Global may be stuck";
+
+"卡死提醒显示异常，请重新打开启动器。" = "The hang alert failed. Reopen the launcher.";
+
+"卡死提醒窗口未能启动，请重新打开启动器。" = "The hang alert could not open. Reopen the launcher.";
+
+"IDV Login 已重新启动并就绪。" = "IDV Login has restarted and is ready.";
+
+"The download core needs at least %@ of disk space. Free up space or choose another location." = "The download core needs at least %@ of disk space. Free up space or choose another location.";
+
+"正在结束并重新启动 IDV Login…" = "Stopping and restarting IDV Login…";
+
+"旧 IDV Login 会话已结束，正在重新启动…" = "The previous IDV Login session ended. Restarting…";
+
+"旧游戏会话已结束并重新启动；IDV Login 保持运行。" = "The previous game session ended and restarted; IDV Login remains running.";

@@ -63,7 +63,21 @@ enum LauncherLanguageSelfTest {
             "当前版本 6.3.1。此版本尚未提供自动更新；下载新版安装镜像后，退出启动器并替换应用即可。",
             lookup: englishLookup
         )
+        let diskMessage = "下载核心报告磁盘空间不足，至少需要 42 GB。请清理磁盘后重试或选择其他位置。"
+        let nestedDiagnostic = String(repeating: "安装游戏失败：", count: 50) + "未知原文"
+        var nestedLookupCount = 0
+        let boundedNested = LauncherLanguage.english.localizedMessage(nestedDiagnostic) { key in
+            nestedLookupCount += 1
+            return englishLookup(key)
+        }
         let translationChecks = [
+            nestedLookupCount <= 18,
+            boundedNested.hasPrefix(String(repeating: "Game installation failed: ", count: 6)),
+            boundedNested.hasSuffix(String(repeating: "安装游戏失败：", count: 44) + "未知原文"),
+            LauncherLanguage.english.localizedMessage("安装游戏失败：" + diskMessage, lookup: englishLookup) == "Game installation failed: The download core needs at least 42 GB of disk space. Free up space or choose another location.",
+            LauncherLanguage.english.localizedMessage(diskMessage, lookup: englishLookup) == "The download core needs at least 42 GB of disk space. Free up space or choose another location.",
+            LauncherLanguage.traditionalChinese.localizedMessage(diskMessage, lookup: traditionalLookup) == "下載核心回報磁碟空間不足，至少需要 42 GB。請清理磁碟後重試或選擇其他位置。",
+            LauncherLanguage.simplifiedChinese.localizedMessage(diskMessage, lookup: simplifiedLookup) == diskMessage,
             LauncherLanguage.system.menuTitle(in: .english, lookup: englishLookup) == "Follow System",
             LauncherLanguage.system.menuTitle(in: .simplifiedChinese, lookup: simplifiedLookup) == "跟随系统",
             LauncherLanguage.system.menuTitle(in: .traditionalChinese, lookup: traditionalLookup) == "跟隨系統",
@@ -75,7 +89,7 @@ enum LauncherLanguageSelfTest {
             LauncherLanguage.traditionalChinese.launchLocationCopy.title == traditional["请先把第五人格启动器拖到应用程序文件夹"],
             LauncherLanguage.traditionalChinese.launchLocationCopy.message == traditional["请从磁盘映像中拖到“应用程序”后，再打开启动器。"],
             translatedInstall == "Installing Mainland China…",
-            translatedFailure == "安裝遊戲失敗：磁盘空间不足",
+            translatedFailure == "遊戲安裝失敗：磁盘空间不足",
             translatedCode == "Rosetta 不可用\n\nError code: IDV-ENV-103",
             translatedMailNotice == "No mail app is available. Email help@example.test from webmail instead.",
             translatedMicWarning == "Microphone access is not yet authorized. When the game starts, select Allow in the system prompt; otherwise, voice may fail and the game may get stuck at “Entering Lobby”.",

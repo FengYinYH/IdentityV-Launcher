@@ -165,16 +165,16 @@ private struct HangPromptView: View {
             if #available(macOS 26.0, *) {
                 HStack(spacing: 8) {
                     Button(role: .destructive) { model.choose("restart") } label: {
-                        Text("重启游戏").frame(maxWidth: .infinity)
+                        Text(HangPromptCopy.buttons(language: model.snapshot.language).restart).frame(maxWidth: .infinity)
                     }.buttonStyle(.glass)
                     Button { model.choose("wait") } label: {
-                        Text("继续等").frame(maxWidth: .infinity)
+                        Text(HangPromptCopy.buttons(language: model.snapshot.language).wait).frame(maxWidth: .infinity)
                     }.buttonStyle(.glassProminent)
                 }.buttonBorderShape(.capsule).controlSize(.regular)
             } else {
                 HStack(spacing: 8) {
-                    Button("重启游戏") { model.choose("restart") }
-                    Button("继续等") { model.choose("wait") }
+                    Button(HangPromptCopy.buttons(language: model.snapshot.language).restart) { model.choose("restart") }
+                    Button(HangPromptCopy.buttons(language: model.snapshot.language).wait) { model.choose("wait") }
                 }.buttonStyle(.bordered)
             }
         }
