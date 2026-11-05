@@ -92,6 +92,18 @@ func main() {
 			err = installWithPayload(ctx, m, *destination, *patches, *payloadDMG, os.Stderr)
 		}
 		fail(err)
+	case "prepare-compact":
+		fs := flag.NewFlagSet("prepare-compact", flag.ExitOnError)
+		manifestPath := fs.String("manifest", "", "absolute manifest")
+		destination := fs.String("destination-root", "", "component root")
+		fs.Parse(os.Args[2:])
+		m, err := readManifest(*manifestPath)
+		if err == nil {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			err = prepareCompactRuntime(ctx, m, *destination, true)
+		}
+		fail(err)
 	case "verify-tree":
 		fs := flag.NewFlagSet("verify-tree", flag.ExitOnError)
 		manifestPath := fs.String("manifest", "", "absolute manifest")
@@ -108,7 +120,7 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: IdentityVRuntimeBootstrap install --manifest ABS --destination-root ABS --patch-root ABS [--payload-dmg ABS] | verify-tree --manifest ABS --tree ABS")
+	fmt.Fprintln(os.Stderr, "usage: IdentityVRuntimeBootstrap install --manifest ABS --destination-root ABS --patch-root ABS [--payload-dmg ABS] | prepare-compact --manifest ABS --destination-root ABS | verify-tree --manifest ABS --tree ABS")
 	os.Exit(2)
 }
 func fail(err error) {
@@ -695,54 +707,132 @@ func detach(device string) {
 // directory has been atomically renamed into place but before `current` could
 // be created.  It never repoints an existing link: a versioned final directory
 // is accepted only after the same complete verification used for a new install.
+// compactVersionName shortens the on-disk runtime directory without changing
+// the public manifest version, engine identity or the user's game location.
+// The hash is deterministic so a completed, verified copy can be recovered.
+func compactVersionName(version string) string {
+	sum := sha256.Sum256([]byte(version))
+	return "v-" + hex.EncodeToString(sum[:12])
+}
+
+func verifyPublishedRuntime(root string, m manifest, checkMachO bool) error {
+	info, err := os.Lstat(root)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("runtime version path already exists and is not a real directory")
+	}
+	return verifyTree(root, m.FinalVerificationFiles, checkMachO)
+}
+
 func recoverPublishedRuntime(m manifest, destinationRoot string, checkMachO bool) (bool, error) {
 	current := filepath.Join(destinationRoot, "current")
-	final := filepath.Join(destinationRoot, m.Version)
-
-	currentInfo, currentErr := os.Lstat(current)
-	if currentErr != nil && !os.IsNotExist(currentErr) {
-		return false, currentErr
-	}
-	finalInfo, finalErr := os.Lstat(final)
-	if finalErr != nil && !os.IsNotExist(finalErr) {
-		return false, finalErr
-	}
-	currentExists := currentErr == nil
-	finalExists := finalErr == nil
-
-	if currentExists {
-		if currentInfo.Mode()&os.ModeSymlink == 0 {
+	compact := compactVersionName(m.Version)
+	info, err := os.Lstat(current)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
 			return false, errors.New("current runtime path already exists and is not a symlink")
 		}
 		target, err := os.Readlink(current)
 		if err != nil {
 			return false, err
 		}
-		if target != m.Version {
+		if target != m.Version && target != compact {
 			return false, errors.New("current runtime points at a different version; refusing to overwrite it")
 		}
-		if !finalExists || !finalInfo.IsDir() || finalInfo.Mode()&os.ModeSymlink != 0 {
-			return false, errors.New("current runtime points at a missing or invalid final runtime")
-		}
-		if err := verifyTree(final, m.FinalVerificationFiles, checkMachO); err != nil {
+		if err := verifyPublishedRuntime(filepath.Join(destinationRoot, target), m, checkMachO); err != nil {
 			return false, fmt.Errorf("existing current runtime verification: %w", err)
 		}
 		return true, nil
 	}
-
-	if !finalExists {
+	if !os.IsNotExist(err) {
+		return false, err
+	}
+	// Recover either old-version or compact publication, but do not guess if
+	// both are present and the authoritative link is missing.
+	chosen := ""
+	for _, name := range []string{compact, m.Version} {
+		_, err := os.Lstat(filepath.Join(destinationRoot, name))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if chosen != "" {
+			return false, errors.New("multiple runtime versions exist without current; refusing to guess")
+		}
+		chosen = name
+	}
+	if chosen == "" {
 		return false, nil
 	}
-	if !finalInfo.IsDir() || finalInfo.Mode()&os.ModeSymlink != 0 {
-		return false, errors.New("runtime version path already exists and is not a real directory")
-	}
-	if err := verifyTree(final, m.FinalVerificationFiles, checkMachO); err != nil {
+	if err := verifyPublishedRuntime(filepath.Join(destinationRoot, chosen), m, checkMachO); err != nil {
 		return false, fmt.Errorf("existing final runtime verification: %w", err)
 	}
-	if err := os.Symlink(m.Version, current); err != nil {
+	if err := os.Symlink(chosen, current); err != nil {
 		return false, fmt.Errorf("cannot restore current runtime link: %w", err)
 	}
 	return true, nil
+}
+
+// Prepare a verified short copy without altering current or deleting the old
+// runtime. The product manager alone switches the link and binding under its
+// operation lock, after checking that no game is active.
+func prepareCompactRuntime(ctx context.Context, m manifest, destinationRoot string, checkMachO bool) error {
+	if err := ensureDirectory(destinationRoot); err != nil {
+		return err
+	}
+	current := filepath.Join(destinationRoot, "current")
+	info, err := os.Lstat(current)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return errors.New("current runtime path is not a symlink")
+	}
+	target, err := os.Readlink(current)
+	if err != nil {
+		return err
+	}
+	compact := compactVersionName(m.Version)
+	if target != m.Version && target != compact {
+		return errors.New("current runtime points at a different version")
+	}
+	source := filepath.Join(destinationRoot, target)
+	if err := verifyPublishedRuntime(source, m, checkMachO); err != nil {
+		return fmt.Errorf("source runtime verification: %w", err)
+	}
+	final := filepath.Join(destinationRoot, compact)
+	if _, err := os.Lstat(final); err == nil {
+		return verifyPublishedRuntime(final, m, checkMachO)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	stage, err := os.MkdirTemp(destinationRoot, ".wine-runtime-compacting-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
+	candidate := filepath.Join(stage, "runtime")
+	if err := copyTreeContext(ctx, source, candidate); err != nil {
+		return err
+	}
+	if err := verifyTree(candidate, m.FinalVerificationFiles, checkMachO); err != nil {
+		return fmt.Errorf("compact runtime verification: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// The destination is user-private and the manager holds its mutation lock.
+	// Still refuse a destination that appeared while the copy was made.
+	if _, err := os.Lstat(final); err == nil {
+		return errors.New("compact runtime appeared during copy")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(candidate, final)
 }
 
 // install keeps the original online-only transaction as the single entry point
@@ -784,7 +874,7 @@ func installWithPayload(ctx context.Context, m manifest, destinationRoot, patchR
 		return nil
 	}
 	current := filepath.Join(destinationRoot, "current")
-	final := filepath.Join(destinationRoot, m.Version)
+	final := filepath.Join(destinationRoot, compactVersionName(m.Version))
 	stage, e := os.MkdirTemp(destinationRoot, ".wine-runtime-staging-")
 	if e != nil {
 		return e
@@ -873,7 +963,7 @@ func installWithPayload(ctx context.Context, m manifest, destinationRoot, patchR
 	if e = os.Rename(runtimeStage, final); e != nil {
 		return e
 	}
-	if e = os.Symlink(m.Version, current); e != nil {
+	if e = os.Symlink(compactVersionName(m.Version), current); e != nil {
 		return e
 	}
 	fmt.Fprintln(out, "runtime bootstrap completed")

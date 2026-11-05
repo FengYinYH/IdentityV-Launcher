@@ -159,3 +159,5 @@ Agent余项候选已在独立分支按现有后台入口及国际服清单修复
 build22隔离语言同步实测：独立bundle/Home可确认初始偏好域分离，但CUA绑定测试应用长期无响应，未执行language-set或任何偏好修改，不能判定运行中UI同步。独立clone已请求正常退出并针对该测试进程终止；日用App和活动登录代理保持。
 
 build22真实Agent国际服暂停/恢复：独立HOME与本地容量充足卷新建测试目录，实际官方runtime下载完成，核心状态2→3→6→2→3；pause/resume均返回observed，随后仅取消本任务，终态cancelled、主/子退出130。唯一测试目录在确认无进程占用后清理，任务证据保留，原登录代理PID不变且ready。协议不带请求编号，此观察证明本次状态转换，不宣称全面压力或断网验收。独立bundle偏好域实际language-set en/get en/set system通过并恢复测试键，日用语言偏好不变；运行中UI同步仍因CUA绑定失败未验证。真实系统授权交接会影响活动登录组件，未擅自停止/重启或触发授权，保留fixture证据。
+
+Runtime-path candidate: controlled Wine fixture reproduced prefix initialization failure at a 216-unit physical runtime path and success at 211; the exact upstream limit/cause remains unconfirmed. Compact runtime storage and conservative legacy migration are under validation. Migration keeps the old runtime and defers while a game is running; custom game paths are not restricted. A very long home path remains a possible failure boundary. See `runtimeManifest/README.md` and `docs/downloadCoreUnification.md`.

@@ -1400,7 +1400,15 @@ private func replaceLink(at url: URL, destination: String) throws {
 }
 
 private func runWine(_ wine: URL, arguments: [String], environment: [String: String]) throws {
-    _ = try runTool(wine, arguments: arguments, environment: environment)
+    do {
+        _ = try runTool(wine, arguments: arguments, environment: environment)
+    } catch {
+        let detail = error.localizedDescription
+        if arguments == ["wineboot", "-i"], detail.contains("could not load kernel32.dll"), detail.lowercased().contains("c0000135") {
+            throw ManagerError.message("Wine 运行环境初始化失败（kernel32.dll / c0000135）。运行时路径可能过长，请保留日志并联系支持；游戏文件未被修改。")
+        }
+        throw error
+    }
 }
 
 /// A direct installation must never clone a live/developer bottle.  `wineboot
@@ -2135,13 +2143,15 @@ private func saveRuntimeBinding(_ binding: RuntimeBinding) throws {
     try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: runtimeBindingURL.path)
 }
 
-private func runRuntimeBootstrapStreaming(_ bootstrap: URL, manifest: URL, destination: URL, patches: URL, reporter: DownloadProgressReporter) throws {
+private func runRuntimeBootstrapStreaming(_ bootstrap: URL, manifest: URL, destination: URL, patches: URL, reporter: DownloadProgressReporter, prepareCompact: Bool = false) throws {
     let process = Process(); let stderr = Pipe(); let stdout = Pipe()
     process.executableURL = bootstrap
     // 离线包（可选）自带基础 runtime 镜像 BaseRuntime.dmg：存在时让 bootstrap 直接展开包内
     // 镜像，首装不再访问 GitHub。普通发行包没有该文件，参数与今天完全一致。
-    var bootstrapArguments = ["install", "--manifest", manifest.path, "--destination-root", destination.path, "--patch-root", patches.path]
-    if let payloadImage = bundledOfflinePayload("BaseRuntime.dmg") {
+    var bootstrapArguments = prepareCompact
+        ? ["prepare-compact", "--manifest", manifest.path, "--destination-root", destination.path]
+        : ["install", "--manifest", manifest.path, "--destination-root", destination.path, "--patch-root", patches.path]
+    if !prepareCompact, let payloadImage = bundledOfflinePayload("BaseRuntime.dmg") {
         bootstrapArguments += ["--payload-dmg", payloadImage.path]
     }
     process.arguments = bootstrapArguments
@@ -2207,11 +2217,83 @@ private func runRuntimeBootstrapStreaming(_ bootstrap: URL, manifest: URL, desti
     }
 }
 
+/// Wine 11 prefix initialization failed in a controlled ASCII-path fixture at
+/// 216 UTF-16 units and succeeded at 211. 200 is a conservative migration
+/// trigger, not a universal Wine limit or a restriction on the game location.
+private func shouldCompactRuntimePath(_ path: String) -> Bool { path.utf16.count >= 200 }
+
+private func compactRuntimeVersionName(_ version: String) -> String {
+    let digest = SHA256.hash(data: Data(version.utf8))
+    return "v-" + digest.prefix(12).map { String(format: "%02x", $0) }.joined()
+}
+
+private func adoptPreparedCompactRuntime(current: URL, expectedTarget: String, legacyVersion: String,
+    compactName: String, gameIsRunning: () -> Bool, persistBinding: () throws -> Void) throws {
+    guard !gameIsRunning() else {
+        throw ManagerError.message("游戏在运行时准备期间启动；已保留原绑定，请结束游戏后重试。")
+    }
+    guard let target = try? fileManager.destinationOfSymbolicLink(atPath: current.path),
+          target == expectedTarget, target == legacyVersion || target == compactName else {
+        throw ManagerError.message("运行时链接在准备期间发生变化；已保留原绑定。")
+    }
+    if target == legacyVersion {
+        let temporary = current.deletingLastPathComponent().appendingPathComponent(".current-" + UUID().uuidString)
+        try fileManager.createSymbolicLink(atPath: temporary.path, withDestinationPath: compactName)
+        defer { try? fileManager.removeItem(at: temporary) }
+        guard (try? fileManager.destinationOfSymbolicLink(atPath: current.path)) == expectedTarget,
+              Darwin.rename(temporary.path, current.path) == 0 else {
+            throw ManagerError.message("无法切换运行时链接；原绑定保持不变。")
+        }
+    }
+    try persistBinding()
+}
+
+/// Preserve the old runtime until all legacy bindings and running sessions are
+/// finished with it. A crash after switching current but before saving the
+/// binding leaves the old binding valid; the next retry verifies and adopts the
+/// prepared compact copy. Caller holds the product mutation lease.
+private func compactLegacyRuntimeIfNeeded(
+    _ existing: (runtime: URL, wine: URL, environment: [String: String]),
+    bootstrap: URL, manifest: URL, patches: URL, componentRoot: URL,
+    expectedEngineID: String, reporter: DownloadProgressReporter
+) throws -> (runtime: URL, wine: URL, environment: [String: String]) {
+    guard shouldCompactRuntimePath(existing.runtime.path) else { return existing }
+    guard let data = try? Data(contentsOf: manifest),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let version = object["version"] as? String, !version.isEmpty, version.utf8.count <= 256,
+          version.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil else {
+        throw ManagerError.message("运行时清单版本无效；已保留原运行环境。")
+    }
+    let compactName = compactRuntimeVersionName(version)
+    if existing.runtime.lastPathComponent == compactName { return existing }
+    let current = componentRoot.appendingPathComponent("current")
+    let legacy = componentRoot.appendingPathComponent(version).resolvingSymlinksInPath().standardizedFileURL
+    let compact = componentRoot.appendingPathComponent(compactName).standardizedFileURL
+    guard existing.runtime.standardizedFileURL == legacy,
+          let originalTarget = try? fileManager.destinationOfSymbolicLink(atPath: current.path),
+          originalTarget == version || originalTarget == compactName else {
+        throw ManagerError.message("当前运行时位置无法安全迁移；已保留原运行环境，请联系支持。")
+    }
+    guard !gameIsRunningForDirectoryMigration() else {
+        throw ManagerError.message("运行时路径需要调整；请先结束正在运行的游戏后重试，原环境未更改。")
+    }
+    try runRuntimeBootstrapStreaming(bootstrap, manifest: manifest, destination: componentRoot,
+        patches: patches, reporter: reporter, prepareCompact: true)
+    let verified = try verifiedCatalogRuntime(engineID: expectedEngineID, runtime: compact)
+    try adoptPreparedCompactRuntime(current: current, expectedTarget: originalTarget, legacyVersion: version,
+        compactName: compactName, gameIsRunning: gameIsRunningForDirectoryMigration) {
+        let binding = RuntimeBinding(schemaVersion: 1, selectedEngineId: expectedEngineID, runtime: try makeLocation(compact))
+        try saveRuntimeBinding(binding)
+    }
+    return (compact, verified.wine, verified.environment)
+}
+
 /// Bootstrap on first use, then bind only the fully verified `current` runtime.
 /// This leaves no partial game binding behind if the 327MB upstream download is
 /// interrupted or rejected.
 private func ensureRuntime(reporter: DownloadProgressReporter) throws -> (runtime: URL, wine: URL, environment: [String: String]) {
-    if let existing = try? selectedRuntimeForDirectInstall() { return existing }
+    let existing = try? selectedRuntimeForDirectInstall()
+    if let existing, !shouldCompactRuntimePath(existing.runtime.path) { return existing }
     let expectedEngineID = try productRuntimeEngineID()
     let bootstrap = executableDirectory().appendingPathComponent("IdentityVRuntimeBootstrap")
     let manifest = executableDirectory().appendingPathComponent("runtime-manifest.json")
@@ -2222,6 +2304,10 @@ private func ensureRuntime(reporter: DownloadProgressReporter) throws -> (runtim
     }
     let componentRoot = supportDirectory.appendingPathComponent("Components/wine-runtime", isDirectory: true)
     try ensureSupportDirectory()
+    if let existing {
+        return try compactLegacyRuntimeIfNeeded(existing, bootstrap: bootstrap, manifest: manifest,
+            patches: patches, componentRoot: componentRoot, expectedEngineID: expectedEngineID, reporter: reporter)
+    }
     try runRuntimeBootstrapStreaming(bootstrap, manifest: manifest, destination: componentRoot, patches: patches, reporter: reporter)
     let current = componentRoot.appendingPathComponent("current").resolvingSymlinksInPath().standardizedFileURL
     let binding = RuntimeBinding(schemaVersion: 1, selectedEngineId: expectedEngineID, runtime: try makeLocation(current))
@@ -3117,6 +3203,56 @@ private func writeLittleEndianUInt32(_ value: UInt32, to data: inout Data, at of
 }
 
 private func runSelfTest() throws {
+    do {
+    // Exercise the link/binding transaction with only isolated fixture paths.
+    let migrationFixture = fileManager.temporaryDirectory.appendingPathComponent("identityv-runtime-migration-" + UUID().uuidString)
+    try fileManager.createDirectory(at: migrationFixture, withIntermediateDirectories: false)
+    defer { try? fileManager.removeItem(at: migrationFixture) }
+    let migrationCurrent = migrationFixture.appendingPathComponent("current")
+    let migrationLegacy = "fixture-r1"
+    let migrationCompact = compactRuntimeVersionName(migrationLegacy)
+    guard migrationCompact == "v-caa0efbe0144d628634d9f70",
+          !shouldCompactRuntimePath(String(repeating: "a", count: 199)),
+          shouldCompactRuntimePath(String(repeating: "a", count: 200)) else {
+        throw ManagerError.message("compact runtime naming or threshold failed")
+    }
+    try fileManager.createDirectory(at: migrationFixture.appendingPathComponent(migrationLegacy), withIntermediateDirectories: false)
+    try fileManager.createDirectory(at: migrationFixture.appendingPathComponent(migrationCompact), withIntermediateDirectories: false)
+    try fileManager.createSymbolicLink(atPath: migrationCurrent.path, withDestinationPath: migrationLegacy)
+    var persisted = false
+    var runningRejected = false
+    do {
+        try adoptPreparedCompactRuntime(current: migrationCurrent, expectedTarget: migrationLegacy, legacyVersion: migrationLegacy,
+            compactName: migrationCompact, gameIsRunning: { true }) { persisted = true }
+    } catch { runningRejected = true }
+    guard runningRejected, !persisted,
+          (try? fileManager.destinationOfSymbolicLink(atPath: migrationCurrent.path)) == migrationLegacy else {
+        throw ManagerError.message("running game migration was accepted")
+    }
+    enum FixtureFailure: Error { case persistence }
+    do {
+        try adoptPreparedCompactRuntime(current: migrationCurrent, expectedTarget: migrationLegacy, legacyVersion: migrationLegacy,
+            compactName: migrationCompact, gameIsRunning: { false }) { throw FixtureFailure.persistence }
+        throw ManagerError.message("binding failure was ignored")
+    } catch FixtureFailure.persistence { }
+    guard (try? fileManager.destinationOfSymbolicLink(atPath: migrationCurrent.path)) == migrationCompact,
+          fileManager.fileExists(atPath: migrationFixture.appendingPathComponent(migrationLegacy).path) else {
+        throw ManagerError.message("migration failure lost the old runtime")
+    }
+    try adoptPreparedCompactRuntime(current: migrationCurrent, expectedTarget: migrationCompact, legacyVersion: migrationLegacy,
+        compactName: migrationCompact, gameIsRunning: { false }) { persisted = true }
+    guard persisted else { throw ManagerError.message("migration retry did not save binding") }
+    var raceRejected = false
+    var racePersisted = false
+    do {
+        try adoptPreparedCompactRuntime(current: migrationCurrent, expectedTarget: migrationLegacy, legacyVersion: migrationLegacy,
+            compactName: migrationCompact, gameIsRunning: { false }) { racePersisted = true }
+    } catch { raceRejected = true }
+    guard raceRejected, !racePersisted,
+          (try? fileManager.destinationOfSymbolicLink(atPath: migrationCurrent.path)) == migrationCompact else {
+        throw ManagerError.message("changed runtime link was accepted")
+    }
+    }
     let spaceEvent = #"{"schemaVersion":1,"event":"failure","errorCode":"download_disk_space_required","coreState":"206","requiredBytes":17719615180}"#
     let spaceID = "11A6140D-8130-4B22-9C5B-90983264808B"
     guard supervisorDiskSpaceRequired(in: "diagnostic\n" + spaceEvent) == 17_719_615_180,

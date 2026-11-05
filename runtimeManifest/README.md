@@ -117,3 +117,9 @@ prefix；用于区分“我们能重建的依赖”与上游 DXMT/Wine 组件。
 
 2026-08-29 的实际盘点、ClipCursor macOS 14 隔离候选与三层阻塞结论见
 [`macosCompatibilityAudit.md`](macosCompatibilityAudit.md)。
+
+### Runtime storage and legacy migration
+
+New installations store the verified runtime in a short deterministic directory (`v-` plus the first 12 SHA-256 bytes of the manifest version in hex); the manifest version and engine identifier remain unchanged. `current` points to that directory. Existing full-version directories remain supported. When an existing physical runtime path reaches 200 UTF-16 units, the manager prepares and verifies a separate compact copy before switching `current` and saving its binding; it defers while a game is running and retains the original runtime. A retry can recover after a link switch interrupted before the binding is saved. An unexpected link or verification failure leaves the original binding in place. No game-install location is restricted by this policy.
+
+The trigger is conservative, based on a controlled ASCII-path Wine initialization experiment, not a general Wine path limit. A sufficiently long home directory can still make even the compact physical path too long; a targeted diagnostic is shown if Wine reports the observed `kernel32.dll` / `c0000135` failure. The exact upstream cause and relationship to other long-path incidents remain unconfirmed. Old runtimes are not automatically deleted by this migration.

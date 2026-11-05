@@ -458,12 +458,12 @@ func TestOfflinePayloadImageInstallsWithoutNetwork(t *testing.T) {
 	if err := installWithPayload(context.Background(), m, destination, patchRoot, dmg, &progress); err != nil {
 		t.Fatalf("offline install failed: %v", err)
 	}
-	final := filepath.Join(destination, m.Version)
+	final := filepath.Join(destination, compactVersionName(m.Version))
 	if err := verifyTree(final, m.FinalVerificationFiles, true); err != nil {
 		t.Fatalf("published runtime does not verify: %v", err)
 	}
 	target, err := os.Readlink(filepath.Join(destination, "current"))
-	if err != nil || target != m.Version {
+	if err != nil || target != compactVersionName(m.Version) {
 		t.Fatalf("unexpected current link: target=%q err=%v", target, err)
 	}
 	patched, err := os.ReadFile(filepath.Join(final, "lib", "winemac.so"))
@@ -551,7 +551,7 @@ func TestOfflineInstallRejectsTamperedPayloadWithoutNetworkFallback(t *testing.T
 	if _, err := os.Lstat(filepath.Join(destination, "current")); !os.IsNotExist(err) {
 		t.Fatalf("published current after a failed offline payload: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(destination, m.Version)); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(destination, compactVersionName(m.Version))); !os.IsNotExist(err) {
 		t.Fatalf("published a version after a failed offline payload: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(destination, "current")); !os.IsNotExist(err) {
@@ -575,5 +575,152 @@ func TestInstallWithoutOfflinePayloadStillDownloads(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "offline runtime payload") {
 		t.Fatalf("empty payload was treated as an offline image: %q", out.String())
+	}
+}
+
+func TestPrepareCompactRuntimePreservesLegacyAndCurrent(t *testing.T) {
+	root := t.TempDir()
+	m := fixtureManifest()
+	old := writeFinalFixture(t, root, m)
+	if err := os.Symlink(m.Version, filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareCompactRuntime(context.Background(), m, root, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Fatalf("legacy runtime changed: %v", err)
+	}
+	if target, err := os.Readlink(filepath.Join(root, "current")); err != nil || target != m.Version {
+		t.Fatalf("current was changed: %q %v", target, err)
+	}
+	if err := verifyPublishedRuntime(filepath.Join(root, compactVersionName(m.Version)), m, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareCompactRuntime(context.Background(), m, root, false); err != nil {
+		t.Fatalf("not idempotent: %v", err)
+	}
+}
+func TestPrepareCompactRuntimeRefusesInvalidOrForeignTargets(t *testing.T) {
+	root := t.TempDir()
+	m := fixtureManifest()
+	writeFinalFixture(t, root, m)
+	if err := os.Symlink("foreign", filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareCompactRuntime(context.Background(), m, root, false); err == nil {
+		t.Fatal("accepted foreign current")
+	}
+}
+func TestRecoverCompactRuntimeAfterPublish(t *testing.T) {
+	root := t.TempDir()
+	m := fixtureManifest()
+	old := writeFinalFixture(t, root, m)
+	compact := filepath.Join(root, compactVersionName(m.Version))
+	if err := os.Rename(old, compact); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := recoverPublishedRuntime(m, root, false)
+	if err != nil || !ok {
+		t.Fatalf("compact recovery: %v %v", ok, err)
+	}
+	if target, err := os.Readlink(filepath.Join(root, "current")); err != nil || target != compactVersionName(m.Version) {
+		t.Fatalf("wrong current: %q %v", target, err)
+	}
+}
+
+func TestPrepareCompactRuntimeCancellationLeavesOldRuntime(t *testing.T) {
+	root := t.TempDir()
+	m := fixtureManifest()
+	old := writeFinalFixture(t, root, m)
+	if err := os.Symlink(m.Version, filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := prepareCompactRuntime(ctx, m, root, false); !errors.Is(err, context.Canceled) {
+		t.Fatalf("want cancellation, got %v", err)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Fatalf("old runtime was removed: %v", err)
+	}
+	if target, err := os.Readlink(filepath.Join(root, "current")); err != nil || target != m.Version {
+		t.Fatalf("current changed: %q %v", target, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, compactVersionName(m.Version))); !os.IsNotExist(err) {
+		t.Fatalf("cancelled copy published: %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".wine-runtime-compacting-") {
+			t.Fatal("left temporary copy after cancellation")
+		}
+	}
+}
+func TestPrepareCompactRuntimeRejectsSymlinkInsideSource(t *testing.T) {
+	root := t.TempDir()
+	m := fixtureManifest()
+	old := writeFinalFixture(t, root, m)
+	if err := os.Symlink("/tmp", filepath.Join(old, "foreign")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(m.Version, filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareCompactRuntime(context.Background(), m, root, false); err == nil {
+		t.Fatal("accepted symlink in copied runtime")
+	}
+	if _, err := os.Lstat(filepath.Join(root, compactVersionName(m.Version))); !os.IsNotExist(err) {
+		t.Fatalf("invalid copy published: %v", err)
+	}
+}
+func TestRecoverPublishedRuntimeRejectsAmbiguousOrCorruptCompact(t *testing.T) {
+	t.Run("two candidates without current", func(t *testing.T) {
+		root := t.TempDir()
+		m := fixtureManifest()
+		old := writeFinalFixture(t, root, m)
+		if err := copyTree(old, filepath.Join(root, compactVersionName(m.Version))); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := recoverPublishedRuntime(m, root, false); err == nil {
+			t.Fatal("guessed between two candidates")
+		}
+		if _, err := os.Lstat(filepath.Join(root, "current")); !os.IsNotExist(err) {
+			t.Fatalf("created current: %v", err)
+		}
+	})
+	t.Run("compact is symlink", func(t *testing.T) {
+		root := t.TempDir()
+		m := fixtureManifest()
+		old := writeFinalFixture(t, root, m)
+		if err := os.Symlink(m.Version, filepath.Join(root, "current")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(old, filepath.Join(root, compactVersionName(m.Version))); err != nil {
+			t.Fatal(err)
+		}
+		if err := prepareCompactRuntime(context.Background(), m, root, false); err == nil {
+			t.Fatal("accepted compact symlink")
+		}
+	})
+}
+func TestPrepareCompactRuntimeAfterCurrentSwitch(t *testing.T) {
+	root := t.TempDir()
+	m := fixtureManifest()
+	old := writeFinalFixture(t, root, m)
+	if err := copyTree(old, filepath.Join(root, compactVersionName(m.Version))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(compactVersionName(m.Version), filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareCompactRuntime(context.Background(), m, root, false); err != nil {
+		t.Fatalf("cannot recover after current switch: %v", err)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Fatalf("old runtime removed: %v", err)
 	}
 }

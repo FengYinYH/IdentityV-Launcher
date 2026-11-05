@@ -314,3 +314,7 @@ Agent 安装实测中，前次隔离国际服任务已下载 14,570,838 bytes �
 一个独立长HOME样本（HOME 70字节、prefix 139字节）使用经现有manifest复验的同一运行时，实体目录缩短为145字节后，`wineboot -i` 退出0。相反，物理路径216字节的运行时仅额外设置指向短目录的 `WINEDLLPATH`，仍退出53并报相同 `kernel32.dll`；调试记录没有出现该短目录访问。这支持优先研究缩短运行时实体目录，而非把用户选的游戏目录强制改短，也不证明更极端HOME长度、升级迁移和实际游戏运行均已解决。
 
 候选实现须同时保留旧版本目录和绑定兼容、验证完整受管文件、保证活动游戏不被中断、使中途崩溃可恢复，并覆盖已存在长目录的用户；仅改变新安装目录名不算完整修复。任何代码完成后仍须对应最终提交完成全量构建及隔离实机回归。
+
+### Wine runtime path migration (candidate)
+
+A controlled fixture initialized successfully with a 211-unit physical runtime path and failed at 216 with `kernel32.dll` / `c0000135`; a short symlink to the long physical directory did not fix it. These measurements do not establish a universal threshold. The runtime bootstrap now publishes a short hashed directory, while legacy full-version directories remain valid. The product manager prepares and verifies a separate copy, refuses to switch while a game is running, atomically switches `current`, and then saves the binding. The previous runtime is retained; an interrupted binding write can be retried. This does not restrict the user's chosen game directory. An exceptionally long home directory may still exceed the observed Wine boundary even with the compact name; the exact Wine cause is not established.
