@@ -191,8 +191,15 @@ def experiment(args, result, checkpoint=lambda: None):
         raise ExperimentError('work_root_must_be_new_under_runner_temp')
     work.mkdir(mode=0o700)
     disk = DiskObserver(work, result, checkpoint)
-    env = dict(os.environ, IDENTITYV_SIGNING_MODE='adhoc', IDENTITYV_BUILD_ROOT=str(work / 'build'))
+    env = dict(os.environ, IDENTITYV_SIGNING_MODE='adhoc', IDENTITYV_BUILD_ROOT=str(work / 'build'), IDENTITYV_TEST_HEADLESS='1')
     env.pop('IDENTITYV_SIGNING_IDENTITY', None)
+    result['stage'] = 'intel-prerequisite'
+    intel = subprocess.run(['/usr/bin/arch', '-x86_64', '/usr/bin/true'], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    result['rosettaProbeExitCode'] = intel.returncode
+    if intel.returncode != 0:
+        raise ExperimentError('rosetta_required_before_build')
+    result['nativeUIChecks'] = 'deferred_using_supported_test_only_flag'
     result['stage'] = 'build'
     result['buildSeconds'] = round(run_private(['./buildPlayerLauncher.command'], source, env,
                                              work / 'build.log', disk, 1200), 2)

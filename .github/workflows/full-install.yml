@@ -12,8 +12,8 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 150
     env:
-      # Freeze the final integrated candidate before replacing this sentinel and pushing.
-      RC5_CANDIDATE_COMMIT: FINAL_CANDIDATE_NOT_FROZEN
+      # Business source is frozen at this integrated RC5 build20 checkpoint.
+      RC5_CANDIDATE_COMMIT: 97605502a685ae765c213fee4d1620ea4348d79e
       PYTHONDONTWRITEBYTECODE: '1'
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
