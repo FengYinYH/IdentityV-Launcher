@@ -441,11 +441,17 @@ struct GameProductPresentation: Equatable, Identifiable {
     let detail: String?
     let idvLoginVersion: String?
     let canRemove: Bool
-    let isSelected: Bool
+    var isSelected: Bool
     var gamePath: String? = nil
     var baseManifestVerified: Bool? = nil
 
     var id: GameProductID { productId }
+
+    func selecting(_ selectedProductID: GameProductID) -> Self {
+        var copy = self
+        copy.isSelected = productId == selectedProductID
+        return copy
+    }
 
     static func makeAll(
         from document: ProductManagerStatusDocument?,
@@ -853,7 +859,7 @@ struct ProductManagerModelSelfTest {
           "selectedProductId": "global",
           "products": [
             { "productId": "mainland", "state": "not-installed" },
-            { "productId": "global", "status": "available", "installedVersion": "1.0", "canRemove": true }
+            { "productId": "global", "status": "available", "installedVersion": "1.0", "canRemove": true, "gamePath": "/example/Global/game", "baseManifestVerified": false }
           ]
         }
         """
@@ -871,6 +877,10 @@ struct ProductManagerModelSelfTest {
             global?.state == .available,
             global?.canRemove == true,
             global?.isSelected == true,
+            global?.selecting(.mainland).isSelected == false,
+            global?.selecting(.mainland).gamePath == "/example/Global/game",
+            global?.selecting(.mainland).baseManifestVerified == false,
+            global?.selecting(.mainland).selecting(.global) == global,
             GameProductActionPolicy.actions(for: .notInstalled) == [.install, .importExisting],
             GameProductActionPolicy.actions(for: .available, canRemove: true) == [.launch, .stop, .restart, .repair, .importExisting, .remove],
             GameProductActionPolicy.actions(for: .needsRepair, canRemove: true) == [.repair, .importExisting, .remove],

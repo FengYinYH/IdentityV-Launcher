@@ -852,17 +852,7 @@ final class ToolboxViewModel: ObservableObject {
         // Rebuild presentation immediately instead of waiting for the next
         // status poll.  No product-manager mutation is needed for a view-only
         // server switch, so it stays available during an installer download.
-        products = products.map { product in
-            GameProductPresentation(
-                productId: product.productId,
-                state: product.state,
-                installedVersion: product.installedVersion,
-                detail: product.detail,
-                idvLoginVersion: product.idvLoginVersion,
-                canRemove: product.canRemove,
-                isSelected: product.productId == productID
-            )
-        }
+        products = products.map { $0.selecting(productID) }
     }
 
     private func runProductAction(
