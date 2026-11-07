@@ -148,7 +148,7 @@ private final class UpdatePanelContent: NSView {
         for button in [primary, secondary] {
             button.bezelStyle = .rounded
             button.controlSize = .small
-            button.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+            button.font = .systemFont(ofSize: 12, weight: .regular)
             addSubview(button)
         }
     }
@@ -160,19 +160,18 @@ private final class UpdatePanelContent: NSView {
         let language = state.language
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
-        paragraph.lineSpacing = 2
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular),
+            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
             .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph
         ]
-        let copy = state.isInstalling
+        let title = state.isInstalling
             ? language.localized(state.progress < 1 ? "正在下载更新…" : "正在校验更新并准备重启…")
-            : [state.title, state.message].filter { !$0.isEmpty }.joined(separator: "\n")
-        let attributed = NSMutableAttributedString(string: copy, attributes: attributes)
-        if state.isPreview {
-            var noteAttributes = attributes
-            noteAttributes[.foregroundColor] = NSColor.secondaryLabelColor
-            attributed.append(NSAttributedString(string: "\n" + language.localized("仅预览，不会下载或安装更新。"), attributes: noteAttributes))
+            : state.title
+        var titleAttributes = attributes
+        titleAttributes[.font] = NSFont.systemFont(ofSize: 13, weight: .bold)
+        let attributed = NSMutableAttributedString(string: title, attributes: titleAttributes)
+        if !state.isInstalling && !state.message.isEmpty {
+            attributed.append(NSAttributedString(string: "\n" + state.message, attributes: attributes))
         }
         text.textStorage?.setAttributedString(attributed)
         progress.isHidden = !state.isInstalling
@@ -194,24 +193,27 @@ private final class UpdatePanelContent: NSView {
         if let container = text.textContainer { text.layoutManager?.ensureLayout(for: container) }
         let measured = text.textContainer.map { text.layoutManager?.usedRect(for: $0).height ?? 0 } ?? 0
         let buttonHeight: CGFloat = 20
+        // About AX icon = (109,39,66,66) relative to its 284×191 frame.
+        // NSImageView exposes a 1 pt AX focus outset, observed on the native
+        // preview: use a 64 pt view so the actual image AX frame matches About.
+        let chrome = (window?.frame.height ?? bounds.height) - bounds.height
+        let iconTop = max(0, 40 - chrome)
+        icon.frame = NSRect(x: (bounds.width - 64) / 2, y: iconTop, width: 64, height: 64)
+        let textTop = icon.frame.maxY + 3
+        let buttonTop = bounds.height - 8 - buttonHeight
         let progressHeight: CGFloat = installing ? 16 : 0
-        let textHeight = min(ceil(measured) + 2, max(14, bounds.height - 80 - progressHeight))
-        let totalHeight = 28 + 6 + textHeight + (installing ? 16 : 0) + 10 + buttonHeight
-        var y = max(8, (bounds.height - totalHeight) / 2)
-        icon.frame = NSRect(x: (bounds.width - 28) / 2, y: y, width: 28, height: 28)
-        y += 34
-        scroll.frame = NSRect(x: 12, y: y, width: width, height: textHeight)
-        text.frame = NSRect(x: 0, y: 0, width: width, height: max(textHeight, ceil(measured) + 2))
+        let available = max(0, buttonTop - 4 - textTop - progressHeight)
+        let textHeight = min(ceil(measured) + 1, available)
+        scroll.frame = NSRect(x: 12, y: textTop, width: width, height: textHeight)
+        text.frame = NSRect(x: 0, y: 0, width: width, height: max(textHeight, ceil(measured) + 1))
         scroll.hasVerticalScroller = measured > textHeight
-        y += textHeight + 10
         if installing {
-            progress.frame = NSRect(x: 12, y: y, width: width, height: 12)
-            y += 16
+            progress.frame = NSRect(x: 12, y: scroll.frame.maxY + 4, width: width, height: 12)
         }
         var right = bounds.width - 12
         for button in [primary, secondary] where !button.isHidden {
             let buttonWidth = max(54, button.intrinsicContentSize.width)
-            button.frame = NSRect(x: right - buttonWidth, y: y, width: buttonWidth, height: buttonHeight)
+            button.frame = NSRect(x: right - buttonWidth, y: buttonTop, width: buttonWidth, height: buttonHeight)
             right -= buttonWidth + 8
         }
     }

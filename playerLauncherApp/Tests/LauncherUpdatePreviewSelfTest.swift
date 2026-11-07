@@ -43,7 +43,7 @@ struct LauncherUpdatePreviewSelfTest {
         precondition(dismissals == 1 && controller.window === panel && !panel.isVisible)
         precondition(panel.frame.size == LauncherPanelGeometry.frameSize)
         for message in ["当前版本：1.0.0-rc.5\n最新版本：1.0.0", "Current version: 1.0.0-rc.5\nLatest version: 1.0.0", String(repeating: "Long error message. ", count: 100)] {
-            controller.render(LauncherUpdateState(title: "A newer version is available. Update now?", message: message, offersUpdate: true))
+            controller.render(LauncherUpdateState(title: "A new version is available. Update now?", message: message, offersUpdate: true, isPreview: true))
             let content = panel.contentView!
             content.layoutSubtreeIfNeeded()
             let buttons = content.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden }.sorted { $0.frame.minX < $1.frame.minX }
@@ -51,8 +51,20 @@ struct LauncherUpdatePreviewSelfTest {
             for child in content.subviews where !child.isHidden {
                 precondition(child.frame.minY >= 0 && child.frame.maxY <= content.bounds.height)
             }
+            let icon = content.subviews.compactMap { $0 as? NSImageView }.first!
+            let chrome = panel.frame.height - content.bounds.height
+            precondition(icon.frame == NSRect(x: 110, y: 40 - chrome, width: 64, height: 64))
+            precondition(buttons.allSatisfy { $0.font?.pointSize == 12 })
             let scroll = content.subviews.compactMap { $0 as? NSScrollView }.first!
+            let text = scroll.documentView as! NSTextView
+            precondition(!text.string.contains("仅预览") && !text.string.contains("Preview only"))
+            let titleFont = text.textStorage!.attribute(.font, at: 0, effectiveRange: nil) as! NSFont
+            let bodyFont = text.textStorage!.attribute(.font, at: text.string.utf16.count - 1, effectiveRange: nil) as! NSFont
+            precondition(titleFont.pointSize == 13 && NSFontManager.shared.traits(of: titleFont).contains(.boldFontMask))
+            precondition(bodyFont.pointSize == 12 && !NSFontManager.shared.traits(of: bodyFont).contains(.boldFontMask))
+            precondition(scroll.frame.minY >= icon.frame.maxY && scroll.frame.maxY <= buttons[0].frame.minY)
             precondition(scroll.hasVerticalScroller == (message.count > 100))
+            print("Hidden layout: outer=\(panel.frame.size), chrome=\(chrome), icon=\(icon.frame), text=\(scroll.frame), buttons=\(buttons.map { $0.frame }), scroll=\(scroll.hasVerticalScroller)")
         }
         precondition(!panel.isVisible)
         print("Update preview and retained native panel lifecycle checks passed (no windows shown).")
