@@ -1,9 +1,20 @@
 import AppKit
 import SwiftUI
 
-enum LauncherPanelGeometry {
-    // Actual standard About outer frame measured in logical points on macOS.
-    static let frameSize = NSSize(width: 284, height: 191)
+enum LauncherAboutMetrics {
+    // Public standard About view-tree measurement, 2026-11-07. These are actual
+    // NSView frames and NSFont sizes, not inferred AX focus bounds. About stays
+    // system-owned; only the update window mirrors its upper layout.
+    static let width: CGFloat = 284
+    static let minimumHeight: CGFloat = 191
+    static let iconViewFrame = NSRect(x: 110, y: 40, width: 64, height: 64)
+    static let titleFrame = NSRect(x: 6, y: 112, width: 272, height: 17)
+    static let titleFontSize: CGFloat = 14
+    static let bodyFontSize: CGFloat = 10
+    static let bodyRowHeight: CGFloat = 13
+    static let rowGap: CGFloat = 8
+    static let bottomPadding: CGFloat = 20
+    static let maximumMessageHeight: CGFloat = 160
 }
 
 struct LauncherUpdateState: Equatable {
@@ -17,9 +28,9 @@ struct LauncherUpdateState: Equatable {
     var language = LauncherLanguage.current
 }
 
-/// One retained native window for both production and preview. Updating its
-/// state never recreates the window, steals focus on progress ticks or starts
-/// business work. Only the explicitly supplied actions can reach the model.
+/// One retained native window for both production and preview. State rendering
+/// never recreates it or steals focus on progress ticks. Explicit actions are
+/// the only bridge to business work; preview guards apply to the real button.
 @MainActor
 final class LauncherUpdateWindowController: NSWindowController, NSWindowDelegate {
     private let content = UpdatePanelContent()
@@ -38,7 +49,7 @@ final class LauncherUpdateWindowController: NSWindowController, NSWindowDelegate
         panel.backgroundColor = .windowBackgroundColor
         panel.contentView = content
         panel.delegate = self
-        panel.setFrame(NSRect(origin: .zero, size: LauncherPanelGeometry.frameSize), display: false)
+        panel.setFrame(NSRect(x: 0, y: 0, width: LauncherAboutMetrics.width, height: LauncherAboutMetrics.minimumHeight), display: false)
         panel.center()
         content.primary.target = self
         content.primary.action = #selector(primaryAction)
@@ -52,13 +63,19 @@ final class LauncherUpdateWindowController: NSWindowController, NSWindowDelegate
         guard self.state != state else { return }
         self.state = state
         content.render(state)
-        window?.standardWindowButton(.closeButton)?.isEnabled = !state.isInstalling
+        if let window {
+            let height = content.requiredOuterHeight
+            // Extend down from the existing top instead of compressing About's
+            // upper layout or shifting its icon when the message changes.
+            window.setFrame(NSRect(x: window.frame.minX, y: window.frame.maxY - height,
+                                   width: LauncherAboutMetrics.width, height: height), display: true)
+            window.standardWindowButton(.closeButton)?.isEnabled = !state.isInstalling
+        }
     }
 
     func present() {
         if window?.isVisible != true { showWindow(nil) }
     }
-
     func hide() { window?.orderOut(nil) }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -70,8 +87,8 @@ final class LauncherUpdateWindowController: NSWindowController, NSWindowDelegate
     @objc func primaryAction() {
         guard !state.isInstalling else { return }
         if state.offersUpdate {
-            // Guard here as well as disabling the native button: even an
-            // accidental programmatic preview action cannot call an installer.
+            // Preview draws the real available-state button. This guard,
+            // rather than a different visual state, isolates its action.
             guard !state.isPreview else { return }
             install()
         } else { dismiss() }
@@ -84,9 +101,8 @@ final class LauncherUpdateWindowController: NSWindowController, NSWindowDelegate
     }
 }
 
-/// A background bridge retains the controller and renders every published
-/// model state, including progress, cancellation, late errors and cleanup.
-/// It is deliberately independent of the main window's sheet presentation.
+/// Retain the controller and render every published state, including progress,
+/// cancellation and late errors, independently of main-window sheets.
 struct LauncherUpdateWindowPresenter: NSViewRepresentable {
     @Binding var isPresented: Bool
     var state: LauncherUpdateState
@@ -103,20 +119,25 @@ struct LauncherUpdateWindowPresenter: NSViewRepresentable {
         controller.render(state)
         if isPresented { controller.present() } else { controller.hide() }
     }
-    static func dismantleNSView(_ view: NSView, coordinator: LauncherUpdateWindowController) {
-        coordinator.hide()
-    }
+    static func dismantleNSView(_ view: NSView, coordinator: LauncherUpdateWindowController) { coordinator.hide() }
 }
 
-/// Native controls and measured text keep ordinary results compact. Only text
-/// exceeding the available area scrolls; buttons remain adjacent at the right.
+@MainActor
+private final class UpdateMessageDocument: NSView {
+    override var isFlipped: Bool { true }
+}
+
+/// Mirror About's separate native labels. Wrapped titles and extra version
+/// rows increase the window height; only oversized error messages scroll.
 @MainActor
 private final class UpdatePanelContent: NSView {
     let primary = NSButton()
     let secondary = NSButton()
     private let icon = NSImageView()
+    private let title = NSTextField(wrappingLabelWithString: "")
     private let scroll = NSScrollView()
-    private let text = NSTextView()
+    private let document = UpdateMessageDocument()
+    private var lines: [NSTextField] = []
     private let progress = NSProgressIndicator()
     private var installing = false
 
@@ -127,18 +148,15 @@ private final class UpdatePanelContent: NSView {
         icon.image = NSApplication.shared.applicationIconImage
         icon.imageScaling = .scaleProportionallyUpOrDown
         addSubview(icon)
-        text.isEditable = false
-        text.isSelectable = true
-        text.drawsBackground = false
-        text.textContainerInset = .zero
-        text.textContainer?.lineFragmentPadding = 0
-        text.isHorizontallyResizable = false
-        text.isVerticallyResizable = false
+        title.font = .systemFont(ofSize: LauncherAboutMetrics.titleFontSize, weight: .bold)
+        title.alignment = .center
+        title.maximumNumberOfLines = 0
+        addSubview(title)
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
         scroll.scrollerStyle = .overlay
         scroll.autohidesScrollers = true
-        scroll.documentView = text
+        scroll.documentView = document
         addSubview(scroll)
         progress.isIndeterminate = false
         progress.minValue = 0
@@ -147,8 +165,8 @@ private final class UpdatePanelContent: NSView {
         addSubview(progress)
         for button in [primary, secondary] {
             button.bezelStyle = .rounded
-            button.controlSize = .small
-            button.font = .systemFont(ofSize: 12, weight: .regular)
+            button.controlSize = .regular
+            button.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .regular)
             addSubview(button)
         }
     }
@@ -158,63 +176,103 @@ private final class UpdatePanelContent: NSView {
     func render(_ state: LauncherUpdateState) {
         installing = state.isInstalling
         let language = state.language
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
-            .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph
-        ]
-        let title = state.isInstalling
+        title.stringValue = state.isInstalling
             ? language.localized(state.progress < 1 ? "正在下载更新…" : "正在校验更新并准备重启…")
             : state.title
-        var titleAttributes = attributes
-        titleAttributes[.font] = NSFont.systemFont(ofSize: 13, weight: .bold)
-        let attributed = NSMutableAttributedString(string: title, attributes: titleAttributes)
+        for line in lines { line.removeFromSuperview() }
+        lines = []
         if !state.isInstalling && !state.message.isEmpty {
-            attributed.append(NSAttributedString(string: "\n" + state.message, attributes: attributes))
+            for copy in state.message.components(separatedBy: "\n") {
+                let field = NSTextField(wrappingLabelWithString: copy)
+                field.font = .systemFont(ofSize: LauncherAboutMetrics.bodyFontSize, weight: .regular)
+                field.alignment = .center
+                field.isSelectable = true
+                field.maximumNumberOfLines = 0
+                document.addSubview(field)
+                lines.append(field)
+            }
         }
-        text.textStorage?.setAttributedString(attributed)
         progress.isHidden = !state.isInstalling
         progress.doubleValue = min(1, max(0, state.progress))
         primary.title = language.localized(state.offersUpdate ? "更新" : "好的")
         primary.keyEquivalent = "\r"
         primary.isHidden = state.isInstalling
-        primary.isEnabled = !state.isPreview
         secondary.title = language.localized("取消")
         secondary.keyEquivalent = "\u{1b}"
         secondary.isHidden = state.isInstalling ? !state.canCancel : !state.offersUpdate
         needsLayout = true
     }
 
+    private func height(of field: NSTextField, width: CGFloat, minimum: CGFloat) -> CGFloat {
+        field.preferredMaxLayoutWidth = width
+        let measured = field.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 100_000)).height ?? minimum
+        return max(minimum, ceil(measured))
+    }
+
+    private var titleHeight: CGFloat {
+        height(of: title, width: LauncherAboutMetrics.titleFrame.width, minimum: LauncherAboutMetrics.titleFrame.height)
+    }
+
+    private var messageHeight: CGFloat {
+        var result: CGFloat = 0
+        for (index, line) in lines.enumerated() {
+            // Match About's version row x=6/w=272 and second row x=8/w=268.
+            let width: CGFloat = index == 0 ? 272 : 268
+            result += height(of: line, width: width, minimum: LauncherAboutMetrics.bodyRowHeight)
+            if index + 1 < lines.count { result += LauncherAboutMetrics.rowGap }
+        }
+        return result
+    }
+
+    private var messageTop: CGFloat {
+        LauncherAboutMetrics.titleFrame.minY + titleHeight + (lines.isEmpty ? 0 : LauncherAboutMetrics.rowGap)
+    }
+
+    private var buttonTop: CGFloat {
+        let bodyEnd = messageTop + min(messageHeight, LauncherAboutMetrics.maximumMessageHeight)
+        return bodyEnd + (installing ? 20 : 0) + LauncherAboutMetrics.bottomPadding
+    }
+
+    private var buttonHeight: CGFloat {
+        ceil(max(primary.intrinsicContentSize.height, secondary.intrinsicContentSize.height))
+    }
+
+    var requiredOuterHeight: CGFloat {
+        max(LauncherAboutMetrics.minimumHeight, buttonTop + buttonHeight + LauncherAboutMetrics.bottomPadding)
+    }
+
     override func layout() {
         super.layout()
-        let width = bounds.width - 24
-        text.textContainer?.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
-        if let container = text.textContainer { text.layoutManager?.ensureLayout(for: container) }
-        let measured = text.textContainer.map { text.layoutManager?.usedRect(for: $0).height ?? 0 } ?? 0
-        let buttonHeight: CGFloat = 20
-        // About AX icon = (109,39,66,66) relative to its 284×191 frame.
-        // NSImageView exposes a 1 pt AX focus outset, observed on the native
-        // preview: use a 64 pt view so the actual image AX frame matches About.
         let chrome = (window?.frame.height ?? bounds.height) - bounds.height
-        let iconTop = max(0, 40 - chrome)
-        icon.frame = NSRect(x: (bounds.width - 64) / 2, y: iconTop, width: 64, height: 64)
-        let textTop = icon.frame.maxY + 3
-        let buttonTop = bounds.height - 8 - buttonHeight
-        let progressHeight: CGFloat = installing ? 16 : 0
-        let available = max(0, buttonTop - 4 - textTop - progressHeight)
-        let textHeight = min(ceil(measured) + 1, available)
-        scroll.frame = NSRect(x: 12, y: textTop, width: width, height: textHeight)
-        text.frame = NSRect(x: 0, y: 0, width: width, height: max(textHeight, ceil(measured) + 1))
-        scroll.hasVerticalScroller = measured > textHeight
+        var iconFrame = LauncherAboutMetrics.iconViewFrame
+        iconFrame.origin.y -= chrome
+        icon.frame = iconFrame
+        var titleFrame = LauncherAboutMetrics.titleFrame
+        titleFrame.origin.y -= chrome
+        titleFrame.size.height = titleHeight
+        title.frame = titleFrame
+        let messageFullHeight = messageHeight
+        let visibleHeight = min(messageFullHeight, LauncherAboutMetrics.maximumMessageHeight)
+        scroll.isHidden = lines.isEmpty
+        scroll.frame = NSRect(x: 6, y: messageTop - chrome, width: 272, height: visibleHeight)
+        document.frame = NSRect(x: 0, y: 0, width: 272, height: messageFullHeight)
+        var y: CGFloat = 0
+        for (index, line) in lines.enumerated() {
+            let inset: CGFloat = index == 0 ? 0 : 2
+            let width = 272 - inset * 2
+            let lineHeight = height(of: line, width: width, minimum: LauncherAboutMetrics.bodyRowHeight)
+            line.frame = NSRect(x: inset, y: y, width: width, height: lineHeight)
+            y += lineHeight + LauncherAboutMetrics.rowGap
+        }
+        scroll.hasVerticalScroller = messageFullHeight > visibleHeight
         if installing {
-            progress.frame = NSRect(x: 12, y: scroll.frame.maxY + 4, width: width, height: 12)
+            progress.frame = NSRect(x: 12, y: messageTop - chrome + 8, width: 260, height: 12)
         }
         var right = bounds.width - 12
         for button in [primary, secondary] where !button.isHidden {
-            let buttonWidth = max(54, button.intrinsicContentSize.width)
-            button.frame = NSRect(x: right - buttonWidth, y: buttonTop, width: buttonWidth, height: buttonHeight)
-            right -= buttonWidth + 8
+            let width = max(54, button.intrinsicContentSize.width)
+            button.frame = NSRect(x: right - width, y: buttonTop - chrome, width: width, height: buttonHeight)
+            right -= width + 8
         }
     }
 }

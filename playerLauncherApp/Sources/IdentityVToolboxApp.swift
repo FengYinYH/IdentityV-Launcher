@@ -130,9 +130,6 @@ final class ToolboxAppDelegate: NSObject, NSApplicationDelegate {
             .applicationVersion: LauncherRelease.displayVersion,
             .version: LauncherRelease.buildNumber
         ])
-        if let panel = NSApplication.shared.keyWindow as? NSPanel {
-            panel.setFrame(NSRect(origin: panel.frame.origin, size: LauncherPanelGeometry.frameSize), display: true)
-        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
