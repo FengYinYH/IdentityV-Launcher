@@ -81,7 +81,10 @@ static NSString *IDVPrepareGameHost(NSString *loaderPath, NSString *cachePath, N
     NSMutableString *generation = [NSMutableString string];
     for (int index = 0; index < 16; index++) [generation appendFormat:@"%02x", digest[index]];
     NSFileManager *files = NSFileManager.defaultManager;
-    NSURL *root = [NSURL fileURLWithPath:cachePath isDirectory:YES].URLByStandardizingPath;
+    // Inspect the caller's path before Foundation canonicalizes system aliases:
+    // standardizing an existing /private/var path can produce /var (a symlink),
+    // falsely rejecting a cache that was accepted and created on its first use.
+    NSURL *root = [NSURL fileURLWithPath:cachePath isDirectory:YES];
     // Cache aliases are not runtime aliases: never follow an existing link
     // into another user's/app's tree. An unavailable/relocated cache simply
     // leaves launch on the original path. Engine aliases were canonicalized

@@ -20,7 +20,7 @@ host 只支持已验证的 `codeweavers-wine-release-dxmt` profile，核对原 l
 
 用户侧布局为 `GameHosts/v1/<product>/<metadata generation>/第五人格.app` 或 `Identity V.app`，内部仅有 Info 与指向原核验 loader 的 `Contents/MacOS/wine` symlink。generation 由包含 canonical loader 路径的元数据摘要生成：runtime、元数据或模板变化进入新代，不改活跃 host。不存在 Wine 二进制复制、重分发、重签、OEM 文件改写、全局 Dock 配置/重启或全局 LS 注册。
 
-现有对象只有完整元数据、真实目录、受控绝对 symlink 都匹配才复用；未知对象、cache 链接祖先、只读路径、无效 profile/名称等透明退回原可启动路径，不替换或删除用户内容。并发创建采用独占 UUID 暂存与一次发布，另一个相同合法 winner 可复用；仅清理自身已核定的暂存目录。上层 `WINE_BIN`、registry/readiness/resolver/manager、supervisor `--expected-executable` 仍指向原核验 Wine；host symlink 与其是同一文件，最终 child 的 `WINELOADER` 让后续实际游戏 exec 保持 host。
+现有对象只有完整元数据、真实目录、受控绝对 symlink 都匹配才复用；未知对象、cache 链接祖先、只读路径、无效 profile/名称等透明退回原可启动路径，不替换或删除用户内容。先按调用者原始 cache 路径检查链接祖先，再作后续路径处理：Foundation 对已存在的 `/private/var` 路径作 standardization 会折成 `/var` 链接，曾使首次生成成功、重复复用却被误拒；完整构建的默认临时目录合约已暴露并修正此问题，仍保留拒绝调用者自带 cache 链接的边界。并发创建采用独占 UUID 暂存与一次发布，另一个相同合法 winner 可复用；仅清理自身已核定的暂存目录。上层 `WINE_BIN`、registry/readiness/resolver/manager、supervisor `--expected-executable` 仍指向原核验 Wine；host symlink 与其是同一文件，最终 child 的 `WINELOADER` 让后续实际游戏 exec 保持 host。
 
 ## 锁定上游路径依据
 

@@ -51,7 +51,9 @@ for product in ('mainland','global'):
         assert metadata['LSApplicationCategoryType'] == 'public.app-category.games'
         assert metadata['LSUIElement'] and metadata['CFBundleExecutable'] == 'wine'
         before = (app/'Contents/Info.plist').stat().st_mtime_ns
-        assert prepare(product,name).stdout == result.stdout
+        reused = prepare(product,name)
+        assert reused.returncode == 0, reused.stderr
+        assert reused.stdout == result.stdout, (result.stdout, reused.stdout)
         assert (app/'Contents/Info.plist').stat().st_mtime_ns == before
         native = json.loads(subprocess.check_output([str(executable)],text=True))
         assert Path(native['bundle']) == app and native['name'] == name, native
