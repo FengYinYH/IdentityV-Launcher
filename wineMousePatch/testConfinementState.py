@@ -12,6 +12,12 @@ source = pathlib.Path(sys.argv[1]) / 'dlls/winemac.drv/cocoa_cursorclipping.m'
 text = source.read_text()
 helpers = text[text.index('static void clip_cursor_location'):text.index('@implementation WineEventTapClipCursorHandler')]
 handler = text[text.index('@implementation WineConfinementClipCursorHandler'):]
+transport = ''
+if (source.parent / 'capture_diagnostics.h').exists():
+    main = (source.parent / 'macdrv_main.c').read_text()
+    if '/* IDV_CAPTURE_TRANSPORT_BEGIN' not in main:
+        main = (source.parent.parent / 'win32u/input.c').read_text()
+    transport = '#include "capture_diagnostics.h"\n#include <pthread.h>\n#include <stdarg.h>\n#include <stdlib.h>\n#include <string.h>\n#include <unistd.h>\n' + main[main.index('/* IDV_CAPTURE_TRANSPORT_BEGIN'):main.index('/* IDV_CAPTURE_TRANSPORT_END */')]
 harness = r'''
 #import <Cocoa/Cocoa.h>
 #include <unistd.h>
@@ -173,19 +179,21 @@ if '- (void) diagnoseCursorEventAt:' in text:
     checks = checks.replace(' } return 0; }', diagnostic_checks + '\n } return 0; }')
 with tempfile.TemporaryDirectory(prefix='idv-confinement-state-') as temp:
     root = pathlib.Path(temp)
-    (root / 'probe.m').write_text(harness + helpers + handler + checks)
-    subprocess.run(['clang', '-fobjc-arc', '-Werror', '-Wno-deprecated-declarations', '-framework', 'Cocoa', str(root / 'probe.m'), '-o', str(root / 'probe')], check=True)
+    (root / 'probe.m').write_text(harness + transport + helpers + handler + checks)
+    subprocess.run(['clang', '-I', str(source.parent), '-I', str(source.parents[2] / 'include'), '-fobjc-arc', '-Werror', '-Wno-deprecated-declarations', '-framework', 'Cocoa', str(root / 'probe.m'), '-o', str(root / 'probe')], check=True)
     result = subprocess.run([str(root / 'probe')], check=True, capture_output=True, text=True)
     print(result.stdout, end='')
     if '- (void) diagnoseCursorEventAt:' in text:
         lines = result.stderr.splitlines()
-        assert len(lines) == 64, (len(lines), result.stderr)
-        assert all(line.startswith('IDV_CAPTURE_DIAG v=1 ') for line in lines)
+        budget = 48 if 'capture_diag_records >= 48' in transport else 64
+        assert len(lines) == budget, (len(lines), result.stderr)
+        version = '3 ' if 'IDV_CAPTURE_DIAG v=3' in transport else ('2 ' if transport else '1 ')
+        assert all(line.startswith('IDV_CAPTURE_DIAG v=' + version) for line in lines)
         for kind in ('native-constraint-mismatch', 'inactive-or-nonkey', 'native-present-pointer-outside', 'event-outside-pointer-inside'):
             assert any(f'kind={kind} ' in line for line in lines), kind
         assert sum('kind=native-present-pointer-outside ' in line for line in lines) == 2
         assert all(' event=' not in line for line in lines if 'kind=transition ' in line)
         assert all(' event=' in line for line in lines if 'kind=transition ' not in line)
-        print('PASS: diagnostic classification, opt-in, rate limits, epoch deduplication and 64-line budget')
+        print(f'PASS: diagnostic classification, opt-in, rate limits, epoch deduplication and {budget}-line native budget')
     else:
         assert not result.stderr, result.stderr

@@ -1,0 +1,306 @@
+Subject: [PATCH] winemac: Trace diagnostic presence and first cursor API paths.
+
+Apply after confinement-session-diagnostics.patch. Only an explicitly compiled
+diagnostic build emits one env-independent module presence marker. All other
+records require the exact session flag; all share one 64-record process budget.
+
+--- /dev/null
++++ b/dlls/winemac.drv/capture_diagnostics.h
+@@ -0,0 +1,31 @@
++/* Explicit-session diagnostics only; no input hooks, workers or timers.
++ * A single process-wide budget covers C entry markers and native snapshots. */
++#ifndef IDV_CAPTURE_DIAGNOSTICS_H
++#define IDV_CAPTURE_DIAGNOSTICS_H
++#include <stdio.h>
++#include <stdint.h>
++#define IDV_DIAG_HIDDEN __attribute__((visibility("hidden")))
++enum idv_capture_diag_once {
++    IDV_DIAG_MODULE = 1u << 0,
++    IDV_DIAG_RESET = 1u << 1,
++    IDV_DIAG_NULL = 1u << 2,
++    IDV_DIAG_RECT = 1u << 3,
++    IDV_DIAG_HANDLER = 1u << 4,
++    IDV_DIAG_NO_OWNER = 1u << 5,
++    IDV_DIAG_EMPTY = 1u << 6,
++    IDV_DIAG_START_FAILED = 1u << 7,
++    IDV_DIAG_CAPTURE_SET = 1u << 8,
++    IDV_DIAG_WARP = 1u << 9,
++    IDV_DIAG_EVENT_NO_CLIP = 1u << 10,
++    IDV_DIAG_BOUNDED = 1u << 11,
++    IDV_DIAG_UNBOUNDED = 1u << 12,
++    IDV_DIAG_CAPTURE_CLEAR = 1u << 13,
++    IDV_DIAG_OPTIONS = 1u << 14
++};
++IDV_DIAG_HIDDEN int macdrv_capture_diag_enabled(void);
++IDV_DIAG_HIDDEN int macdrv_capture_diag_has_budget(void);
++IDV_DIAG_HIDDEN int macdrv_capture_diag_begin(unsigned once_bit, int force);
++IDV_DIAG_HIDDEN void macdrv_capture_diag_end(void);
++IDV_DIAG_HIDDEN void macdrv_capture_diag_log(unsigned once_bit, const char *format, ...);
++IDV_DIAG_HIDDEN void macdrv_capture_diag_module_start(int native_config);
++#endif
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -25,6 +25,12 @@
+ #endif
+ 
+ #include "config.h"
++#include "capture_diagnostics.h"
++#include <pthread.h>
++#include <stdarg.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
+ 
+ #include <Security/AuthSession.h>
+ #include <IOKit/pwr_mgt/IOPMLib.h>
+@@ -36,6 +42,83 @@
+ #include "wine/server.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(macdrv);
++
++/* IDV_CAPTURE_TRANSPORT_BEGIN: shared, bounded stderr transport. */
++static pthread_mutex_t capture_diag_mutex = PTHREAD_MUTEX_INITIALIZER;
++static unsigned capture_diag_records, capture_diag_once_bits;
++
++int macdrv_capture_diag_enabled(void)
++{
++    const char *value = getenv("IDENTITYV_CAPTURE_DIAGNOSTICS");
++    return value && !strcmp(value, "1");
++}
++
++int macdrv_capture_diag_has_budget(void)
++{
++    int result;
++    pthread_mutex_lock(&capture_diag_mutex);
++    result = capture_diag_records < 64;
++    pthread_mutex_unlock(&capture_diag_mutex);
++    return result;
++}
++
++int macdrv_capture_diag_begin(unsigned once_bit, int force)
++{
++    if (!force && !macdrv_capture_diag_enabled()) return 0;
++    pthread_mutex_lock(&capture_diag_mutex);
++    if (capture_diag_records >= 64 || (once_bit && (capture_diag_once_bits & once_bit)))
++    {
++        pthread_mutex_unlock(&capture_diag_mutex);
++        return 0;
++    }
++    capture_diag_once_bits |= once_bit;
++    fprintf(stderr, "IDV_CAPTURE_DIAG v=2 pid=%d seq=%u ", getpid(), ++capture_diag_records);
++    return 1;
++}
++
++void macdrv_capture_diag_end(void)
++{
++    fputc('\n', stderr);
++    fflush(stderr);
++    pthread_mutex_unlock(&capture_diag_mutex);
++}
++
++void macdrv_capture_diag_log(unsigned once_bit, const char *format, ...)
++{
++    va_list args;
++    if (!macdrv_capture_diag_begin(once_bit, 0)) return;
++    va_start(args, format);
++    vfprintf(stderr, format, args);
++    va_end(args);
++    macdrv_capture_diag_end();
++}
++
++void macdrv_capture_diag_module_start(int native_config)
++{
++    int diagnostic_build = 0;
++#ifdef IDENTITYV_CAPTURE_DIAGNOSTIC_BUILD
++    diagnostic_build = 1;
++#endif
++    /* Only this marker may bypass the env gate, and only in an explicitly
++     * built isolated diagnostic module. Report one boolean, never environment
++     * contents. Otherwise a lost flag is indistinguishable from no clip calls. */
++    if (macdrv_capture_diag_begin(IDV_DIAG_MODULE, diagnostic_build))
++    {
++        fprintf(stderr, "reason=module-start enabled=%d diagnosticBuild=%d nativeConfig=%d budget=64",
++                macdrv_capture_diag_enabled(), diagnostic_build, native_config);
++        macdrv_capture_diag_end();
++    }
++}
++#ifdef IDENTITYV_CAPTURE_DIAGNOSTIC_BUILD
++__attribute__((constructor)) static void capture_diagnostic_module_loaded(void)
++{
++    /* Presence only: options and Cocoa have not been initialized yet. */
++    macdrv_capture_diag_module_start(-1);
++}
++#endif
++/* IDV_CAPTURE_TRANSPORT_END */
++
++
+ 
+ #define IS_OPTION_TRUE(ch) \
+     ((ch) == 'y' || (ch) == 'Y' || (ch) == 't' || (ch) == 'T' || (ch) == '1')
+@@ -458,6 +541,8 @@
+ 
+     init_win_context();
+     setup_options();
++    macdrv_capture_diag_module_start(use_confinement_cursor_clipping);
++    macdrv_capture_diag_log(IDV_DIAG_OPTIONS, "reason=driver-options nativeConfig=%d", use_confinement_cursor_clipping);
+     load_strings(params->strings);
+ 
+     macdrv_err_on = ERR_ON(macdrv);
+--- a/dlls/winemac.drv/mouse.c
++++ b/dlls/winemac.drv/mouse.c
+@@ -25,6 +25,7 @@
+ #endif
+ 
+ #include "config.h"
++#include "capture_diagnostics.h"
+ 
+ #define OEMRESOURCE
+ #include "macdrv.h"
+@@ -664,6 +665,8 @@
+     CGRect rect;
+ 
+     TRACE("%s %u\n", wine_dbgstr_rect(clip), reset);
++    macdrv_capture_diag_log(reset ? IDV_DIAG_RESET : (clip ? IDV_DIAG_RECT : IDV_DIAG_NULL),
++                            "reason=driver-clip-request reset=%d hasRect=%d", reset, clip != NULL);
+ 
+     if (!reset && clip)
+     {
+@@ -712,6 +715,8 @@
+ 
+     if (!thread_data) return;
+ 
++    macdrv_capture_diag_log(cocoa_window ? IDV_DIAG_CAPTURE_SET : IDV_DIAG_CAPTURE_CLEAR,
++                            "reason=driver-setcapture windowPresent=%d", cocoa_window != NULL);
+     thread_data->capture_window = cocoa_window;
+     macdrv_set_mouse_capture_window(cocoa_window);
+ }
+@@ -837,6 +842,7 @@
+  */
+ BOOL macdrv_SetCursorPos(INT x, INT y)
+ {
++    macdrv_capture_diag_log(IDV_DIAG_WARP, "reason=driver-setcursorpos-first");
+     BOOL ret = macdrv_set_cursor_position(CGPointMake(x, y));
+     if (ret)
+         TRACE("warped to %d,%d\n", x, y);
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -20,6 +20,7 @@
+ 
+ #import "cocoa_app.h"
+ #import "cocoa_cursorclipping.h"
++#include "capture_diagnostics.h"
+ #import "cocoa_event.h"
+ #import "cocoa_window.h"
+ #import "cocoa_icon_utils.h"
+@@ -1329,7 +1330,11 @@
+     - (BOOL) startClippingCursor:(CGRect)rect
+     {
+         if (!clipCursorHandler) {
+-            if (use_confinement_cursor_clipping && [WineConfinementClipCursorHandler isAvailable])
++            BOOL available = [WineConfinementClipCursorHandler isAvailable];
++            macdrv_capture_diag_log(IDV_DIAG_HANDLER, "reason=handler-choice nativeConfig=%d apiAvailable=%d selected=%s",
++                                    use_confinement_cursor_clipping, available,
++                                    use_confinement_cursor_clipping && available ? "native" : "eventtap");
++            if (use_confinement_cursor_clipping && available)
+                 clipCursorHandler = [[WineConfinementClipCursorHandler alloc] init];
+             else
+                 clipCursorHandler = [[WineEventTapClipCursorHandler alloc] init];
+@@ -1341,7 +1346,10 @@
+             return TRUE;
+ 
+         if (![clipCursorHandler startClippingCursor:rect])
++        {
++            macdrv_capture_diag_log(IDV_DIAG_START_FAILED, "reason=handler-start-failed");
+             return FALSE;
++        }
+ 
+         [self setCursorPosition:NSPointToCGPoint([self flippedMouseLocation:[NSEvent mouseLocation]])];
+ 
+@@ -1445,6 +1453,10 @@
+ 
+     - (void) handleMouseMove:(NSEvent*)anEvent
+     {
++        if (!self.clippingCursor)
++            macdrv_capture_diag_log(IDV_DIAG_EVENT_NO_CLIP, "reason=mouse-event-no-clip handler=%s",
++                                    !clipCursorHandler ? "none" :
++                                    ([clipCursorHandler isKindOfClass:[WineConfinementClipCursorHandler class]] ? "native" : "eventtap"));
+         if (self.clippingCursor && [clipCursorHandler respondsToSelector:@selector(diagnoseCursorEventAt:)] && [anEvent CGEvent])
+             [clipCursorHandler diagnoseCursorEventAt:CGEventGetLocation([anEvent CGEvent])];
+         WineWindow* targetWindow;
+@@ -2874,6 +2886,8 @@
+             }
+         }
+ 
++        macdrv_capture_diag_log(clipping ? IDV_DIAG_BOUNDED : IDV_DIAG_UNBOUNDED,
++                                "reason=clip-dispatch bounded=%d infinite=%d", clipping, CGRectIsInfinite(rect));
+         if (clipping)
+             ret = [controller startClippingCursor:rect];
+         else
+--- a/dlls/winemac.drv/cocoa_cursorclipping.m
++++ b/dlls/winemac.drv/cocoa_cursorclipping.m
+@@ -21,6 +21,7 @@
+ 
+ #import "cocoa_app.h"
+ #import "cocoa_cursorclipping.h"
++#include "capture_diagnostics.h"
+ #import "cocoa_window.h"
+ 
+ #include <stdio.h>
+@@ -446,7 +447,7 @@
+      * the cached clip rect. No timer, input hook, or continuous position log. */
+     - (void) diagnoseCursorState:(const char*)reason eventPoint:(CGPoint)eventPoint hasEvent:(BOOL)hasEvent
+     {
+-        if (!diagnosticEnabled || diagnosticRecords >= 64) return;
++        if (!diagnosticEnabled || diagnosticRecords >= 64 || !macdrv_capture_diag_has_budget()) return;
+ 
+         WineApplicationController *controller = [WineApplicationController sharedController];
+         NSWindow *owner = [NSApp windowWithWindowNumber:clippingWindowNumber];
+@@ -477,10 +478,12 @@
+             if (diagnosticAnomalyKinds & bit) return;
+             diagnosticAnomalyKinds |= bit;
+         }
++        pid_t frontPID = [[[NSWorkspace sharedWorkspace] frontmostApplication] processIdentifier];
++        double diagnosticUptime = [[NSProcessInfo processInfo] systemUptime];
++        if (!macdrv_capture_diag_begin(0, 0)) return;
+         diagnosticRecords++;
+-        pid_t frontPID = [[[NSWorkspace sharedWorkspace] frontmostApplication] processIdentifier];
+-        fprintf(stderr, "IDV_CAPTURE_DIAG v=1 pid=%d seq=%u epoch=%u uptime=%.6f reason=%s kind=%s capture=%d owner=%ld frontOwner=%ld key=%ld active=%d eligible=%d frontPID=%d nativeMatch=%d rect=%.3f,%.3f,%.3f,%.3f expected=%.3f,%.3f,%.3f,%.3f native=%.3f,%.3f,%.3f,%.3f",
+-                getpid(), diagnosticRecords, diagnosticEpoch, [[NSProcessInfo processInfo] systemUptime], reason, kind, clippingCursor,
++        fprintf(stderr, "epoch=%u uptime=%.6f reason=%s kind=%s capture=%d owner=%ld frontOwner=%ld key=%ld active=%d eligible=%d frontPID=%d nativeMatch=%d rect=%.3f,%.3f,%.3f,%.3f expected=%.3f,%.3f,%.3f,%.3f native=%.3f,%.3f,%.3f,%.3f",
++                diagnosticEpoch, diagnosticUptime, reason, kind, clippingCursor,
+                 (long)[owner windowNumber], (long)[[controller frontWineWindow] windowNumber],
+                 (long)[key windowNumber], active, eligible, frontPID, nativeMatches,
+                 cursorClipRect.origin.x, cursorClipRect.origin.y, cursorClipRect.size.width, cursorClipRect.size.height,
+@@ -488,14 +491,14 @@
+                 native.origin.x, native.origin.y, native.size.width, native.size.height);
+         if (hasEvent)
+             fprintf(stderr, " event=%.3f,%.3f current=%.3f,%.3f currentOutside=%d", eventPoint.x, eventPoint.y, current.x, current.y, currentOutside);
+-        fprintf(stderr, "\n");
++        macdrv_capture_diag_end();
+     }
+ 
+     - (void) diagnoseCursorEventAt:(CGPoint)point
+     {
+         /* The event already exists. Cheap cached bounds testing is not a system
+          * position sample; native state is read only for a bounded anomaly. */
+-        if (!diagnosticEnabled || !clippingCursor || diagnosticRecords >= 64 ||
++        if (!diagnosticEnabled || !clippingCursor || diagnosticRecords >= 64 || !macdrv_capture_diag_has_budget() ||
+             diagnosticAnomalyKinds == 15 || CGRectContainsPoint(cursorClipRect, point)) return;
+         NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
+         if (diagnosticLastCheck && now - diagnosticLastCheck < 1.0) return;
+@@ -551,6 +554,7 @@
+         WineWindow *ownerWindow = [[WineApplicationController sharedController] frontWineWindow];
+         if (!ownerWindow)
+         {
++            macdrv_capture_diag_log(IDV_DIAG_NO_OWNER, "reason=native-start-failed cause=no-owner");
+             /* There's nothing we can do here in this case, since confinement
+              * rects must be tied to a window. */
+             return FALSE;
+@@ -561,6 +565,7 @@
+ 
+         if (NSIsEmptyRect(clipRectInWindowCoords))
+         {
++            macdrv_capture_diag_log(IDV_DIAG_EMPTY, "reason=native-start-failed cause=empty-intersection");
+             /* If the clip region is entirely outside of the bounds of the
+              * window, there's again nothing we can do. */
+             return FALSE;

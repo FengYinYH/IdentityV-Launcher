@@ -20,6 +20,7 @@ RUNTIME_BINDING_FILE="$CONFIG_DIR/runtime-binding.json"
 PRODUCTS_FILE="$CONFIG_DIR/products.json"
 COMMAND_GRAVE_FORWARDER="$APP_CONTENTS/Resources/IdentityVCommandGraveForwarder.dylib"
 LOGIN_DNS_COMPAT="$APP_CONTENTS/Resources/IdentityVLoginDNSCompat.dylib"
+NATIVE_CAMERA_COMPAT="$APP_CONTENTS/Resources/IdentityVNativeCameraCompat.dylib"
 IDV_LOGIN_START_HELPER="/Library/PrivilegedHelperTools/identityv-on-mac/start-idv-login.sh"
 AUDIO_INTERPOSER_RESOURCE_DIR="$APP_CONTENTS/Resources"
 # The HUD is a per-game diagnostic. Never let a terminal, GUI session or old
@@ -242,6 +243,7 @@ game_root_binding_is_valid "$GAME_DIR" "$managed_game_link" || abort_launcher "t
 [[ -f "$GAME_DIR/dwrg.exe" ]] || abort_launcher "dwrg.exe is unavailable"
 [[ -f "$COMMAND_GRAVE_FORWARDER" ]] || abort_launcher "Command shortcut forwarder is unavailable"
 [[ -f "$LOGIN_DNS_COMPAT" ]] || abort_launcher "IDV Login DNS compatibility layer is unavailable"
+[[ -f "$NATIVE_CAMERA_COMPAT" && ! -L "$NATIVE_CAMERA_COMPAT" ]] || abort_launcher "Native camera compatibility layer is unavailable"
 
 CONFIG_FILE="$CONFIG_DIR/launcher.env"
 MAINTENANCE_DIR="$CONFIG_DIR/Maintenance"
@@ -1153,6 +1155,12 @@ launch_game_once() {
     export WINEDEBUG="-all"
   fi
   inserted_libraries=("$COMMAND_GRAVE_FORWARDER")
+  # Keep OEM modules intact. The adapter verifies the exact driver ABI itself;
+  # unknown runtimes retain their original input behavior.
+  if [[ -n "${NATIVE_CAMERA_COMPAT:-}" ]] &&
+     [[ "${IDENTITYV_NATIVE_CAMERA_CLIP:-1}" == "1" || "${IDENTITYV_FOREGROUND_WARP_GATE:-1}" == "1" ]]; then
+    inserted_libraries+=("$NATIVE_CAMERA_COMPAT")
+  fi
   if [[ -n "$AUDIO_INTERPOSER" ]]; then
     inserted_libraries+=("$AUDIO_INTERPOSER")
     print -r -- "enabled CoreAudio interposer stage: $IDENTITYV_AUDIO_INTERPOSER_STAGE" >>"$LOG_FILE"
@@ -1180,6 +1188,8 @@ launch_game_once() {
     fi
     print -r -- "launch mode: virtual desktop ${IDENTITYV_DESKTOP_NAME},${IDENTITYV_DESKTOP_SIZE}" >>"$LOG_FILE"
     (
+      export IDENTITYV_NATIVE_CAMERA_CLIP="${IDENTITYV_NATIVE_CAMERA_CLIP:-1}"
+      export IDENTITYV_FOREGROUND_WARP_GATE="${IDENTITYV_FOREGROUND_WARP_GATE:-1}"
       export DYLD_INSERT_LIBRARIES="$wine_inserted_libraries"
       exec "$WINE_BIN" explorer "/desktop=${IDENTITYV_DESKTOP_NAME},${IDENTITYV_DESKTOP_SIZE}" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe" "${GAME_LAUNCH_ARGUMENTS[@]}"
     ) >>"$LOG_FILE" 2>&1 &
@@ -1230,6 +1240,8 @@ launch_game_once() {
         export "${hud_environment[@]}"
       fi
       # Resolve native language/control helpers before setting x86 injection.
+      export IDENTITYV_NATIVE_CAMERA_CLIP="${IDENTITYV_NATIVE_CAMERA_CLIP:-1}"
+      export IDENTITYV_FOREGROUND_WARP_GATE="${IDENTITYV_FOREGROUND_WARP_GATE:-1}"
       export DYLD_INSERT_LIBRARIES="$wine_inserted_libraries"
       exec "$WINE_BIN" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe" "${GAME_LAUNCH_ARGUMENTS[@]}"
     ) >>"$LOG_FILE" 2>&1 &

@@ -104,6 +104,7 @@ fi
 # Refresh the embedded runner and every resource it owns before copying it.
 # These project-local staging commands never touch /Applications without their
 # explicit --install-active mode, which is deliberately not used here.
+"$PROJECT_ROOT/buildIdentityVNativeCameraCompat.command"
 "$PROJECT_ROOT/buildGameRunner.command"
 "$PROJECT_ROOT/wineNetworkInterposer/buildAndVerify.command"
 for runner_source in \
@@ -126,6 +127,7 @@ for runner_test in \
   "$PROJECT_ROOT/gameRunnerApp/tests/stallWatchContract.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/mouseAccelerationSessionContract.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/metalHudConfigurationContract.test.command" \
+  "$PROJECT_ROOT/gameRunnerApp/tests/nativeCameraCompatContract.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/winePrefixCleanup.test.command"; do
   print -- "验证 runner：${runner_test:t}"
   /bin/zsh "$runner_test"

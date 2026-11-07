@@ -72,6 +72,7 @@ def verify_launcher(app: Path) -> None:
         runner_resources + "IdentityVLoginDNSCompat.dylib": f"{PREFIX}.runner.login-dns-compat",
         runner_resources + "IdentityVMouseAccelerationController": f"{PREFIX}.runner.mouse-acceleration-controller",
         runner_resources + "IdentityVCommandGraveForwarder.dylib": f"{PREFIX}.runner.command-grave-forwarder",
+        runner_resources + "IdentityVNativeCameraCompat.dylib": f"{PREFIX}.runner.native-camera-compat",
     }
     for stage in (
         "load-only", "passthrough", "caller", "filter", "passthrough-handle",

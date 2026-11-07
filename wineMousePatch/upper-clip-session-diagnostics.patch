@@ -1,0 +1,287 @@
+Subject: [PATCH] winemac/win32u: Trace upper clip filters with fixed 48+16 budgets.
+
+Apply after the v2 entry diagnostics. No cross-module exports, no capture-policy
+change. The separate foreground-warp-eligibility.patch is deliberately optional.
+
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -57,7 +57,7 @@
+ {
+     int result;
+     pthread_mutex_lock(&capture_diag_mutex);
+-    result = capture_diag_records < 64;
++    result = capture_diag_records < 48;
+     pthread_mutex_unlock(&capture_diag_mutex);
+     return result;
+ }
+@@ -66,13 +66,13 @@
+ {
+     if (!force && !macdrv_capture_diag_enabled()) return 0;
+     pthread_mutex_lock(&capture_diag_mutex);
+-    if (capture_diag_records >= 64 || (once_bit && (capture_diag_once_bits & once_bit)))
++    if (capture_diag_records >= 48 || (once_bit && (capture_diag_once_bits & once_bit)))
+     {
+         pthread_mutex_unlock(&capture_diag_mutex);
+         return 0;
+     }
+     capture_diag_once_bits |= once_bit;
+-    fprintf(stderr, "IDV_CAPTURE_DIAG v=2 pid=%d seq=%u ", getpid(), ++capture_diag_records);
++    fprintf(stderr, "IDV_CAPTURE_DIAG v=3 layer=macdrv pid=%d seq=%u ", getpid(), ++capture_diag_records);
+     return 1;
+ }
+ 
+@@ -104,7 +104,7 @@
+      * contents. Otherwise a lost flag is indistinguishable from no clip calls. */
+     if (macdrv_capture_diag_begin(IDV_DIAG_MODULE, diagnostic_build))
+     {
+-        fprintf(stderr, "reason=module-start enabled=%d diagnosticBuild=%d nativeConfig=%d budget=64",
++        fprintf(stderr, "reason=module-start enabled=%d diagnosticBuild=%d nativeConfig=%d budget=48",
+                 macdrv_capture_diag_enabled(), diagnostic_build, native_config);
+         macdrv_capture_diag_end();
+     }
+--- a/dlls/winemac.drv/capture_diagnostics.h
++++ b/dlls/winemac.drv/capture_diagnostics.h
+@@ -20,7 +20,10 @@
+     IDV_DIAG_BOUNDED = 1u << 11,
+     IDV_DIAG_UNBOUNDED = 1u << 12,
+     IDV_DIAG_CAPTURE_CLEAR = 1u << 13,
+-    IDV_DIAG_OPTIONS = 1u << 14
++    IDV_DIAG_OPTIONS = 1u << 14,
++    IDV_DIAG_WARP_BACKGROUND = 1u << 29,
++    IDV_DIAG_WARP_NO_KEY = 1u << 30,
++    IDV_DIAG_WARP_FOREGROUND = 1u << 31
+ };
+ IDV_DIAG_HIDDEN int macdrv_capture_diag_enabled(void);
+ IDV_DIAG_HIDDEN int macdrv_capture_diag_has_budget(void);
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -1263,6 +1263,23 @@
+     - (BOOL) setCursorPosition:(CGPoint)pos
+     {
+         BOOL ret;
++        if (macdrv_capture_diag_enabled())
++        {
++            static uint64_t contexts_seen;
++            BOOL active = [NSApp isActive];
++            BOOL wineKey = [[NSApp keyWindow] isKindOfClass:[WineWindow class]];
++            BOOL dragging = [windowsBeingDragged count] != 0;
++            unsigned context = active | (wineKey << 1) | ((mouseCaptureWindow != nil) << 2) |
++                               (cursorHidden << 3) | (clientWantsCursorHidden << 4) | (dragging << 5);
++            if (!(contexts_seen & (UINT64_C(1) << context)))
++            {
++                contexts_seen |= UINT64_C(1) << context;
++                macdrv_capture_diag_log(0, "reason=warp-focus-state active=%d wineKey=%d captureWindow=%d cursorHidden=%d clientWantsCursorHidden=%d dragging=%d denial=%s uptime=%.6f",
++                                        active, wineKey, mouseCaptureWindow != nil, cursorHidden, clientWantsCursorHidden, dragging,
++                                        !active ? "inactive" : (!wineKey ? "no-wine-key" : (dragging ? "dragging" : "none")),
++                                        [[NSProcessInfo processInfo] systemUptime]);
++            }
++        }
+ 
+         if ([windowsBeingDragged count])
+             ret = FALSE;
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -30,6 +30,12 @@
+ #pragma makedep unix
+ #endif
+ 
++#include <stdio.h>
++#include <pthread.h>
++#include <stdarg.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
+ #include "ntstatus.h"
+ #define WIN32_NO_STATUS
+ #include "win32u_private.h"
+@@ -40,6 +46,108 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(win);
+ WINE_DECLARE_DEBUG_CHANNEL(keyboard);
++
++enum idv_capture_diag_once {
++    IDV_DIAG_MODULE = 1u << 0,
++    IDV_DIAG_RESET = 1u << 1,
++    IDV_DIAG_NULL = 1u << 2,
++    IDV_DIAG_RECT = 1u << 3,
++    IDV_DIAG_HANDLER = 1u << 4,
++    IDV_DIAG_NO_OWNER = 1u << 5,
++    IDV_DIAG_EMPTY = 1u << 6,
++    IDV_DIAG_START_FAILED = 1u << 7,
++    IDV_DIAG_CAPTURE_SET = 1u << 8,
++    IDV_DIAG_WARP = 1u << 9,
++    IDV_DIAG_EVENT_NO_CLIP = 1u << 10,
++    IDV_DIAG_BOUNDED = 1u << 11,
++    IDV_DIAG_UNBOUNDED = 1u << 12,
++    IDV_DIAG_CAPTURE_CLEAR = 1u << 13,
++    IDV_DIAG_OPTIONS = 1u << 14,
++    IDV_DIAG_WIN32U_MODULE = 1u << 15,
++    IDV_DIAG_UPPER_NULL = 1u << 16,
++    IDV_DIAG_UPPER_RECT = 1u << 17,
++    IDV_DIAG_UPPER_INVALID = 1u << 18,
++    IDV_DIAG_UPPER_SERVER_OK = 1u << 19,
++    IDV_DIAG_UPPER_SERVER_FAIL = 1u << 20,
++    IDV_DIAG_PROCESS_RESET = 1u << 21,
++    IDV_DIAG_PROCESS_GRAB_DISABLED = 1u << 22,
++    IDV_DIAG_PROCESS_DESKTOP = 1u << 23,
++    IDV_DIAG_PROCESS_NOCLIP = 1u << 24,
++    IDV_DIAG_PROCESS_DRIVER_OK = 1u << 25,
++    IDV_DIAG_PROCESS_DRIVER_FAIL = 1u << 26,
++    IDV_DIAG_FS_ATTEMPT = 1u << 27,
++    IDV_DIAG_FS_REJECT = 1u << 28,
++    IDV_DIAG_WARP_BACKGROUND = 1u << 29,
++    IDV_DIAG_WARP_NO_KEY = 1u << 30,
++    IDV_DIAG_WARP_FOREGROUND = 1u << 31
++};
++
++/* IDV_CAPTURE_TRANSPORT_BEGIN: shared, bounded stderr transport. */
++static pthread_mutex_t capture_diag_mutex = PTHREAD_MUTEX_INITIALIZER;
++static unsigned capture_diag_records, capture_diag_once_bits;
++
++static int macdrv_capture_diag_enabled(void)
++{
++    const char *value = getenv("IDENTITYV_CAPTURE_DIAGNOSTICS");
++    return value && !strcmp(value, "1");
++}
++
++static int macdrv_capture_diag_begin(unsigned once_bit, int force)
++{
++    if (!force && !macdrv_capture_diag_enabled()) return 0;
++    pthread_mutex_lock(&capture_diag_mutex);
++    if (capture_diag_records >= 16 || (once_bit && (capture_diag_once_bits & once_bit)))
++    {
++        pthread_mutex_unlock(&capture_diag_mutex);
++        return 0;
++    }
++    capture_diag_once_bits |= once_bit;
++    fprintf(stderr, "IDV_CAPTURE_DIAG v=3 layer=win32u pid=%d seq=%u ", getpid(), ++capture_diag_records);
++    return 1;
++}
++
++static void macdrv_capture_diag_end(void)
++{
++    fputc('\n', stderr);
++    fflush(stderr);
++    pthread_mutex_unlock(&capture_diag_mutex);
++}
++
++static void macdrv_capture_diag_log(unsigned once_bit, const char *format, ...)
++{
++    va_list args;
++    if (!macdrv_capture_diag_begin(once_bit, 0)) return;
++    va_start(args, format);
++    vfprintf(stderr, format, args);
++    va_end(args);
++    macdrv_capture_diag_end();
++}
++
++static void macdrv_capture_diag_module_start(int native_config)
++{
++    int diagnostic_build = 0;
++#ifdef IDENTITYV_CAPTURE_DIAGNOSTIC_BUILD
++    diagnostic_build = 1;
++#endif
++    /* Only this marker may bypass the env gate, and only in an explicitly
++     * built isolated diagnostic module. Report one boolean, never environment
++     * contents. Otherwise a lost flag is indistinguishable from no clip calls. */
++    if (macdrv_capture_diag_begin(native_config == -2 ? IDV_DIAG_WIN32U_MODULE : IDV_DIAG_MODULE, diagnostic_build))
++    {
++        fprintf(stderr, "reason=module-start enabled=%d diagnosticBuild=%d nativeConfig=%d budget=16 module=%s",
++                macdrv_capture_diag_enabled(), diagnostic_build, native_config, native_config == -2 ? "win32u" : "winemac");
++        macdrv_capture_diag_end();
++    }
++}
++#ifdef IDENTITYV_CAPTURE_DIAGNOSTIC_BUILD
++__attribute__((constructor)) static void capture_diagnostic_upper_loaded(void)
++{
++    /* Presence only: options and Cocoa have not been initialized yet. */
++    macdrv_capture_diag_module_start(-2);
++}
++#endif
++/* IDV_CAPTURE_TRANSPORT_END */
++
+ 
+ static const WCHAR keyboard_layouts_keyW[] =
+ {
+@@ -2679,6 +2787,7 @@
+     UINT ctx;
+     BOOL ret;
+ 
++    macdrv_capture_diag_log(IDV_DIAG_FS_ATTEMPT, "reason=fullscreen-clip-attempt reset=%d", reset);
+     if (hwnd == NtUserGetDesktopWindow()) return FALSE;
+     if (hwnd != NtUserGetForegroundWindow()) return FALSE;
+ 
+@@ -2760,24 +2869,39 @@
+ 
+     if (reset)
+     {
++        macdrv_capture_diag_log(IDV_DIAG_PROCESS_RESET, "reason=process-clip-return cause=reset");
+         thread_info->clipping_reset = NtGetTickCount();
+         return user_driver->pClipCursor( NULL, TRUE );
+     }
+ 
+-    if (!grab_pointer) return TRUE;
++    if (!grab_pointer)
++    {
++        macdrv_capture_diag_log(IDV_DIAG_PROCESS_GRAB_DISABLED, "reason=process-clip-return cause=grab-disabled");
++        return TRUE;
++    }
+ 
+     /* we are clipping if the clip rectangle is smaller than the screen */
+     get_clip_cursor( &rect, 0, MDT_RAW_DPI );
+     intersect_rect( &rect, &rect, &virtual_rect );
+-    if (EqualRect( &rect, &virtual_rect )) empty = TRUE;
++    if (EqualRect( &rect, &virtual_rect ))
++    {
++        macdrv_capture_diag_log(IDV_DIAG_PROCESS_DESKTOP, "reason=process-clip-filter cause=desktop-equal");
++        empty = TRUE;
++    }
+     if (empty && !(flags & SET_CURSOR_FSCLIP))
+     {
++        macdrv_capture_diag_log(IDV_DIAG_PROCESS_NOCLIP, "reason=process-clip-return cause=no-effective-clip wasClipping=%d", was_clipping);
+         /* if currently clipping, check if we should switch to fullscreen clipping */
+         if (was_clipping && clip_fullscreen_window( hwnd, TRUE )) return TRUE;
+         return user_driver->pClipCursor( NULL, FALSE );
+     }
+ 
+-    if (!user_driver->pClipCursor( &rect, FALSE )) return FALSE;
++    if (!user_driver->pClipCursor( &rect, FALSE ))
++    {
++        macdrv_capture_diag_log(IDV_DIAG_PROCESS_DRIVER_FAIL, "reason=process-clip-driver success=0");
++        return FALSE;
++    }
++    macdrv_capture_diag_log(IDV_DIAG_PROCESS_DRIVER_OK, "reason=process-clip-driver success=1");
+     InterlockedIncrement( &clipping_cursor );
+     thread_info->clipping_cursor = TRUE;
+     return TRUE;
+@@ -2801,6 +2925,8 @@
+     BOOL ret;
+ 
+     TRACE( "Clipping to %s\n", wine_dbgstr_rect(rect) );
++    macdrv_capture_diag_log(rect ? IDV_DIAG_UPPER_RECT : IDV_DIAG_UPPER_NULL,
++                            "reason=upper-clip-entry hasRect=%d empty=%d", rect != NULL, rect && IsRectEmpty(rect));
+ 
+     if (rect)
+     {
+@@ -2810,7 +2936,11 @@
+             WARN( "Fullscreen clipping fixup to %s\n", wine_dbgstr_rect(&new_rect) );
+             rect = &new_rect;
+         }
+-        if (rect->left > rect->right || rect->top > rect->bottom) return FALSE;
++        if (rect->left > rect->right || rect->top > rect->bottom)
++        {
++            macdrv_capture_diag_log(IDV_DIAG_UPPER_INVALID, "reason=upper-clip-return cause=invalid-rect");
++            return FALSE;
++        }
+         new_rect = map_rect_virt_to_raw( *rect, dpi );
+         rect = &new_rect;
+     }
+@@ -2828,6 +2958,8 @@
+     }
+     SERVER_END_REQ;
+ 
++    macdrv_capture_diag_log(ret ? IDV_DIAG_UPPER_SERVER_OK : IDV_DIAG_UPPER_SERVER_FAIL,
++                            "reason=upper-clip-server success=%d", ret);
+     return ret;
+ }
+ 

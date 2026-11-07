@@ -1,0 +1,18 @@
+Subject: [PATCH] winemac: Reject physical warps without a focused Wine window.
+
+Independent from diagnostics. Return failure before warping or resetting event
+queues; never enable clipping or infer captured mode from a hidden cursor.
+
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -1282,6 +1282,10 @@
+         }
+ 
+         if ([windowsBeingDragged count])
++            ret = FALSE;
++        /* Do not move the global pointer for a background or non-key Wine app.
++         * Keep foreground free/captured behavior unchanged; never infer capture. */
++        else if (![NSApp isActive] || ![[NSApp keyWindow] isKindOfClass:[WineWindow class]])
+             ret = FALSE;
+         else if (self.clippingCursor && [clipCursorHandler respondsToSelector:@selector(setCursorPosition:)])
+             ret = [clipCursorHandler setCursorPosition:pos];
