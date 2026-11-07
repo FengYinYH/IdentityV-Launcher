@@ -1,8 +1,10 @@
 # 第三方组件、许可与分发边界
 
-## RC2 候选的当前边界（2026-10-05）
+## RC6材料索引与继承边界（2026-11-07）
 
-当前源码为 `1.0.0-rc.3`（联系身份同步修订），继承 2026-10-05 已公开 RC2 的第三方组件与许可边界。可选登录组件固定 `v6.3.3-beta`（源 commit `0cee1f6b5c03b93d999a94bfc6e4baf745456d1b`）；它不随 App 分发，也不是游戏下载/修复的依赖。基础 Wine/DXMT/GStreamer 闭包仍按下述固定上游直接获取，不随本项目包二次分发。
+RC6延续2026-10-05已公开RC2以来的第三方组件与许可边界。新增首方`IdentityVNativeCameraCompat.dylib`由`wineMousePatch/native_protocol_compat.m` include `foreground_warp_compat.m`，通过`buildIdentityVNativeCameraCompat.command`重建；协议、原分类与runner验证分别为`wineMousePatch/testNativeProtocolCompat.py`、`wineMousePatch/testPinnedBoundary.py`、`gameRunnerApp/tests/nativeCameraCompatContract.test.command`。DNS覆盖层为`idvLoginComponent/dnsTCPFallback.py`，由`privilegedHelpers/buildIdentityVPrivilegedStateTool.command`嵌入，协议/冻结加载及helper生命周期测试入口见[DNS专题](../docs/loginDnsFallback.md)。上述首方实现沿用根GPL-3.0-or-later，源码/配方/测试均由精确clean HEAD的项目源码归档提供；原Wine修改仍按既有CodeWeavers源码与LGPL材料处理，原分类测试引用的CW成员/摘要见[开发者指南](../docs/developerGuide.md#原生鼠标协议兼容层)。本轮没有新增远端第三方输入，既有输入锁不变；最终源码归档commit必须匹配App provenance。
+
+以下保留六枚runtime替换载荷及早期审计条件。可选登录组件固定 `v6.3.3-beta`（源 commit `0cee1f6b5c03b93d999a94bfc6e4baf745456d1b`）；它不随 App 分发，也不是游戏下载/修复的依赖。基础 Wine/DXMT/GStreamer 闭包仍按下述固定上游直接获取，不随本项目包二次分发。
 
 随 App 的自建运行模块现为六枚：`winemac.so`、`gdi32.dll`、`winecoreaudio.so`、GMP、PCRE2、zstd。GDI 的字体回退/emoji 与路径映射、CoreAudio 的重采样/设备跟随修改及复建输入已纳入材料生成器；最终字节以 `runtimeBootstrap/runtime-manifest.json` 和候选材料校验清单为准。下文“四枚”和 RC1 候选 hash 保留历史审计条件，不表示这些旧材料已经覆盖 RC2。
 
@@ -95,7 +97,7 @@ GStreamer 的上游许可入口是 [source COPYING](https://gitlab.freedesktop.o
 
 ## 已定的交付路线与发布页核对
 
-基础 runtime、`idv-login` 6.3.0 和网易下载核心均从各自锁定的上游来源在用户机器取得；本项目 RC1 App/DMG 不二次托管这些二进制。发布页应如实说明这一点、不暗示网易、CodeWeavers、WineHQ、DXMT 或 Khronos 背书，也不声称已取得网易再分发授权。完整自建且可由本项目独立分发的 runtime 是另一项未来工程；只有实际改变交付来源或载荷时才重新审其闭包权利，不把旧路线选择反复交给风吟拍板。
+基础 runtime、`idv-login` 6.3.0 和网易下载核心均从各自锁定的上游来源在用户机器取得；本项目 RC1 App/DMG 不二次托管这些二进制。发布页应如实说明这一点、不暗示网易、CodeWeavers、WineHQ、DXMT 或 Khronos 背书，也不声称已取得网易再分发授权。完整自建且可由本项目独立分发的 runtime 是另一项未来工程；只有实际改变交付来源或载荷时才重新审其闭包权利，不因版本迭代而改变既定分发边界。
 
 ## 既有候选证据与最终重核
 

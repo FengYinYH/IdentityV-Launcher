@@ -1,6 +1,6 @@
 # ThirdPartyNotices 的使用说明
 
-本目录是当前 RC2 候选的许可审计正本。打包阶段应复制成发行物内可见的 `ThirdPartyNotices/`，并在每次改变“包里有什么”后重新审核；它不替代法律意见。
+本目录是当前发行材料的许可审计正本；下列RC1/RC2记录保留其历史适用条件。打包阶段应复制成发行物内可见的 `ThirdPartyNotices/`，并在每次改变“包里有什么”后重新审核；它不替代法律意见。
 
 项目原创的启动器、工具箱、helper 与相关源代码的根许可证是
 [`GPL-3.0-or-later`](../LICENSE)。本目录的第三方材料、Wine/yanyun 衍生补丁、
@@ -20,6 +20,8 @@
 可选 `IDENTITYV_NOTICES_CACHE_ROOT` 指向调用者管理的绝对目录，按 manifest 的相对路径只读复用已获取的原厂材料。每次仍核对文件属性、大小和锁定 SHA；缓存损坏会失败，不静默替换。它不缓存首方源码归档，后者始终从当前 clean HEAD 重建。大缓存应和材料构建一起放已核验外部卷，调用者决定保留或清理。
 
 生成物包含发行物应带的 `ThirdPartyNotices/` 与 `CorrespondingSources/`：idv-login 的 GPL 原文及精确 commit/tag/source 获取说明、GMP/PCRE2/zstd 源码、Wine LGPL 文本、ClipCursor、GDI 字体回退与 CoreAudio 补丁及构建配方、CodeWeavers 精确源码归档与获取说明，以及实际编入五个 Go helper 的外部 module notice。GDI 路径映射重建与音频设备跟随改变了随包模块，RC2 必须重新生成这些材料，不能沿用 RC1 的四模块说明。
+
+RC6新增的首方材料索引：`IdentityVNativeCameraCompat.dylib`对应[`native_protocol_compat.m`](../wineMousePatch/native_protocol_compat.m)及其include [`foreground_warp_compat.m`](../wineMousePatch/foreground_warp_compat.m)，构建配方为根目录[`buildIdentityVNativeCameraCompat.command`](../buildIdentityVNativeCameraCompat.command)，验证归属为`testNativeProtocolCompat.py`、`testPinnedBoundary.py`及`gameRunnerApp/tests/nativeCameraCompatContract.test.command`。DNS覆盖层源码为[`dnsTCPFallback.py`](../idvLoginComponent/dnsTCPFallback.py)，由[`buildIdentityVPrivilegedStateTool.command`](../privilegedHelpers/buildIdentityVPrivilegedStateTool.command)嵌入，协议/冻结加载与helper生命周期测试见[DNS说明](../docs/loginDnsFallback.md)。这些项目原创实现沿用根GPL-3.0-or-later，源码、配方、测试均包含在精确HEAD的项目源码归档中；原Wine修改部分仍沿用既有CodeWeavers源码/许可锁及对应补丁材料。本次未增加远端第三方输入，不为首方索引改写`releaseMaterialsManifest.tsv`。
 
 生成器也把当前 [`THIRD_PARTY_STATUS.md`](THIRD_PARTY_STATUS.md) 复制入材料包。改这份说明或锁定清单后，旧 `ReleaseMaterials.zip` 的内容与哈希不会自动更新；最终候选必须重新生成并与实际 App 组件对照。
 

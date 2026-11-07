@@ -163,6 +163,24 @@ Wine/yanyun 衍生补丁、第三方组件、游戏资源和 idv-login 不因本
 本材料包同时提供第三方 notice、对应源码和精确 clean HEAD 的项目源码归档。
 向任何受邀者或公众分发启动器二进制时，应在同一发行位置提供此材料包，
 并核对首方源码 commit 与 App 内 build-provenance.json 一致。
+
+## RC6首方源码与重建索引
+
+下列文件均位于 CorrespondingSources/ 中精确 commit 的项目源码归档内，
+项目原创实现沿用本材料包的 GPL-3.0-or-later，不新增远端第三方输入：
+
+- IdentityVNativeCameraCompat.dylib：wineMousePatch/native_protocol_compat.m
+  include wineMousePatch/foreground_warp_compat.m；根目录
+  buildIdentityVNativeCameraCompat.command 编译、签名并暂存仓内runner资源。
+  测试：wineMousePatch/testNativeProtocolCompat.py、testPinnedBoundary.py，
+  以及 gameRunnerApp/tests/nativeCameraCompatContract.test.command。
+  参数化复现与原CW成员/hash依据见 docs/developerGuide.md、docs/mouseCaptureEscape.md。
+- DNS覆盖层：idvLoginComponent/dnsTCPFallback.py，由
+  privilegedHelpers/buildIdentityVPrivilegedStateTool.command 嵌入原生状态工具；
+  协议/冻结加载与helper生命周期测试归属见 docs/loginDnsFallback.md。
+
+原Wine修改继续使用既有CodeWeavers源码归档、LGPL文本与补丁材料，
+不因首方适配层新增而改写第三方许可或远端输入锁。
 EOF
 
 cat > "$stage/CorrespondingSources/Wine-CodeWeavers-source-offer.txt" <<'EOF'

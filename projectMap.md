@@ -49,7 +49,7 @@ flowchart LR
 | `wineAudioPatch/` | 默认设备相关源码补丁、精确来源/模块核验与隔离候选构建；`stageDefaultDeviceRuntime.command` 从已核验audio1克隆新的本地运行包，不改当前选择或启动游戏。 |
 | `wineEmojiPatch/` | 表情与文字兼容补丁；`repro/` 是复现源码和测试材料，`licenses/` 是所用数据许可。 |
 | `wineKeyboardPatch/` | 游戏原生辅助模块：键盘映射、音量键和随启动器语言的宿主名称；包含无窗口的名称缓存回归。 |
-| `wineMousePatch/` | 鼠标输入兼容补丁；`buildCandidate.command`只在调用者新目录构建独立winemac，状态修补/显式会话诊断默认不部署。证据与开关/记录边界见 `docs/mouseCaptureEscape.md`。 |
+| `wineMousePatch/` | 现行鼠标协议兼容层`native_protocol_compat.m` include `foreground_warp_compat.m`，由根构建入口编译，OEM模块不替换；`testNativeProtocolCompat.py`、`testPinnedBoundary.py`及runner注入合约分别验证协议/原分类/最终child边界。`buildCandidate.command`为历史隔离winemac候选，旧dlopen wrapper已退役不可部署；现行入口与证据见 `docs/developerGuide.md`、`docs/mouseCaptureEscape.md`。 |
 | `wineNetworkInterposer/` | 网络兼容插桩源码和测试。 |
 | `diagnostics/` | **只保留产品使用的诊断导出源码与合约测试**；个人日志、截图、按日期的实机记录不在本仓。 |
 | `runtimeAssembly/` | 运行环境补丁 `patches/` 与隔离候选的源码/合约测试；真实本机 runtime、prefix 和旧实验现场不在本仓。 |
@@ -88,6 +88,7 @@ flowchart LR
 | `buildPlayerLauncher.command` | 构建玩家启动器并记录源码提交、默认 runtime 与资源哈希，默认写 `playerLauncherApp/build/`，自身不更新 `/Applications`。设置绝对路径环境变量 `IDENTITYV_OFFLINE_PAYLOAD_ROOT` 时额外注入 `Contents/Resources/OfflinePayloads/`（离线整包专用，见 `offlinePackaging/`）；不设置时产物与公开发行一致。 |
 | `buildMaintenanceToolbox.command` | 构建维护者工具箱到 `maintenanceToolboxApp/build/`，自身不更新 `/Applications`。 |
 | `buildGameRunner.command` | 构建/装配内嵌游戏 runner 模板。 |
+| `buildIdentityVNativeCameraCompat.command` | 玩家构建最前调用；编译`native_protocol_compat.m`（include `foreground_warp_compat.m`），ad-hoc签名并暂存至两份仓内runner资源、重签模板，不安装到`/Applications`或替换OEM模块。两runner仅最终Wine child默认Native/BG=1；显式00退出、10/01独立启用。参数化测试与来源摘要见`docs/developerGuide.md`。 |
 | `buildIdentityVGameActivator.command` | 构建游戏前台激活辅助程序。 |
 | `buildIdentityVFunctionKeyController.command` | 构建 F 键辅助程序。 |
 | `buildIdentityVInputLatencyProbe.command` | 构建开发者输入延迟探针。 |

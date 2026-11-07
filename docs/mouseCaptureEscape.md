@@ -1,8 +1,14 @@
-# 瞄准捕获模式鼠标逸出：调查与隔离候选
+# 瞄准捕获模式鼠标逸出：实现、验证与调查历史
+
+**当前结论（2026-11-07）**：1823协议实现已进入正式构建链，Native/BG默认启用，保留各自显式0退出。相同OEM模块与1k鼠标条件下，窗口化、完整系统全屏、高速捕获不逸出、free跨窗、后台失焦不抢指针及返回游戏恢复均已完成物理验收；用户确认明显改善且无新问题，但未达到Windows原生手感。build29默认启动的实际映射与先前同源物理验收已核对，源码、完整哈希与验证方法见文末。当前重建入口为[原生兼容层构建脚本](../buildIdentityVNativeCameraCompat.command)，测试入口见[开发者指南](developerGuide.md#原生鼠标协议兼容层)。
+
+## 2026-11-07早期隔离调查（历史阶段）
+
+以下保留初始授权、未部署状态与失败路径；后续正式集成及实机结果以本文顶部和文末为准。
 
 2026-11-07。用户报告按 `～` 进入瞄准捕获后，高速移动鼠标会逸出游戏窗口；明确要求保留自由模式跨窗口移动。本轮任务允许源码调查、日志白名单检索与独立候选，不允许启动游戏、发送输入、部署或修改 runtime manifest/catalog。历史的“单次捕获完全丢失”与本次“高速逸出”分开处理，不能自动视为同一故障。
 
-**当前结论（同日后续实机）：状态核验候选未修复高速逸出。** 用户在自定义模式完成低/高速对照，窗口化与系统全屏下高速均会逸出，方向无关、未切换 App，回到窗口又被拉到中心。主协调确认游戏实际加载已签名隔离诊断模块，但整个日志没有 v1 记录；0记录只说明观测链未到输出点，不能解释为修复成功、没有调用捕获或环境变量丢失。task-6 接续补齐诊断链路，见文末。之后v2已闭合观测链：主进程开关为1、nativeConfig为1，但完整自定义捕获复现中仍只有 reset/无限矩形、SetCapture/SetCursorPos，无有界driver clip或handler选择；预算未满。因此已排除“本轮开关丢失导致没记录”，仍须区分上层未请求与过滤。用户还确认后台露出的游戏区域会把指针拉回中心，要求后台任何模式都不抢指针；该问题与前台高速逸出分开处理。
+**早期状态核验候选的实机结论：未修复高速逸出。** 用户在自定义模式完成低/高速对照，窗口化与系统全屏下高速均会逸出，方向无关、未切换 App，回到窗口又被拉到中心。主协调确认游戏实际加载已签名隔离诊断模块，但整个日志没有 v1 记录；0记录只说明观测链未到输出点，不能解释为修复成功、没有调用捕获或环境变量丢失。task-6 接续补齐诊断链路，见文末。之后v2已闭合观测链：主进程开关为1、nativeConfig为1，但完整自定义捕获复现中仍只有 reset/无限矩形、SetCapture/SetCursorPos，无有界driver clip或handler选择；预算未满。因此已排除“本轮开关丢失导致没记录”，仍须区分上层未请求与过滤。用户还确认后台露出的游戏区域会把指针拉回中心，要求后台任何模式都不抢指针；该问题与前台高速逸出分开处理。
 
 ## 已核对的运行条件
 
@@ -275,13 +281,13 @@ python3 wineMousePatch/testNativeCameraCompat.py \
 
 ### 当前性能分支与可观察边界
 
-此前同鼠标8k配置→1k同会话显著改善的事实保留，不据后来变化倒写无效；随后用户又感到特别卡，737因此有回归嫌疑。只读仍为1000Hz、DPI原始字段4（初次5），本任务/typed helper只有先前一笔polling写入，没有DPI写入，不归因谁改变，也不自动恢复硬件。撤候选后体感“似乎流畅些、未到最好”尚不能定候选就是根因。隔离runner的HUD读取条件已由Lead对齐；当前无shim、1k、HUD正常开启的基线中，用户进一步表示鼠标与触控板表现一样、未见帧率异常、像输入卡顿。成熟呈现数据单独导出，不把历史57269帧卡或8k线索直接套成当前cause。
+此前同鼠标8k配置→1k同会话显著改善的事实保留，不据后来变化倒写无效；随后用户又感到特别卡，737因此有回归嫌疑。只读仍为1000Hz、DPI原始字段4（初次5），本任务/typed helper只有先前一笔polling写入，没有DPI写入，不归因谁改变，也不自动恢复硬件。撤候选后体感“似乎流畅些、未到最好”尚不能定候选就是根因。隔离runner的HUD读取条件已由Lead对齐；当前无shim、1k、HUD正常开启的基线中，用户进一步表示鼠标与触控板表现一样、未见帧率异常、像输入卡顿。成熟呈现数据单独导出，不把此前会话的坏呈现记录或8k线索直接套成当前cause。
 
 共享链的已知源码机制是：无SetCapture的mouseMove要windowNumberAtPoint与内容区hit-test；目标为WineWindow后，timestamp不晚于lastSetCursorPositionTime直接丢弃；成功warp写systemUptime、重新association，随后清全部pending move与重设按钮/滚轮基线，下一新move强制ABS；队列虽然合并move，仍逐post写pipe。鼠标/触控板共用这些环节。OEM注释指出CGWarp会隐式disassociate约0.25秒，并已有suppression0/恢复0.25与Associate(true) workaround，不能只凭注释断言当前macOS失效。
 
 若成熟Metal正常而只缺输入定位，最小额外观察可限定在现有mouseMove/warp callback、显式opt-in、稀疏1/128且总64样本，统计eventAge、原IMP服务耗时、前后lastWarpTime及lastTarget非空状态，不记坐标/键值。前后lastTarget均非nil且stale timestamp的子集可确认早退；目标变nil可识别无Wine target；双方nil必须标ambiguous。原warp方法服务时间不包含此前OnMainThread等待与Winserver RPC。不能无锁窥队列数组硬算drop；精确pending丢弃计数需要在原锁下predicate中轻计数并另做类型验证。该额外统计当前未实现/未启用，不另造纯诊断会话，也未用新nullable候选预写当前输入/呈现结论。
 
-后续已取得当前性能干扰的有效同进程对照：无shim、HUD已正常开启、配置仍1k/raw4的同一游戏进程，AX核对Monitor绑定正确，但联合采集completed后浮窗仍持续SCK画面采样，Monitor CPU快照31%。Lead关闭浮窗、不重启游戏、不改硬件，确认浮窗off且画面采样未在进行，Monitor降至1.6%；用户明确反馈“明显改善或已恢复正常”。这支持当前持续浮窗视觉采样为本轮性能干扰，不再需要前述64点shared-input诊断，不新增hook/画像，也不把当前卡顿归因尚未证明的warp/filter故障。历史8k配置对照及先前实际坏呈现独立保留。Toolbox浮窗改为仅资源数据、视觉采样留显式联合采集由独立工作域接续；鼠标源码/测试/ae1c产物继续冻结。下一真实fast/free/focus验收固定1k/raw4、HUDon、Floatoff，无外部computer-use控制态；若通过仍须接续正式原件兼容层集成与构建闭环，不能只交候选便终结鼠标目标。
+后续已取得当前性能干扰的有效同进程对照：无shim、HUD已正常开启、配置仍1k/raw4的同一游戏进程，AX核对Monitor绑定正确，联合采集completed后界面仍显示采集中，Monitor CPU快照31%。Lead关闭浮窗、不重启游戏、不改硬件，确认浮窗off且画面采样未在进行，Monitor降至1.6%；用户明确反馈“明显改善或已恢复正常”。同进程对照支持关闭浮窗后的CPU和输入改善，但陈旧采集状态不足以证明SCK流当时仍存活，31%负载的确切原因尚未独立证实。资源查询的5次只读样本约1.4–1.9ms，未重现或解释31%负载，详见[工具箱验证](../maintenanceToolboxApp/README.md#画面流与资源浮窗的生命周期修复2026-11-07)。不再需要前述64点shared-input诊断，不新增hook/画像，也不把当前卡顿归因尚未证明的warp/filter故障。历史8k配置对照及先前实际坏呈现独立保留。Toolbox浮窗改为仅资源数据、视觉采样留显式联合采集由独立工作域接续；鼠标源码/测试/ae1c产物继续冻结。下一真实fast/free/focus验收固定1k/raw4、HUDon、Floatoff，无外部computer-use控制态；若通过仍须接续正式原件兼容层集成与构建闭环，不能只交候选便终结鼠标目标。
 
 ### ae1c实机fast/free通过，转向native handler协议
 
@@ -313,4 +319,4 @@ python3 wineMousePatch/testNativeCameraCompat.py \
 
 唯一下一协议候选raw `1823d00720d3809c2f5b8d4d4e624b98879adba0280134ffe68f9cd34eda2e13`，source `86287183653b58d8db94cb6328c25c9e8769150dd778aea3046eff65b4bcf8d1`，test `4fe10b42d7910da28ff31cd742f06afd960b89260fe7425a019387195eddfba6`。依赖仍仅CoreFoundation/libobjc/libSystem。冻结当时尚未部署、未碰活动ae1c会话；该时点尚待的实测已由下段后续正式验收闭合。原handler带来的额外一次进入回中、stop时间戳及窗口移动/resize特性更新都是实际差异，不隐去，也不预写性能改善。正式构建入口与集成由Lead维护，接入及默认加载结果见下段。
 
-后续真实1823协议实现（签名副本b94）在HUDon、Floatoff、1k/raw4一致条件下，用户明确“没到Windows原生感觉，但明显好很多、没有新问题”，并确认完整全屏、高速不逸出、free跨窗、失焦后台指针经过、回游戏恢复全部正常。物理边界验收至此闭合，残余主观体验差距保留，不再扩shared-input诊断。Lead已接续两canonical runner及正式构建链的Native/BG默认1，保留各自显式0退出；新增[注入契约](../gameRunnerApp/tests/nativeCameraCompatContract.test.command)实跑40个fake x86 final Wine child，验证两runner/两产品/direct与virtual、默认与独立optout、准确普通非symlink资源、实际DSO加载、非SIP ARM resolver/control不染、PID/fallback保留。未启动真实Wine/游戏/HID，冻结protocol/shared/test/classifier均未改；正式App29随后由Lead完成完整构建、签名和安装：代码来源cd73b651a95896ee4b9bde76ad0c3887f6d335c0，27个第一方Mach-O身份与新增40组合启动合约通过。清除Native/BG/Audit测试环境后，从实际安装runner按默认mainland启动，游戏PID2565的映射明确包含安装包Resources/IdentityVNativeCameraCompat.dylib，签名资源SHA256为c8acedbb55786a902ed50f4f663b77ee1e1436636af2d755ec0f26bc09b55b58；实际加载winemac仍365fefb1、win32u仍15c047bb，默认绑定未变，HUD配置accepted1。Audit默认关闭时安装日志也静默，不能据此判未加载；本次以实际映射、包签名/源码身份和先前同源完整物理验收闭合，不再要求用户重复动作。私有结果保存在对应build29/default-launch-verification.json；sourceClean=false如实反映构建时文档收尾，不用于公开发行。
+后续真实1823协议实现（签名副本b94）在HUDon、Floatoff、1k/raw4一致条件下，用户明确“没到Windows原生感觉，但明显好很多、没有新问题”，并确认完整全屏、高速不逸出、free跨窗、失焦后台指针经过、回游戏恢复全部正常。物理边界验收至此闭合，残余主观体验差距保留，不再扩shared-input诊断。Lead已接续两canonical runner及正式构建链的Native/BG默认1，保留各自显式0退出；新增[注入契约](../gameRunnerApp/tests/nativeCameraCompatContract.test.command)实跑40个fake x86 final Wine child，验证两runner/两产品/direct与virtual、默认与独立optout、准确普通非symlink资源、实际DSO加载、非SIP ARM resolver/control不染、PID/fallback保留。未启动真实Wine/游戏/HID，冻结protocol/shared/test/classifier均未改；正式App29随后由Lead完成完整构建、签名和安装：代码来源cd73b651a95896ee4b9bde76ad0c3887f6d335c0，27个第一方Mach-O身份与新增40组合启动合约通过。清除Native/BG/Audit测试环境后，从实际安装runner按默认mainland启动，通过只读进程映射核对，真实游戏进程明确加载安装包Resources/IdentityVNativeCameraCompat.dylib，签名资源SHA256为c8acedbb55786a902ed50f4f663b77ee1e1436636af2d755ec0f26bc09b55b58；实际加载winemac仍为`365fefb1c0bf4c0e54f4fd3a00dbd44bd9a6febc75209846b6de2c270bdb9c60`、win32u仍为`15c047bb78a84da940eb86eff692e6aa6b74ed69975613c93715b9f3ce0f13f7`，默认绑定未变，HUD配置accepted1。Audit默认关闭时安装日志也静默，不能据此判未加载；本次以实际映射、包签名/源码身份和先前同源完整物理验收闭合，不再要求用户重复动作。原始会话证据保留仓外，公开可复核的依据是上述日期/build/source、资源完整摘要、进程映射方法及同源物理验证条件；该开发构建的sourceClean=false如实反映构建时文档收尾，不用于公开发行。

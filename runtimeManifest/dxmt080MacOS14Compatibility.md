@@ -1,5 +1,7 @@
 # DXMT 0.80 的 macOS 14 向下兼容审计
 
+**现行决定（2026-11-07）：所有者已取消 macOS 14 适配，不再安排后续施工；完整产品按 macOS 15+ 维护。** 以下是历史审计与当时备选路线，保留技术依据，不作为待办或支持承诺。
+
 审计时间：2026-08-29。范围仅限活动 Wine 11 runtime 的只读 Mach-O/包闭包检查，以及来自 DXMT 官方 GitHub 的 `v0.80` 源码与构建说明。不修改 `installation.json`、`launcher.env`、App、活动 runtime 或 prefix。
 
 ## 结论

@@ -12,11 +12,29 @@ CI入口不按RC命名：`.github/workflows/checks.yml`跑持续合约检查，`
 
 关于与版本/更新窗口复用 `LauncherUpdateView.swift` 的排版和外框几何；开发验证可直接运行App可执行文件 `--preview-launcher-update --preview-language zh-Hans`（另支持zh-Hant/en），在业务模型创建前进入隔离原生预览，不联网、不下载/安装，不写真实更新状态。纯视觉入口无需新增Agent业务命令，几何与三语验证见[窗口说明](aboutAndUpdateWindows.md)。
 
-IDV Login的DNS适配在helper合约11的停止服务生命周期内准备，按精确官方资产身份注册，未知版本透明退出。旧8–10的管理协议仍可用，当前维护能力需单独判断，不能由“进程ready/旧协议兼容”跳过修复安装；细节见[DNS说明](loginDnsFallback.md)。鼠标高速问题先以[受控会话诊断](mouseCaptureEscape.md)取证，独立模块构建不是默认runtime升级，不能为验证把自由模式也全局锁住。
+IDV Login的DNS适配在helper合约11的停止服务生命周期内准备，按精确官方资产身份注册，未知版本透明退出。旧8–10的管理协议仍可用，当前维护能力需单独判断，不能由“进程ready/旧协议兼容”跳过修复安装；细节见[DNS说明](loginDnsFallback.md)。鼠标协议兼容层已默认集成并完成物理验收，现行重建与测试见下节；历史隔离模块及失败依据保留在[鼠标专题](mouseCaptureEscape.md)，不再按旧候选替换OEM模块。
+
+### 原生鼠标协议兼容层
+
+玩家构建最前调用[`buildIdentityVNativeCameraCompat.command`](../buildIdentityVNativeCameraCompat.command)，编译[`native_protocol_compat.m`](../wineMousePatch/native_protocol_compat.m)（include [`foreground_warp_compat.m`](../wineMousePatch/foreground_warp_compat.m)），生成x86_64/minOS14的`IdentityVNativeCameraCompat.dylib`，ad-hoc签名并暂存到两份项目runner模板资源，重签模板；该入口不安装到`/Applications`，不替换OEM Wine模块。最终发行签名由玩家构建/签名流程继续处理。
+
+两runner仅在最终Wine child默认设置`IDENTITYV_NATIVE_CAMERA_CLIP=1`与`IDENTITYV_FOREGROUND_WARP_GATE=1`并加载资源，ARM resolver/control不受注入。显式`0/0`退出全部适配，`1/0`为Native-only，`0/1`为BG-only；未知OEM身份透明退出。使用这两个完整环境变量名设置独立开关，不能把Audit静默视为未加载。
+
+从仓库根目录重放无GUI测试；各`NEW_OUTPUT`须为独立新目录，不能指向活动资源：
+
+```sh
+python3 wineMousePatch/testNativeProtocolCompat.py OEM_RUNTIME NEW_OUTPUT [UNKNOWN_WINEMAC [RETIRED_BROKEN_SHIM [RUNNER_RESOURCES]]]
+python3 wineMousePatch/testPinnedBoundary.py matching-cocoa_app.m NEW_OUTPUT
+zsh gameRunnerApp/tests/nativeCameraCompatContract.test.command
+```
+
+方括号表示逐级可选参数，实际调用时移除方括号并替换路径。OEM_RUNTIME须匹配原365/15c模块摘要，测试会检查；classifier输入来自锁定`crossover-sources-26.1.0.tar.gz`（SHA256 `e4ec87d5821a009dd1f1d2e36ffe2e24b8fcbae9516375ea42f95a16928ab8fa`）的`sources/wine/dlls/winemac.drv/cocoa_app.m`，全文SHA256 `b9d0434dc8ecaf0379f8300e94f2e8c70b3b320c45b4cb9f7d6877acd2e94c30`；原handler/header成员与摘要见[所有权依据](mouseCaptureEscape.md#原cw所有权析构依据)。来源归档及许可已由发行材料锁定。这些测试验证类型、协议、加载/退出与runner边界，真实窗口/高速/free/BG/focus验收另见专题。
+
+旧`testForegroundWarpCompat.py`对应已退役的dlopen包装，保留作失败历史/负例，不能据其通过部署旧loader；现行协议测试的`RETIRED_BROKEN_SHIM`参数用于重放caller-rpath负控。
 
 ## 运行与构建关系
 
-本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper 合约为 10；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。
+本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper当前维护合约为11；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。
 
 IDV Login 版本升级须同步清单、Swift UI/cache 常量、Go 下载器精确字节锁和许可来源；当前锁定官方 `v6.3.3-beta`，标签与资产以实际 Release 核验，不能由版本号猜测通道。通常先退出游戏再运行安装器。已明确安排保留活动游戏的维护更新，可先停止登录代理，再使用安装器的 `--allow-running-game-with-stopped-proxy`；此参数仍要求代理进程和托管 hosts 均已消失，不提供活动代理绕过。具体证据与回退见[组件说明](../idvLoginComponent/README.md)。
 
