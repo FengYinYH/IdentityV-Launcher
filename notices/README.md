@@ -23,6 +23,8 @@
 
 RC6新增的首方材料索引：`IdentityVNativeCameraCompat.dylib`对应[`native_protocol_compat.m`](../wineMousePatch/native_protocol_compat.m)及其include [`foreground_warp_compat.m`](../wineMousePatch/foreground_warp_compat.m)，构建配方为根目录[`buildIdentityVNativeCameraCompat.command`](../buildIdentityVNativeCameraCompat.command)，验证归属为`testNativeProtocolCompat.py`、`testPinnedBoundary.py`及`gameRunnerApp/tests/nativeCameraCompatContract.test.command`。DNS覆盖层源码为[`dnsTCPFallback.py`](../idvLoginComponent/dnsTCPFallback.py)，由[`buildIdentityVPrivilegedStateTool.command`](../privilegedHelpers/buildIdentityVPrivilegedStateTool.command)嵌入，协议/冻结加载与helper生命周期测试见[DNS说明](../docs/loginDnsFallback.md)。这些项目原创实现沿用根GPL-3.0-or-later，源码、配方、测试均包含在精确HEAD的项目源码归档中；原Wine修改部分仍沿用既有CodeWeavers源码/许可锁及对应补丁材料。本次未增加远端第三方输入，不为首方索引改写`releaseMaterialsManifest.tsv`。
 
+游戏启动表现也包含在同一精确源码归档中：[`gamePresentationHost.m`](../gameRunnerApp/gamePresentationHost.m)编入现有ARM启动入口，共享[`gamePresentationHost.command`](../gameRunnerApp/gamePresentationHost.command)只生成用户侧元数据和原核验loader符号链接；[`IdentityVGamePresentation.m`](../wineKeyboardPatch/IdentityVGamePresentation.m)编入既有辅助库处理居中和alpha圆角。对应构建、两项独立自检与真实Dock验收见[专题](../docs/gamePresentation.md)；元数据壳不复制或重分发Wine，不新增远端许可输入。
+
 生成器也把当前 [`THIRD_PARTY_STATUS.md`](THIRD_PARTY_STATUS.md) 复制入材料包。改这份说明或锁定清单后，旧 `ReleaseMaterials.zip` 的内容与哈希不会自动更新；最终候选必须重新生成并与实际 App 组件对照。
 
 生成前要求整个产品工作树处于 clean checkpoint，并把该 commit 的项目源码归档及 commit 文本纳入 `CorrespondingSources/`。这让首方 GPL 代码与构建身份精确对应；不以可移动的 main 分支链接代替匹配源码。最终封包仍须检查 App 构建身份与该 commit 相同。

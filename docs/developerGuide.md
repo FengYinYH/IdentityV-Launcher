@@ -12,6 +12,8 @@ CI入口不按RC命名：`.github/workflows/checks.yml`跑持续合约检查，`
 
 关于与版本/更新窗口复用 `LauncherUpdateView.swift` 的排版和外框几何；开发验证可直接运行App可执行文件 `--preview-launcher-update --preview-language zh-Hans`（另支持zh-Hant/en），在业务模型创建前进入隔离原生预览，不联网、不下载/安装，不写真实更新状态。纯视觉入口无需新增Agent业务命令，几何与三语验证见[窗口说明](aboutAndUpdateWindows.md)。
 
+游戏启动表现分为两个既有入口：CommandGrave辅助库include独立窗口/图标模块，1.0保持1080p，最终尺寸后有界居中一次；ARM `launchIdentityV` 的内部 `--prepare-game-host` 模式复制原loader元数据，生成实际命名的用户侧轻应用壳和受控symlink，使Dock取到本地化名称，不复制、改写或重签OEM。两runner共用 `gamePresentationHost.command`，在最终Wine child导出x86注入环境前完成ARM准备，后续child exec继承host `WINELOADER`。没有新DSO、daemon或用户设置。`zsh gameRunnerApp/tests/gamePresentationHostContract.test.command NEW_HOST_OUTPUT` 与 `zsh wineKeyboardPatch/gamePresentationSelfTest.command NEW_PRESENTATION_OUTPUT`均接入完整玩家构建，分别验证元数据/并发/回退/真实child边界，以及argv/几何/像素/原生桥接。系统getter、CG缓存与真正Dock提示须分别判断，只有后者能验收用户所指名称。host边界、原Wine时序、失败依据与真实验收见[游戏启动表现](gamePresentation.md)。
+
 IDV Login的DNS适配在helper合约11的停止服务生命周期内准备，按精确官方资产身份注册，未知版本透明退出。旧8–10的管理协议仍可用，当前维护能力需单独判断，不能由“进程ready/旧协议兼容”跳过修复安装；细节见[DNS说明](loginDnsFallback.md)。鼠标协议兼容层已默认集成并完成物理验收，现行重建与测试见下节；历史隔离模块及失败依据保留在[鼠标专题](mouseCaptureEscape.md)，不再按旧候选替换OEM模块。
 
 ### 原生鼠标协议兼容层

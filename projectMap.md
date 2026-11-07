@@ -27,7 +27,7 @@ flowchart LR
 | `.github/workflows/` | 按能力命名的持续合约检查与手动安装/图形实验；测试精确checkout提交，不以营销版本命名长期工作流。入口、真实历史与验收边界见 `docs/ciWorkflow.md`。 |
 | `playerLauncherApp/` | 玩家 App。`Sources/` 是界面和业务逻辑，`Resources/currentRoute.md` 是打进 App 的用户说明，`Assets/` 放图标，`Tests/` 放自检（含 `LauncherUpdateCheckerSelfTest.swift` 的手动更新检测合约），`PromptHelper/` 和 `MicHelper/` 负责对应系统提示，`UpdateHelper/` 在明确确认更新后接续同址替换、回退和重启回执；`build/` 是可再生产物。 |
 | `maintenanceToolboxApp/` | 维护者 App。`Sources/` 是浮窗、采集和界面，`Assets/` 放图标；`build/` 是可再生产物。 |
-| `gameRunnerApp/` | 内嵌 runner 的两个模板 `IdentityV-Mac.app`、`IdentityV-AGTK.app` 及 `tests/`；当前玩家 App 出货的是前者，后者保留供历史/开发测试。模板的 `Contents/` 中有启动脚本、资源和受控预编译输入；`AGTK` 是历史名称，不代表当前主路线使用 Apple GPTK。 |
+| `gameRunnerApp/` | 内嵌runner两模板 `IdentityV-Mac.app`、`IdentityV-AGTK.app`及`tests/`，当前出货前者，后者保留历史/开发测试，AGTK不代表主路线使用GPTK。`IdentityVLauncher.c` include `gamePresentationHost.m`，ARM内部模式从原loader Info生成用户侧本地化`.app`元数据与symlink；共用`gamePresentationHost.command`只在最终Wine child启用。host合约验证身份/权限说明、复用并发与回退，真实Dock另验；详见`docs/gamePresentation.md`。 |
 | `sharedDiagnostics/` | 两款 App 显式编译的健康检查、资源采样和高密度采集状态源码，以及新旧 bundle 域之间的受限偏好迁移；包括 `DenseMonitoring.swift`、`LegacyPreferences.swift`；`LauncherOperationLocks.swift`供玩家GUI/管理器/Agent/更新助手编译，协调活任务与App替换。 |
 | `gameDownloader/` | 游戏下载、更新和文件校验逻辑。 |
 | `downloaderCoreBootstrap/` | 获取并校验网易下载核心的引导程序；不存放用户账号。 |
@@ -46,9 +46,9 @@ flowchart LR
 | `uninstaller/` | 产品卸载逻辑；执行时会改变用户安装数据，先读脚本。 |
 | `denseMetrics/` | 高密度性能采样器源码；真实采样结果存于仓外私人目录。 |
 | `wineAudioInterposer/` | Wine 音频接口补丁/插桩源码与测试。 |
-| `wineAudioPatch/` | 默认设备相关源码补丁、精确来源/模块核验与隔离候选构建；`stageDefaultDeviceRuntime.command` 从已核验audio1克隆新的本地运行包，不改当前选择或启动游戏。 |
+| `wineAudioPatch/` | 默认设备补丁、精确来源/模块核验与隔离候选构建；`stageDefaultDeviceRuntime.command`从已核验audio1克隆新本地运行包，不改当前选择或启动游戏。`buildCaptureRingX64.command`及`testCaptureRingOffsets.py`处理独立采集环读偏移候选，已复建但未接默认runtime，不等同气泡音已修；见`docs/audioCapturePeriodicArtifact20260924.md`。 |
 | `wineEmojiPatch/` | 表情与文字兼容补丁；`repro/` 是复现源码和测试材料，`licenses/` 是所用数据许可。 |
-| `wineKeyboardPatch/` | 游戏原生辅助模块：键盘映射、音量键和随启动器语言的宿主名称；包含无窗口的名称缓存回归。 |
+| `wineKeyboardPatch/` | 既有键盘/音量辅助库include独立窗口/图标适配，最终1080p一次居中、原图alpha圆角；Dock名称由runner原生host生成处理。`gamePresentationSelfTest.command`验证真实argv、几何/像素和禁止激活的原生桥接，保留LS与原签loader输入所有权的历史反证，不替代真实Dock/窗口验收；见`docs/gamePresentation.md`。 |
 | `wineMousePatch/` | 现行鼠标协议兼容层`native_protocol_compat.m` include `foreground_warp_compat.m`，由根构建入口编译，OEM模块不替换；`testNativeProtocolCompat.py`、`testPinnedBoundary.py`及runner注入合约分别验证协议/原分类/最终child边界。`buildCandidate.command`为历史隔离winemac候选，旧dlopen wrapper已退役不可部署；现行入口与证据见 `docs/developerGuide.md`、`docs/mouseCaptureEscape.md`。 |
 | `wineNetworkInterposer/` | 网络兼容插桩源码和测试。 |
 | `diagnostics/` | **只保留产品使用的诊断导出源码与合约测试**；个人日志、截图、按日期的实机记录不在本仓。 |

@@ -178,6 +178,14 @@ Wine/yanyun 衍生补丁、第三方组件、游戏资源和 idv-login 不因本
 - DNS覆盖层：idvLoginComponent/dnsTCPFallback.py，由
   privilegedHelpers/buildIdentityVPrivilegedStateTool.command 嵌入原生状态工具；
   协议/冻结加载与helper生命周期测试归属见 docs/loginDnsFallback.md。
+- 游戏启动表现：gameRunnerApp/gamePresentationHost.m include进现有ARM
+  IdentityVLauncher.c，由buildGameRunner.command构建；共享gamePresentationHost.command
+  只为最终Wine child生成用户侧元数据壳与原核验loader符号链接，不复制/分发Wine。
+  wineKeyboardPatch/IdentityVGamePresentation.m include进原CommandGrave辅助库，
+  负责最终1080p窗口的一次居中与原图alpha圆角。对应入口为
+  gameRunnerApp/tests/gamePresentationHostContract.test.command和
+  wineKeyboardPatch/gamePresentationSelfTest.command；设计、原Wine依据与实际Dock
+  验收边界见docs/gamePresentation.md。
 
 原Wine修改继续使用既有CodeWeavers源码归档、LGPL文本与补丁材料，
 不因首方适配层新增而改写第三方许可或远端输入锁。

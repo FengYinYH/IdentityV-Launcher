@@ -25,6 +25,8 @@ runner_plist="$root/IdentityV-Mac.app/Contents/Info.plist"
 # Exercise only the exact final child fragment with a harmless shell stub.
 # No Wine, GUI, game, prefix or audio is started. The parent must retain no
 # app-name override, and both products must keep their Windows argv intact.
+# The native presentation helper must receive the same canonical allowlisted
+# name as Wine, including manager/default fallback after an invalid selection.
 /usr/bin/python3 - "$root" <<'PY'
 import os, subprocess, sys, tempfile
 from pathlib import Path
@@ -32,19 +34,21 @@ root = Path(sys.argv[1])
 mac = (root / 'IdentityV-Mac.app/Contents/MacOS/launchIdentityVRunner').read_text()
 agtk = (root / 'IdentityV-AGTK.app/Contents/MacOS/launchIdentityVRunner').read_text()
 assert mac == agtk
-assert mac.count('export WINEPRELOADERAPPNAME=') == 1
-fragment = mac.split('    (\n      # CodeWeavers', 1)[1]
-fragment = '      # CodeWeavers' + fragment.split('    ) >>"$LOG_FILE"', 1)[0]
+assert mac.count('identityv_prepare_game_presentation') == 2
+fragment = mac.split('    (\n      # Final game presentation child:', 2)[2]
+fragment = '      # Final game presentation child:' + fragment.split('    ) >>"$LOG_FILE"', 1)[0]
 assert '/usr/bin/env' not in fragment
 with tempfile.TemporaryDirectory(prefix='wine-menu-child-contract-') as directory:
     app_contents = Path(directory) / 'Launcher.app/Contents/Helpers/Runner.app/Contents'
     app_contents.mkdir(parents=True)
+    (app_contents/'Resources').mkdir()
+    (app_contents/'Resources/gamePresentationHost.command').write_text((root/'gamePresentationHost.command').read_text())
     manager = Path(directory) / 'Launcher.app/Contents/Resources/IdentityVProductManager'
     manager.parent.mkdir()
     manager.write_text('#!/bin/zsh\n[[ "$1" == game-display-name && $# == 1 ]] || exit 2\nprint -r -- "Identity V"\n')
     manager.chmod(0o700)
     stub = Path(directory) / 'wine-stub'
-    stub.write_text('#!/bin/zsh\nprint -r -- "$WINEPRELOADERAPPNAME"\nprint -r -- "$1"\n')
+    stub.write_text('#!/bin/zsh\nprint -r -- "$WINEPRELOADERAPPNAME"\nprint -r -- "$IDENTITYV_GAME_DISPLAY_NAME"\nprint -r -- "$1"\n')
     stub.chmod(0o700)
     for product, windows_root, selected, expected in [('mainland', 'IdentityV', 'Identity V', 'Identity V'), ('global', 'IdentityVGlobal', '第五人格', '第五人格'), ('global', 'IdentityVGlobal', 'invalid', 'Identity V'), ('mainland', 'IdentityV', '', 'Identity V')]:
         environment = os.environ.copy()
@@ -52,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix='wine-menu-child-contract-') as director
         environment['APP_CONTENTS'] = str(app_contents)
         code = 'unset WINEPRELOADERAPPNAME\ntypeset -a hud_environment GAME_LAUNCH_ARGUMENTS\n(\n' + fragment + '\n)\nprint -r -- "parent=${WINEPRELOADERAPPNAME-unset}"\n'
         result = subprocess.run(['/bin/zsh', '-c', code], env=environment, text=True, capture_output=True, check=True)
-        assert result.stdout.splitlines() == [expected, 'C:\\Games\\' + windows_root + '\\dwrg.exe', 'parent=unset'], result.stdout
+        assert result.stdout.splitlines() == [expected, expected, 'C:\\Games\\' + windows_root + '\\dwrg.exe', 'parent=unset'], result.stdout
 print('Game child menu-name scope and Windows argv contract passed')
 PY
 

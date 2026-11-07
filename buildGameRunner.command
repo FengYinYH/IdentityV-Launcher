@@ -25,6 +25,7 @@ for app in "${TARGETS[@]}"; do
   [[ -r "$RUNTIME_CATALOG" ]] || { print -u2 "Missing runtime catalog: $RUNTIME_CATALOG"; exit 1; }
   /usr/bin/install -m 755 "$OUTPUT" "$target"
   /usr/bin/install -m 444 "$RUNTIME_CATALOG" "$app/Contents/Resources/runtime-catalog.json"
+  /usr/bin/install -m 444 "$PROJECT_ROOT/gameRunnerApp/gamePresentationHost.command" "$app/Contents/Resources/gamePresentationHost.command"
   # 由内到外签整个 runner bundle（内含 DNS/音频/按键等注入 dylib）。
   identityv_sign_bundle_tree "$app"
   identityv_verify_bundle_tree "$app"

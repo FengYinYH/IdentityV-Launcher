@@ -9,10 +9,13 @@
 #### 调整
 
 - 「关于」显示实际构建号；更新窗口沿用原生关于窗口的字体、图标和对齐，内容与按钮在下方自然展开。
+- 游戏 Dock 图标采用圆角矩形外轮廓，保留原图内容。
 
 #### 修复
 
 - 修复部分网络环境下 IDV Login 域名解析失败、导致无法完成登录的问题。
+- 修复游戏启动从小窗切换到最终 1080p 尺寸后未居中的问题。
+- 修复 Dock 中游戏名称显示为「wine」的问题。
 - 修复捕获模式高速移动时鼠标指针逸出游戏窗口，以及游戏位于后台时拉回指针的问题。
 - 改善移动同时转动视角时的输入抖动，保持自由模式跨窗及切回游戏后的捕获恢复。
 - 修复维护工具箱停止联合采集后的画面流、文件和状态收尾，避免迟到样本写入旧记录。
@@ -22,10 +25,13 @@
 #### 調整
 
 - 「關於」顯示實際建置號碼；更新視窗沿用原生關於視窗的字體、圖示與對齊，內容與按鈕在下方自然展開。
+- 遊戲 Dock 圖示採用圓角矩形外輪廓，保留原圖內容。
 
 #### 修復
 
 - 修復部分網路環境下 IDV Login 網域解析失敗、導致無法完成登入的問題。
+- 修復遊戲啟動從小視窗切換至最終 1080p 尺寸後未置中的問題。
+- 修復 Dock 中遊戲名稱顯示為「wine」的問題。
 - 修復擷取模式高速移動時滑鼠指標逸出遊戲視窗，以及遊戲位於背景時拉回指標的問題。
 - 改善移動同時轉動視角時的輸入抖動，保留自由模式跨視窗及切回遊戲後的擷取恢復。
 - 修復維護工具箱停止聯合採集後的畫面串流、檔案與狀態收尾，避免遲到樣本寫入舊記錄。
@@ -35,10 +41,13 @@
 #### Changed
 
 - About now shows the actual build number. The update window uses the native About window's typography, icon and alignment, with content and buttons extending naturally below.
+- Rounded the game's Dock icon corners while preserving the original artwork.
 
 #### Fixed
 
 - Fixed IDV Login DNS resolution failures that prevented login in some network environments.
+- Fixed startup centering after the game expands from its initial small window to the final 1080p size.
+- Fixed the game's Dock tooltip showing “wine” instead of its localized name.
 - Fixed the pointer escaping the game window during fast movement in capture mode, and being pulled back by the game while it was in the background.
 - Improved input jitter when moving and turning the camera together, while preserving free-mode movement across windows and capture restoration when returning to the game.
 - Fixed visual-stream, file and status cleanup after combined recording stops in the maintenance toolbox, preventing late samples from entering an old recording.

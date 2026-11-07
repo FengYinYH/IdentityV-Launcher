@@ -45,6 +45,7 @@ C
 COMPLEX="$TEST_ROOT/"$'引号 空格\'"\\路径\n换行'
 APP_CONTENTS="$COMPLEX/Launcher.app/Contents/Helpers/Runner.app/Contents"
 /bin/mkdir -p "$APP_CONTENTS/Resources" "$COMPLEX/Launcher.app/Contents/Resources"
+/bin/cp "$ROOT/gameRunnerApp/gamePresentationHost.command" "$APP_CONTENTS/Resources/gamePresentationHost.command"
 NATIVE_CAMERA_COMPAT="$APP_CONTENTS/Resources/IdentityVNativeCameraCompat.dylib"
 COMMAND_GRAVE_FORWARDER="$COMPLEX/forwarder.dylib"
 NATIVE_CONTROL="$COMPLEX/Launcher.app/Contents/Resources/IdentityVProductManager"
@@ -121,8 +122,8 @@ assert tuple(r[4:6])==expected and r[6]=='unset',r
 libs=r[2].split(':');assert libs==([forwarder] if setting=='both-off' else [forwarder,adapter]),r
 assert r[7]==('unset' if setting=='both-off' else '1'),r # DSO actually loaded
 assert r[10]=='--contract-final-child' and r[9]==('explorer' if desktop=='1' else 'C:\\Games\\'+game+'\\dwrg.exe'),r
-assert len(native)==(1 if desktop=='1' else 2),rows
-assert [n[0] for n in native]==(['control'] if desktop=='1' else ['resolver','control'])
+assert len(native)==2,rows
+assert [n[0] for n in native]==['resolver','control']
 parent={'default':('unset','unset'),'empty-default':('',''),'both-off':('0','0'),'native-only':('1','0'),'background-only':('0','1')}[setting]
 for n in native:
  assert n[2]=='unset' and n[7]=='unset' and n[6]=='unset',n

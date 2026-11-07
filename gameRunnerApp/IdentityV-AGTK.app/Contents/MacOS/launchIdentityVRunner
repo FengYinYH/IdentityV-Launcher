@@ -1188,10 +1188,16 @@ launch_game_once() {
     fi
     print -r -- "launch mode: virtual desktop ${IDENTITYV_DESKTOP_NAME},${IDENTITYV_DESKTOP_SIZE}" >>"$LOG_FILE"
     (
+      # Final game presentation child: native metadata work precedes x86 injection.
+      game_loader="$WINE_BIN"
+      if [[ -r "$APP_CONTENTS/Resources/gamePresentationHost.command" ]]; then
+        source "$APP_CONTENTS/Resources/gamePresentationHost.command"
+        identityv_prepare_game_presentation
+      fi
       export IDENTITYV_NATIVE_CAMERA_CLIP="${IDENTITYV_NATIVE_CAMERA_CLIP:-1}"
       export IDENTITYV_FOREGROUND_WARP_GATE="${IDENTITYV_FOREGROUND_WARP_GATE:-1}"
       export DYLD_INSERT_LIBRARIES="$wine_inserted_libraries"
-      exec "$WINE_BIN" explorer "/desktop=${IDENTITYV_DESKTOP_NAME},${IDENTITYV_DESKTOP_SIZE}" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe" "${GAME_LAUNCH_ARGUMENTS[@]}"
+      exec "$game_loader" explorer "/desktop=${IDENTITYV_DESKTOP_NAME},${IDENTITYV_DESKTOP_SIZE}" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe" "${GAME_LAUNCH_ARGUMENTS[@]}"
     ) >>"$LOG_FILE" 2>&1 &
   else
     if [[ "$METAL_HUD_ENABLED" == "1" ]]; then
@@ -1218,24 +1224,12 @@ launch_game_once() {
     # retains the runner's library path, adds HUD vars only for direct dwrg,
     # then execs Wine so LAUNCHED_WINE_PID is still Wine's PID.
     (
-      # CodeWeavers rewrites the embedded name after AppKit has cached it.
-      # The native helper also refreshes the process-local bundle dictionary.
-      # IDV Login's fixed bridge enters the runner without manager environment.
-      # Ask the enclosing launcher manager's read-only language resolver in that
-      # case, rather than silently losing the user's English preference.
-      case "${IDENTITYV_GAME_DISPLAY_NAME-}" in
-        "Identity V"|"第五人格") ;;
-        *)
-          name_manager="$APP_CONTENTS/../../../Resources/IdentityVProductManager"
-          resolved_name=""
-          [[ ! -x "$name_manager" ]] || resolved_name="$("$name_manager" game-display-name 2>/dev/null)"
-          case "$resolved_name" in
-            "Identity V"|"第五人格") export IDENTITYV_GAME_DISPLAY_NAME="$resolved_name" ;;
-            *) export IDENTITYV_GAME_DISPLAY_NAME="第五人格" ;;
-          esac
-          ;;
-      esac
-      export WINEPRELOADERAPPNAME="$IDENTITYV_GAME_DISPLAY_NAME"
+      # Final game presentation child: native metadata work precedes x86 injection.
+      game_loader="$WINE_BIN"
+      if [[ -r "$APP_CONTENTS/Resources/gamePresentationHost.command" ]]; then
+        source "$APP_CONTENTS/Resources/gamePresentationHost.command"
+        identityv_prepare_game_presentation
+      fi
       if (( ${#hud_environment[@]} )); then
         export "${hud_environment[@]}"
       fi
@@ -1243,7 +1237,7 @@ launch_game_once() {
       export IDENTITYV_NATIVE_CAMERA_CLIP="${IDENTITYV_NATIVE_CAMERA_CLIP:-1}"
       export IDENTITYV_FOREGROUND_WARP_GATE="${IDENTITYV_FOREGROUND_WARP_GATE:-1}"
       export DYLD_INSERT_LIBRARIES="$wine_inserted_libraries"
-      exec "$WINE_BIN" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe" "${GAME_LAUNCH_ARGUMENTS[@]}"
+      exec "$game_loader" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe" "${GAME_LAUNCH_ARGUMENTS[@]}"
     ) >>"$LOG_FILE" 2>&1 &
   fi
   LAUNCHED_WINE_PID=$!

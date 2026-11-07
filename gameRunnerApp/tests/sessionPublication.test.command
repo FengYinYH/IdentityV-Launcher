@@ -31,7 +31,8 @@ cat > "$TEST_ROOT/noop.c" <<'C'
 int idv_test_noop(void) { return 0; }
 C
 APP_CONTENTS="$COMPLEX/Launcher.app/Contents/Helpers/Runner.app/Contents"
-/bin/mkdir -p -- "$APP_CONTENTS" "$COMPLEX/Launcher.app/Contents/Resources"
+/bin/mkdir -p -- "$APP_CONTENTS/Resources" "$COMPLEX/Launcher.app/Contents/Resources"
+/bin/cp "$ROOT/gameRunnerApp/gamePresentationHost.command" "$APP_CONTENTS/Resources/gamePresentationHost.command"
 /usr/bin/clang -arch arm64 -mmacosx-version-min=14.0 -Wall -Wextra -Werror "$TEST_ROOT/probe.c" -o "$COMPLEX/Launcher.app/Contents/Resources/IdentityVProductManager"
 /usr/bin/clang -arch x86_64 -mmacosx-version-min=14.0 -Wall -Wextra -Werror "$TEST_ROOT/probe.c" -o "$COMPLEX/wine-probe"
 /usr/bin/clang -arch x86_64 -dynamiclib -mmacosx-version-min=14.0 -Wall -Wextra -Werror "$TEST_ROOT/noop.c" -o "$COMPLEX/x86-only.dylib"
@@ -77,10 +78,8 @@ wine=[x for x in records if x[-1]=='wine'];assert len(wine)==1,repr(records)
 assert wine[0][0]==sys.argv[4] # subshell exec retains exact PID
 assert wine[0][1]==sys.argv[6] and wine[0][2]=='fixture-fallback'
 native=[x for x in records if x[-1]=='native']
-if sys.argv[7]=='0':
- assert len(native)==1 and native[0][1]=='unset'
- assert wine[0][3]=='Identity V'
-else: assert native==[]
+assert len(native)==1 and native[0][1]=='unset'
+assert wine[0][3]=='Identity V'
 PY
   done
 done

@@ -14,7 +14,7 @@ trap '/bin/rm -rf "$TEST_ROOT"' EXIT
 /usr/bin/grep -Fq 'MTL_HUD_ENCODER_TIMING_ENABLED' "$RUNNER"
 /usr/bin/grep -Fq 'Metal HUD enabled for final dwrg.exe child only' "$RUNNER"
 /usr/bin/grep -Fq 'export "${hud_environment[@]}"' "$RUNNER"
-/usr/bin/grep -Fq 'exec "$WINE_BIN" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe"' "$RUNNER"
+/usr/bin/grep -Fq 'exec "$game_loader" "C:\\Games\\${WINDOWS_GAME_ROOT}\\dwrg.exe"' "$RUNNER"
 ! /usr/bin/grep -Fq '/usr/bin/env "${hud_environment[@]}" "$WINE_BIN"' "$RUNNER"
 /usr/bin/grep -Fq 'MTL_HUD_DISABLE_MENU_BAR=1' "$RUNNER"
 /usr/bin/grep -Fq 'MTL_HUD_SHOW_METRICS_RANGE=1' "$RUNNER"

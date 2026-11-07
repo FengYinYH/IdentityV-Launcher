@@ -120,6 +120,8 @@ for runner_test in \
   "$PROJECT_ROOT/gameRunnerApp/tests/coreAudioCapturePolicy.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/fontFallbackContract.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/gameModeMetadataContract.test.command" \
+  "$PROJECT_ROOT/gameRunnerApp/tests/gamePresentationHostContract.test.command" \
+  "$PROJECT_ROOT/wineKeyboardPatch/gamePresentationSelfTest.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/microphonePrivacyContract.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/nativeD3DCompilerContract.test.command" \
   "$PROJECT_ROOT/gameRunnerApp/tests/runnerLifecycleContract.test.command" \

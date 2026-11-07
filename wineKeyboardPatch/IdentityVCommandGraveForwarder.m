@@ -563,6 +563,8 @@ static void configureGameDisplayName(void)
             [[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleName"] UTF8String]);
 }
 
+#include "IdentityVGamePresentation.m"
+
 /*
  * The HID lease maps physical F11 to the otherwise-unused F20 usage so the
  * Dock cannot consume it first. UserKeyMapping has no modifier predicate, so
@@ -589,9 +591,16 @@ static void installCommandGraveForwarder(void)
 {
     @autoreleasepool
     {
+#ifdef IDV_GAME_PRESENTATION_PROBE
+        return; // Compile the real adapter without installing input/audio in probes.
+#endif
         if (!isIdentityVWineProcess()) return;
 
         configureGameDisplayName();
+        // Install before Wine's custom runloop source can create/foreground
+        // NSApplication. Queuing behind that source can miss the first Dock tile.
+        if (NSThread.isMainThread) IDVInstallGamePresentation();
+        else dispatch_async(dispatch_get_main_queue(), ^{ IDVInstallGamePresentation(); });
 
         /* CoreAudio listener registration and the initial capability probe stay off AppKit's thread. */
         scheduleAudioCapabilityProbe();

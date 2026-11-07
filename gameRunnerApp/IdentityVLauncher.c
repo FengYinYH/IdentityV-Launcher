@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "gamePresentationHost.m"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -67,6 +68,9 @@ static void set_default_environment(void) {
 }
 
 int main(int argc, char *argv[]) {
+  // Metadata-only internal mode: no NSApp, dialogs, input or runner detaching.
+  if (argc > 1 && strcmp(argv[1], "--prepare-game-host") == 0)
+    return IDVGameHostCommandMain(argc, argv);
   if (geteuid() == 0) {
     show_error("请从已登录的 macOS 用户会话启动游戏；不支持由 root 直接启动。");
     return 1;
