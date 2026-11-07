@@ -22,6 +22,10 @@ host 只支持已验证的 `codeweavers-wine-release-dxmt` profile，核对原 l
 
 现有对象只有完整元数据、真实目录、受控绝对 symlink 都匹配才复用；未知对象、cache 链接祖先、只读路径、无效 profile/名称等透明退回原可启动路径，不替换或删除用户内容。先按调用者原始 cache 路径检查链接祖先，再作后续路径处理：Foundation 对已存在的 `/private/var` 路径作 standardization 会折成 `/var` 链接，曾使首次生成成功、重复复用却被误拒；完整构建的默认临时目录合约已暴露并修正此问题，仍保留拒绝调用者自带 cache 链接的边界。并发创建采用独占 UUID 暂存与一次发布，另一个相同合法 winner 可复用；仅清理自身已核定的暂存目录。上层 `WINE_BIN`、registry/readiness/resolver/manager、supervisor `--expected-executable` 仍指向原核验 Wine；host symlink 与其是同一文件，最终 child 的 `WINELOADER` 让后续实际游戏 exec 保持 host。
 
+## 权限行为与验证边界
+
+复制原vendor标识与用途说明不等于所有系统权限决定必然继承。本轮用户实际观察到游戏「本地网络」提示；网络权限服务日志也记录了命名host使用同一vendor标识重新登记和权限缓存更新，支持应用识别变化这一线索，但尚未定位具体触发权限的游戏/Wine网络调用。元数据核心没有新增网络设备扫描、设备信息收集或权限数据库修改，OEM loader仍为原字节。该提示已纳入三语发行说明；不能据此声称已扫描/上传设备信息，也不能保证拒绝权限不影响既有网络功能。系统授权保留给用户决定。
+
 ## 锁定上游路径依据
 
 依据 `crossover-sources-26.1.0.tar.gz`，SHA256 `e4ec87d5821a009dd1f1d2e36ffe2e24b8fcbae9516375ea42f95a16928ab8fa`，成员前缀 `sources/wine/`：

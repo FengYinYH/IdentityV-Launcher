@@ -4,12 +4,11 @@
 
 2026-11-07
 
-### 简体中文
-
 #### 调整
 
 - 「关于」显示实际构建号；更新窗口沿用原生关于窗口的字体、图标和对齐，内容与按钮在下方自然展开。
 - 游戏 Dock 图标采用圆角矩形外轮廓，保留原图内容。
+- 1.0 保持初始 1080p，不开放自定义分辨率；相关面板留到 2.0。运行环境以 macOS 15 及以上为基线，取消 macOS 14 适配计划。
 
 #### 修复
 
@@ -20,12 +19,17 @@
 - 改善移动同时转动视角时的输入抖动，保持自由模式跨窗及切回游戏后的捕获恢复。
 - 修复维护工具箱停止联合采集后的画面流、文件和状态收尾，避免迟到样本写入旧记录。
 
-### 繁體中文
+#### 说明与已知问题
+
+- 本轮测试观察到，游戏应用识别更新后 macOS 可能重新询问「本地网络」权限。本版未新增局域网设备扫描或设备信息收集逻辑；具体触发该权限的游戏/Wine 网络调用仍待确认。
+- 游戏内气泡音仍在调查。本版保持既有音频运行模块；采集缓冲对齐候选仅供隔离验证，不作为已修复内容发布。
+- 从旧版通过 Agent 发起更新时，本轮出现过任务结束但 App 未替换的情况。请以实际安装版本为准，遇到此情况可从发行页下载 DMG 手动更新。
 
 #### 調整
 
 - 「關於」顯示實際建置號碼；更新視窗沿用原生關於視窗的字體、圖示與對齊，內容與按鈕在下方自然展開。
 - 遊戲 Dock 圖示採用圓角矩形外輪廓，保留原圖內容。
+- 1.0 維持初始 1080p，不開放自訂解析度；相關面板留待 2.0。執行環境以 macOS 15 及以上為基線，取消 macOS 14 適配計畫。
 
 #### 修復
 
@@ -36,12 +40,17 @@
 - 改善移動同時轉動視角時的輸入抖動，保留自由模式跨視窗及切回遊戲後的擷取恢復。
 - 修復維護工具箱停止聯合採集後的畫面串流、檔案與狀態收尾，避免遲到樣本寫入舊記錄。
 
-### English
+#### 說明與已知問題
+
+- 本輪測試觀察到，遊戲應用程式識別更新後 macOS 可能重新詢問「本機網路」權限。本版未新增區域網路裝置掃描或裝置資訊收集邏輯；具體觸發該權限的遊戲/Wine 網路呼叫仍待確認。
+- 遊戲內氣泡音仍在調查。本版維持既有音訊執行模組；擷取緩衝對齊候選僅供隔離驗證，不作為已修復內容發布。
+- 從舊版透過 Agent 發起更新時，本輪曾出現任務結束但 App 未替換的情況。請以實際安裝版本為準，遇到此情況可從發行頁下載 DMG 手動更新。
 
 #### Changed
 
 - About now shows the actual build number. The update window uses the native About window's typography, icon and alignment, with content and buttons extending naturally below.
 - Rounded the game's Dock icon corners while preserving the original artwork.
+- Version 1.0 keeps the initial 1080p resolution without a custom-resolution setting; the related panel is deferred to 2.0. The runtime baseline remains macOS 15 or later, and planned macOS 14 support has been cancelled.
 
 #### Fixed
 
@@ -52,13 +61,17 @@
 - Improved input jitter when moving and turning the camera together, while preserving free-mode movement across windows and capture restoration when returning to the game.
 - Fixed visual-stream, file and status cleanup after combined recording stops in the maintenance toolbox, preventing late samples from entering an old recording.
 
+#### Notes and known issues
+
+- Testing observed that macOS may ask again for Local Network permission after the game's application identity changes. This release adds no LAN device scanning or device-information collection logic; the specific game/Wine network call triggering the permission remains unconfirmed.
+- The in-game bubbling audio artifact remains under investigation. This release keeps the existing audio runtime modules; the capture-buffer alignment candidate is for isolated verification and is not shipped as a confirmed fix.
+- An Agent-initiated update from an older build was observed to finish its task without replacing the App. Verify the installed version; if this occurs, download the DMG from the release page and update manually.
+
 ---
 
 ## 1.0.0-rc.5
 
 2026-11-04
-
-### 简体中文
 
 #### 新增
 
@@ -88,8 +101,6 @@
 - 操作锁忙碌导致启动请求未执行时，显示单独的启动器错误代码和说明；后续同一产品成功启动会清除旧的失败提示。
 - 修复 Agent 请求国际服清单时误用国服解析器的问题。
 
-### 繁體中文
-
 #### 新增
 
 - 「版本與更新」接入實際更新檢查與安裝流程，不再只是預留按鈕。
@@ -117,8 +128,6 @@
 - 國際服遊戲內更新後，基礎清單修復也會保護有效熱更新，避免回退正常用戶端。
 - 操作鎖忙碌導致啟動請求未執行時，顯示獨立的啟動器錯誤代碼與說明；後續同一產品成功啟動會清除舊的失敗提示。
 - 修復 Agent 請求國際服清單時誤用國服解析器的問題。
-
-### English
 
 #### Added
 
