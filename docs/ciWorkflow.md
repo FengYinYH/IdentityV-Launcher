@@ -6,9 +6,9 @@
 
 可核查的代表记录：[Core checks通过](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/41976918009)、[首装实验通过](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/41991243123)、[国际服有限启动观察通过](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/42002240555)、[图形能力探测通过](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/42014562448)、[公告目标未达失败](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/42024255079)。最后一个明确在Require verified restart window and announcement candidate步骤失败；前面的绿色不证明公告、账号登录或对局通过。
 
-国际服的本次产品验收边界由所有者于11/7重申：完成官方热更新、按提示重开并到公告页即为目标；受账号与地区条件限制，不要求进入大厅或对局。Hosted公告实验未达其判定条件，不自动推翻别处已确认的公告场景；应核对各自构建/提交及原任务的验收处置，目前仍待维护者补全，不凭Actions名称反推全部背景。
+国际服的本次产品验收边界由所有者于11/7重申：完成官方热更新、按提示重开并到公告页即为目标；受账号与地区条件限制，不要求进入大厅或对局。Hosted公告实验的截图已到公告页，但当时OCR漏检，门禁仍失败；报告的`hotUpdateVerified=false`及公告背后40.1%进度的含义尚未得到确认，因此不能据公告截图补称热更新全流程验收通过。后续公告及其后画面优先本地核验，不为同一截图再做托管全量下载。
 
-先前定义在不同临时分支触发并固定9760550、a8d27ba等开发提交，有利于当时隔离实验，但没有收束成长期入口；RC前缀、旧业务提交、不断新建实验工作流和后来发行代码之间缺少清楚对应，正是本次整理要解决的问题。历史运行不是错误数据，保留原记录，不改写为新测试的结果。
+先前定义在不同临时分支触发，以9760550、a8d27ba等候选作为业务基线，并校验其祖先关系及后续CI工具变更白名单；实际构建使用checkout HEAD，并非只编译旧候选。运行42024255079的`candidateCommit=a8d27ba67b813b9a9c44d7ec99db3861e3012268`，`checkoutCommit=01cdb307a2bcb51aced37c8d99fb92472ee88261`，后者与GitHub run head一致。隔离实验尚未收束成长期入口，旧RC命名与后来发行代码的关系需以实际源码身份判断。历史运行保留原记录，不改写为新测试的结果。
 
 本轮迁回经过验证的五个实验工具，整理为两个按能力命名的可维护入口：
 
@@ -20,6 +20,16 @@
 两个入口都使用调用时确切checkout提交，不在工作流中写死营销版本或旧RC业务提交。build和源码身份由App provenance/报告记录，发布流程以后引用与最终提交匹配的结果。既有实验保留隔离临时HOME、磁盘/耗时截止、账号/协议界面停止、受管退出和有界脱敏产物策略，不在日用Mac执行全量实验。
 
 当前这些整理是本地源码变更，尚未推送、触发新的GitHub任务或停用远端历史定义。迁回的10项监督器单元测试通过、两份YAML用系统解析器通过；真实托管运行需在最终确切提交推送后另验。后续合入时由新入口替代临时ci分支，保留旧分支提交可追溯性；不因为重命名而再跑整套大下载。
+
+## 公告实验证据保全与OCR窄修正（2026-11-07）
+
+已只读核对并下载[运行42024255079](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/42024255079)的`announcement-observation-global`制品（artifact ID `13416702734`）：4,261,712 bytes，API到期时间`2026-11-08T13:05:47Z`，原始ZIP SHA256为`88a5e06ed8539452009905cbdfa899a81b5e3ac082b8acdfaeb73a436a97e13e`，与GitHub API digest一致。原ZIP、来源元数据、未提交补丁及离线验证结果保存在仓外仅所有者可访问的证据存储；截图和原始日志不纳入Git。解压前检查了路径越界、符号链接和总展开大小，未执行制品内容。
+
+原报告记录`restartAttempted=true`、`coreVerifiedRestartWindow=true`、`preRestartUpdatePrompt=true`，而`announcementVerified=false`、`hotUpdateVerified=false`，观察以时间上限停止。最后截图可见公告正文，证实当时存在OCR漏检；历史run的Require verified restart window and announcement candidate门禁失败保持不变。
+
+按内容逐项比对原CI工作树与当前迁入工具：`ciFullInstall.py`、`ciGraphicsProbe.swift`、`installCIOCR.command`及10项监督器测试逐字节一致，只有`ciScreenClassifier.swift`缺少未提交的公告识别修正。窄合入组合正文标记（称呼、游戏名称、维护文本同时存在）、一次灰度OCR回退，继续保留更新页排除、登录/协议停止与候选人工确认边界。新增正文识别及缺少标记/更新页反例自检；没有更改实际HEAD来源记录、磁盘/耗时预算、默认graphics或下载策略。
+
+本地10项监督器测试通过，Swift分类器编译及自检通过；使用既有Tesseract英文模型、明确游戏窗口裁剪，保全的最后一张公告截图离线得到`announcementCandidate=true`。本机仅有英文模型，本轮未重新验证中文OCR；既有CPU配置在新SDK上有弃用警告，编译仍通过。这是离线观测修正，未触发新CI、不证明Hosted重跑或热更新完成，也不触碰账号、协议、输入或游戏资源。
 
 ## 以下为2026-11-05分阶段调查与实验历史
 

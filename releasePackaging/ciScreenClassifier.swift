@@ -16,13 +16,16 @@ func classify(_ lines: [String]) -> [String: Any] {
         let key = line.replacingOccurrences(of: #"[^a-z\p{Han}]"#, with: "", options: .regularExpression)
         return ["notice", "notices", "news", "announcements", "announcement", "latestnews", "gamenotice", "servernotice", "systemnotice", "systemannouncement", "公告", "公告详情", "游戏公告"].contains(key)
     }
+    // A cropped/stylized heading can be missed; require the combined game-specific
+    // greeting and maintenance body rather than accepting generic news text.
+    let announcementBody = text.contains("dear visitors") && text.contains("identity v") && (text.contains("maintenance") || text.contains("mainter"))
     return ["authenticationRequired": !auth.isEmpty, "authenticationMarkers": auth,
             "agreementRequiresUser": agreement, "updateScreenVisible": updating,
             "restartPrompt": restartPrompt,
-            "announcementCandidate": heading && !updating && text.count > 100,
+            "announcementCandidate": (heading || announcementBody) && !updating && text.count > 100,
             "recognizedLineCount": lines.count]
 }
-func recognizeWithTesseract(_ image: CGImage) throws -> [String: Any]? {
+func recognizeWithTesseract(_ image: CGImage, grayscale: Bool = false) throws -> [String: Any]? {
     let environment = ProcessInfo.processInfo.environment
     guard let executable = environment["IDV_CI_TESSERACT"], FileManager.default.isExecutableFile(atPath: executable),
           let dataRoot = environment["IDV_CI_TESSDATA_DIR"] else { return nil }
@@ -59,7 +62,7 @@ func recognizeWithTesseract(_ image: CGImage) throws -> [String: Any]? {
         for i in stride(from: 0, to: width * height * 4, by: 4) {
             let light = (Int(bytes[i]) + Int(bytes[i+1]) + Int(bytes[i+2])) / 3
             let ink = average < 128 ? light > threshold : light < threshold
-            let value: UInt8 = ink ? 0 : 255
+            let value: UInt8 = grayscale ? UInt8(light) : (ink ? 0 : 255)
             bytes[i] = value; bytes[i+1] = value; bytes[i+2] = value; bytes[i+3] = 255
         }
     }
@@ -81,6 +84,14 @@ func recognizeWithTesseract(_ image: CGImage) throws -> [String: Any]? {
     guard process.terminationStatus == 0 else { throw NSError(domain: "CI.Tesseract", code: Int(process.terminationStatus)) }
     let lines = String(decoding: data, as: UTF8.self).split(separator: "\n").prefix(200).map(String.init)
     var result = classify(lines)
+    // One bounded grayscale retry preserves low-contrast announcement text lost
+    // by thresholding. Safety signals from either pass remain authoritative.
+    if !grayscale && !(result["announcementCandidate"] as? Bool ?? false),
+       let alternate = try recognizeWithTesseract(image, grayscale: true) {
+        if alternate["authenticationRequired"] as? Bool == true { result["authenticationRequired"] = true }
+        if alternate["agreementRequiresUser"] as? Bool == true { result["agreementRequiresUser"] = true }
+        if alternate["announcementCandidate"] as? Bool == true { result["announcementCandidate"] = true }
+    }
     result["ocrBackend"] = "tesseract_cpu"
     result["ocrRecognitionLanguages"] = languages.contains("chi_sim") ? ["en-US", "zh-Hans"] : ["en-US"]
     result["ocrInputCropped"] = didCrop
@@ -143,6 +154,10 @@ do {
         precondition(classify(["You have to restart your game for this update to take effect. Please tap confirm.", "Confirm"]) ["restartPrompt"] as? Bool == true)
         let body = String(repeating: "Maintenance information. ", count: 8)
         precondition(classify(["Notice", body]) ["announcementCandidate"] as? Bool == true)
+        precondition(classify(["Dear Visitors", "Identity V", body]) ["announcementCandidate"] as? Bool == true)
+        precondition(classify(["Dear Visitors", "Identity V", String(repeating: "Mainter information. ", count: 8)]) ["announcementCandidate"] as? Bool == true)
+        precondition(classify(["Dear Visitors", body]) ["announcementCandidate"] as? Bool == false)
+        precondition(classify(["Dear Visitors", "Identity V", body, "Downloading patches..."]) ["announcementCandidate"] as? Bool == false)
         precondition(classify(["Notice", body, "Downloading patches..."]) ["announcementCandidate"] as? Bool == false)
         let image = NSImage(size: NSSize(width: 640, height: 240))
         image.lockFocus()

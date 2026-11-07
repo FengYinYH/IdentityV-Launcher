@@ -94,20 +94,19 @@ struct ProductLauncherView: View {
         } message: {
             Text(LocalizedStringKey(LauncherLanguage.current.localizedMessage(model.lastLaunchFailure?.alertMessage ?? "游戏没有进入运行状态，请稍后重试。")))
         }
-        .sheet(isPresented: $model.showsLauncherUpdateResult) {
-            LauncherUpdateView(
+        .background(LauncherUpdateWindowPresenter(
+            isPresented: $model.showsLauncherUpdateResult,
+            state: LauncherUpdateState(
                 title: model.launcherUpdateTitle,
                 message: model.launcherUpdateMessage,
                 isInstalling: model.launcherUpdateIsInstalling,
                 progress: model.launcherUpdateDownloadProgress,
                 canCancel: model.launcherUpdateCanCancel,
-                offersUpdate: model.launcherUpdatePageURL != nil,
-                install: model.installLauncherUpdate,
-                cancel: model.cancelLauncherUpdate,
-                dismiss: { model.showsLauncherUpdateResult = false }
-            )
-            .environment(\.locale, LauncherLanguage.current.locale)
-        }
+                offersUpdate: model.launcherUpdatePageURL != nil
+            ),
+            install: model.installLauncherUpdate,
+            cancel: model.cancelLauncherUpdate
+        ).frame(width: 0, height: 0))
         .sheet(isPresented: $showsFeedback) {
             FeedbackView()
                 .environmentObject(model)
