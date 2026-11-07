@@ -1433,7 +1433,7 @@ final class ToolboxViewModel: ObservableObject {
     }
 
     var loginHelperNeedsRepair: Bool {
-        loginComponentIsInstalled && !Self.loginHelperContainsCurrentStatusContract(at: ToolboxPath.startLoginHelper)
+        loginComponentIsInstalled && !LoginAdmin.loginHelperContainsCurrentMaintenanceContract(at: ToolboxPath.startLoginHelper)
     }
 
     @Published var shouldOfferIdvLoginPrompt: Bool = false
@@ -2873,8 +2873,12 @@ struct ToolboxProcessMatcherSelfTest {
     static func main() throws {
         let helperFixture = FileManager.default.temporaryDirectory.appendingPathComponent("idv-helper-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: helperFixture) }
-        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"10\"\n".utf8).write(to: helperFixture)
+        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"11\"\n".utf8).write(to: helperFixture)
         let compatibleHelper = ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
+        let currentMaintenance = LoginAdmin.loginHelperContainsCurrentMaintenanceContract(at: helperFixture)
+        try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"10\"\n".utf8).write(to: helperFixture)
+        let oldOperationsRemainAvailable = ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
+        let oldMaintenanceNeedsRepair = !LoginAdmin.loginHelperContainsCurrentMaintenanceContract(at: helperFixture)
         try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"8\"\n".utf8).write(to: helperFixture)
         let compatibleOlderHelper = ToolboxViewModel.loginHelperContainsCurrentStatusContract(at: helperFixture)
         try Data("#!/bin/zsh\nreadonly IDV_LOGIN_STATUS_CONTRACT=\"9\"\n".utf8).write(to: helperFixture)
@@ -2919,6 +2923,9 @@ struct ToolboxProcessMatcherSelfTest {
             LoginStartupResult.fromHelper(status: 75, output: "unrelated failure").code == "IDVL-START-103",
             LoginStartupResult.fromHelper(status: 0, output: "") == .ready,
             compatibleHelper,
+            currentMaintenance,
+            oldOperationsRemainAvailable,
+            oldMaintenanceNeedsRepair,
             compatibleOlderHelper,
             compatiblePreviousHelper,
             rejectedPreStatusHelper,

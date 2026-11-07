@@ -8,7 +8,7 @@ GAME_BRIDGE="$HELPER_DIR/launch-game-as-console-user"
 STATE_TOOL="$HELPER_DIR/identityv-state-tool"
 readonly READINESS_TIMEOUT_SECONDS=300
 readonly RESTART_GRACE_SECONDS=10
-readonly IDV_LOGIN_STATUS_CONTRACT="10"
+readonly IDV_LOGIN_STATUS_CONTRACT="11"
 readonly MANAGED_DOMAINS=(
   "service.mkey.163.com"
   "sdk-os.mpsdk.easebar.com"
@@ -330,7 +330,6 @@ trap 'release_start_lock; exit 129' HUP
 trap 'release_start_lock; exit 130' INT
 trap 'release_start_lock; exit 143' TERM
 acquire_start_lock
-prepare_user_runtime_directory
 
 validate_component() {
   local resolved owner bridge_owner bridge_mode state_owner state_mode
@@ -385,14 +384,6 @@ ensure_compat_hosts() {
 
 validate_component
 
-# Bounded native JSON migration preserves account/channel records, sets only
-# compat mode and the fixed h55 bridge, and creates the minimal clean-install
-# record when config.json does not exist yet.
-"$STATE_TOOL" prepare-config --home "$USER_HOME"
-log "idv-login config prepared with the fixed game bridge and compat mode"
-
-ensure_compat_hosts
-
 # Log generation boundary for this explicit start; do not consume old errors.
 startup_log_offset="$(/usr/bin/stat -f '%z' "$LOG_FILE" 2>/dev/null || print 0)"
 ca_recovery_attempted=0
@@ -401,6 +392,13 @@ if [[ -n "$(idv_login_pids_from <<< "$(process_snapshot)")" ]]; then
   log "idv-login already running; leaving shared proxy/account service intact"
   /usr/bin/printf 'IDV Login 已在后台运行。\n'
 else
+  # Config and overlay preparation belongs to the stopped-service lifecycle.
+  # An already-running proxy owns its cached config; never race its writes or
+  # claim a freshly staged DNS module is active in the old interpreter.
+  prepare_user_runtime_directory
+  "$STATE_TOOL" prepare-config --home "$USER_HOME"
+  log "idv-login config prepared with the fixed game bridge, compat mode and version-gated DNS adaptation"
+  ensure_compat_hosts
   log "starting shared idv-login proxy/account service via $IDV_JOB_SERVICE"
   idv_job_start "$IDV_BIN" "$USER_HOME" "$USER_NAME" "$LOG_FILE" || {
     log 'launchd bootstrap failed; no game launch requested'

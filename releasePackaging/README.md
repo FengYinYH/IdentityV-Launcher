@@ -4,7 +4,7 @@
 
 ## 版本与当前实物
 
-版本取自 App 的 `IdentityVReleaseVersion`。**1.0.0-rc.1 已于 2026-09-23、1.0.0-rc.2 / build 6 已于 2026-10-05 公开发布**；当前源码为 `1.0.0-rc.3` / build 7，反馈邮箱统一为 `FengYinYH@icloud.com`。邮箱进入 App 资源和编译后的默认值，因此按版本约定生成新的发行物，不覆盖 RC2；构建、公证与公开状态分别核验。[变更记录](../CHANGELOG.md)说明用户可见变化。脚本文件名 `buildAlpha1Preview.command` 为兼容既有调用保留的历史名称，不决定版本号或签名方式。以下保留 RC1 已发布物的文件名示例：
+营销版本取自 App 的 `IdentityVReleaseVersion`，构建号取自 `CFBundleVersion`，源码提交和包内身份由 `build-provenance.json` 记录。日常开发只递增 build；决定公开发行时才确定营销版本，不能从构建次数推断新 RC。字段与发布节奏见[版本约定](versioning.md)，最新交付与公开状态见[项目状态](../STATUS.md)，用户可见变化见[变更记录](../CHANGELOG.md)。这里不另维护一份容易过期的“当前源码版本”。脚本文件名 `buildAlpha1Preview.command` 为兼容既有调用保留的历史名称，不决定版本号或签名方式。以下保留 RC1 已发布物的文件名示例：
 
 - `第五人格启动器-1.0.0-rc.1.dmg`
 - `第五人格启动器-1.0.0-rc.1-ReleaseMaterials.zip`

@@ -360,6 +360,9 @@
 
 "启动器更新未完成" = "Launcher Update Incomplete";
 
+"仅预览，不会下载或安装更新。" = "Preview only. No update will be downloaded or installed.";
+"更新窗口预览" = "Update Window Preview";
+
 "回退目录已存在，已停止安装。" = "A rollback folder already exists. Installation has stopped.";
 
 "安装目标发生变化，旧版备份已保留。" = "The installation target changed. The previous version was kept as a backup.";

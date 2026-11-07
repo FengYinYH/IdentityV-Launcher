@@ -4,6 +4,16 @@
 
 这是已有 macOS 开发基础的维护者接手本仓时的路径。玩家的安装与使用看[项目首页](../README.md)；逐个顶层对象及脚本副作用看[项目地图](../projectMap.md)。本页说明模块如何协作、从哪里改、如何验证，不重复目录清单。关键取舍与兼容原因在[工程边界](engineeringDecisions.md)和[第一方身份迁移](firstPartyIdentity.md)；发行材料与签名分别有[封包](../releasePackaging/README.md)、[签名](../signing/README.md)说明。
 
+## 开发、构建与持续检查
+
+营销版本、build和源码提交各有职责：日常开发只递增交付build，公开发行阶段确定时再调整营销版本；详见[版本约定](../releasePackaging/versioning.md)。常用项目入口保持一个，临时worktree在整合并保存所有修改后退役，构建与上传暂存放Builds对应项目下，不留在Projects顶层。
+
+CI入口不按RC命名：`.github/workflows/checks.yml`跑持续合约检查，`.github/workflows/integration.yml`仅在手动选择时做图形/首装/启动/公告实验，默认只探测图形、不下载游戏。测试使用本次确切提交，App报告携带实际build；发布时引用最终提交相符的结果。旧临时实验的绿色范围、当前本地整理与远端状态分别记录在[CI说明](ciWorkflow.md)，不把通用检查、实验或公证任一项等同全部发行验收。
+
+关于与版本/更新窗口复用 `LauncherUpdateView.swift` 的排版和外框几何；开发验证可直接运行App可执行文件 `--preview-launcher-update --preview-language zh-Hans`（另支持zh-Hant/en），在业务模型创建前进入隔离原生预览，不联网、不下载/安装，不写真实更新状态。纯视觉入口无需新增Agent业务命令，几何与三语验证见[窗口说明](aboutAndUpdateWindows.md)。
+
+IDV Login的DNS适配在helper合约11的停止服务生命周期内准备，按精确官方资产身份注册，未知版本透明退出。旧8–10的管理协议仍可用，当前维护能力需单独判断，不能由“进程ready/旧协议兼容”跳过修复安装；细节见[DNS说明](loginDnsFallback.md)。鼠标高速问题先以[受控会话诊断](mouseCaptureEscape.md)取证，独立模块构建不是默认runtime升级，不能为验证把自由模式也全局锁住。
+
 ## 运行与构建关系
 
 本轮候选的语言和来源维护见[语言说明](launcherLocalization.md)、[IDV Login 来源与固定更新策略](idvLoginSourceAudit.md)。登录策略通过原生状态工具生成受管 overlay，helper 合约为 10；升级组件时必须复核冻结模块加载和策略版本门，不能只更改 asset manifest。

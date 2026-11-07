@@ -13,6 +13,10 @@ enum IdvLoginRelease {
 }
 
 enum LauncherRelease {
+    static var buildNumber: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+    }
+
     static var displayVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "IdentityVReleaseVersion") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String

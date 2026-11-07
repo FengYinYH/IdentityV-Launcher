@@ -1,0 +1,88 @@
+name: Installation and graphics experiments
+run-name: ${{ inputs.mode }} · ${{ inputs.product }} · ${{ github.sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Experiment scope (installation downloads the full game)
+        type: choice
+        options: [graphics, install, launch, announcement]
+        default: graphics
+      product:
+        description: Game product
+        type: choice
+        options: [global, mainland]
+        default: global
+permissions:
+  contents: read
+concurrency:
+  group: installation-experiment-${{ github.ref }}-${{ inputs.product }}
+  cancel-in-progress: false
+jobs:
+  experiment:
+    runs-on: xcode-27
+    timeout-minutes: 120
+    env:
+      CANDIDATE_COMMIT: ${{ github.sha }}
+      EXPERIMENT_MODE: ${{ inputs.mode }}
+      GAME_PRODUCT: ${{ inputs.product }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        if: inputs.mode != 'graphics'
+        with:
+          go-version: stable
+          cache: false
+      - name: Record graphics capabilities without downloading game data
+        run: |
+          swift releasePackaging/ciGraphicsProbe.swift > "$RUNNER_TEMP/graphics-preflight.json"
+          python3 -m json.tool "$RUNNER_TEMP/graphics-preflight.json"
+      - name: Supervisor contracts
+        run: python3 -m unittest discover -s releasePackaging/tests -p 'test_ci_full_install.py'
+      - name: Prepare bounded screen observation
+        if: inputs.mode == 'launch' || inputs.mode == 'announcement'
+        run: |
+          ./releasePackaging/installCIOCR.command
+          swiftc -O releasePackaging/ciScreenClassifier.swift -o "$RUNNER_TEMP/idv-screen-classifier"
+          "$RUNNER_TEMP/idv-screen-classifier" --self-test
+          python3 -c 'import json,os; assert json.load(open(os.environ["RUNNER_TEMP"]+"/graphics-preflight.json"))["usableForGameExperiment"]'
+      - name: Run selected experiment against this exact checkout
+        if: inputs.mode != 'graphics'
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--candidate "$CANDIDATE_COMMIT" --product "$GAME_PRODUCT"
+                --work-root "$RUNNER_TEMP/idv-first-install"
+                --report-root "$RUNNER_TEMP/idv-first-install-report")
+          if [[ "$EXPERIMENT_MODE" == launch || "$EXPERIMENT_MODE" == announcement ]]; then
+            args+=(--observe-launch --screen-classifier "$RUNNER_TEMP/idv-screen-classifier")
+          fi
+          if [[ "$EXPERIMENT_MODE" == announcement ]]; then
+            args+=(--observation-seconds 2400 --install-timeout-seconds 2700)
+          fi
+          python3 releasePackaging/ciFullInstall.py "${args[@]}"
+      - name: Require the explicitly selected announcement milestone
+        if: inputs.mode == 'announcement'
+        run: |
+          python3 - <<'PY'
+          import json, os
+          result = json.load(open(os.environ['RUNNER_TEMP'] + '/idv-first-install-report/result.json'))
+          observed = result.get('launchObservation', {})
+          if not (observed.get('coreVerifiedRestartWindow') and observed.get('postRestartAnnouncementCandidate')):
+              raise SystemExit('Announcement milestone not reached: ' + observed.get('stopReason', 'unknown'))
+          print('Announcement candidate captured; visual confirmation remains a separate result.')
+          PY
+      - name: Preserve bounded evidence for this commit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: experiment-${{ inputs.mode }}-${{ inputs.product }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/graphics-preflight.json
+            ${{ runner.temp }}/idv-first-install-report/result.json
+            ${{ runner.temp }}/idv-first-install-report/game-*.png
+          retention-days: 3

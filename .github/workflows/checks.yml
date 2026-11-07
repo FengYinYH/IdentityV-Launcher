@@ -1,0 +1,53 @@
+name: Core checks
+on:
+  pull_request:
+  push:
+    branches: [main, integration]
+  workflow_dispatch:
+    inputs:
+      official_network:
+        description: Check official installer metadata without downloading game data
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: core-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: '**/go.sum'
+      - name: Product manager and Agent contracts
+        run: |
+          ./productManager/selfTest.command
+          ./productManager/agentSelfTest.command
+      - name: Go contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for module in gameDownloader manifestPlanner downloaderCoreBootstrap globalAdapter runtimeBootstrap idvLoginComponent/downloader; do
+            (cd "$module" && go test ./... && go vet ./...)
+          done
+      - name: Localization and integration supervisor contracts
+        run: |
+          python3 playerLauncherApp/Tests/launcherLocalizationResourcesSelfTest.py playerLauncherApp
+          python3 -m unittest discover -s releasePackaging/tests -p 'test_ci_full_install.py'
+  official-network:
+    if: github.event_name == 'workflow_dispatch' && inputs.official_network
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Official metadata resolution
+        run: ./productManager/selfTest.command --network-smoke

@@ -1,6 +1,27 @@
-> 本轮RC5整合只纳入Agent接口、文档与本地验证入口，CI workflow文件保留在独立候选，未借此绕过GitHub workflow scope限制。以下为原调查与候选记录。
-
 # CI 能力与协作建议
+
+## 当前整理方案（2026-11-07）
+
+已对照GitHub真实Actions记录和分支定义：先前一共6个工作流、16次运行，只有1次通用Core checks，其余15次属于5类临时实验。公开主线缺少这些工作流及实验工具，Actions列表显示的定义来自临时ci分支，不能把它们当作主线持续检查。RC5已经公开，早期段落的“尚未运行/待发布”仅代表其记录时间。
+
+可核查的代表记录：[Core checks通过](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/41976918009)、[首装实验通过](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/41991243123)、[国际服有限启动观察通过](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/42002240555)、[图形能力探测通过](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/42014562448)、[公告目标未达失败](https://github.com/FengYinYH/IdentityV-Launcher/actions/runs/42024255079)。最后一个明确在Require verified restart window and announcement candidate步骤失败；前面的绿色不证明公告、账号登录或对局通过。
+
+国际服的本次产品验收边界由所有者于11/7重申：完成官方热更新、按提示重开并到公告页即为目标；受账号与地区条件限制，不要求进入大厅或对局。Hosted公告实验未达其判定条件，不自动推翻别处已确认的公告场景；应核对各自构建/提交及原任务的验收处置，目前仍待维护者补全，不凭Actions名称反推全部背景。
+
+先前定义在不同临时分支触发并固定9760550、a8d27ba等开发提交，有利于当时隔离实验，但没有收束成长期入口；RC前缀、旧业务提交、不断新建实验工作流和后来发行代码之间缺少清楚对应，正是本次整理要解决的问题。历史运行不是错误数据，保留原记录，不改写为新测试的结果。
+
+本轮迁回经过验证的五个实验工具，整理为两个按能力命名的可维护入口：
+
+| 入口 | 触发与作用 | 验证边界 |
+| --- | --- | --- |
+| `.github/workflows/checks.yml`：Core checks | PR、main/integration push及手动，执行本项目合约、Go test/vet、本地化和实验监督器测试；官方metadata联网仅手动选择 | 不公证、不发布、不全量下载游戏，不证明真实GPU/账号体验 |
+| `.github/workflows/integration.yml`：Installation and graphics experiments | 仅手动选择graphics/install/launch/announcement及产品；默认graphics，不下载游戏；运行名/报告按本次提交标识 | 选择安装才全量下载，选择启动/公告才观察窗口；公告候选仍需人工可视确认 |
+
+两个入口都使用调用时确切checkout提交，不在工作流中写死营销版本或旧RC业务提交。build和源码身份由App provenance/报告记录，发布流程以后引用与最终提交匹配的结果。既有实验保留隔离临时HOME、磁盘/耗时截止、账号/协议界面停止、受管退出和有界脱敏产物策略，不在日用Mac执行全量实验。
+
+当前这些整理是本地源码变更，尚未推送、触发新的GitHub任务或停用远端历史定义。迁回的10项监督器单元测试通过、两份YAML用系统解析器通过；真实托管运行需在最终确切提交推送后另验。后续合入时由新入口替代临时ci分支，保留旧分支提交可追溯性；不因为重命名而再跑整套大下载。
+
+## 以下为2026-11-05分阶段调查与实验历史
 
 调查日期 2026-11-05。GitHub API 实际读取：仓库公开、默认分支 main，Actions workflows 0、runs 0、registered self-hosted runners 0。当前分支在本次新增之前也没有 .github/workflows。未更改远端设置、推送、合并或发布；不能声称现有 CI 绿灯已覆盖候选。
 

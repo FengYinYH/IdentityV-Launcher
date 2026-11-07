@@ -182,7 +182,117 @@ private func disableAllGameAutoStart(in object: inout [String: Any]) {
     }
 }
 
-private func prepareConfig(home: String, staffGID: gid_t, enforceUserRoot: Bool = true) throws {
+private func hasRunningIDVLogin(_ snapshot: String) -> Bool {
+    snapshot.split(separator: "\n").contains { line in
+        let command = line.trimmingCharacters(in: .whitespaces)
+        return command.range(of: #"^/Library/Application Support/IdentityVOnMac/Components/idv-login/[^/\s]+/idv-login(\s|$)|^/[^\s]*/idv-login-v[0-9][^/\s]*-mac(-mac)?(\s|$)"#, options: .regularExpression) != nil
+    }
+}
+
+private let dnsOverlayID = "launcher-dns-tcp-fallback-v1"
+private let dnsOverlayCommit = "launcher-dns-tcp-v1-on-0cee1f6"
+private let legacyDNSOverlaySHA256 = "5557e14a16f9789ead154e7ab721b31b3462d93f1eeb7f069461e628ee11ffce"
+private let official633SHA256 = "dcfef8ddd66fae454d30c296dbdc42496a862ed38cd533e0b4b8032b5db9cac5"
+
+/// Stream the fixed official asset; the normal state-file reader is deliberately
+/// limited to 8 MiB. Version strings and helper contract numbers are not identity.
+private func officialDNSComponentMatches() throws -> Bool {
+    let root = "/Library/Application Support/IdentityVOnMac/Components/idv-login"
+    let path = URL(fileURLWithPath: root + "/current/idv-login").resolvingSymlinksInPath().path
+    guard path.hasPrefix(root + "/"), path.hasSuffix("/idv-login") else {
+        throw StateError.message("DNS 适配拒绝异常组件路径。")
+    }
+    return try dnsComponentMatches(path: path)
+}
+
+private func dnsComponentMatches(path: String, expectedSize: off_t = 199_215_712,
+                                 expectedHash: String = official633SHA256, owner: uid_t = 0) throws -> Bool {
+    let descriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+    guard descriptor >= 0 else { throw StateError.message("DNS 适配无法读取组件。") }
+    defer { Darwin.close(descriptor) }
+    var value = stat()
+    guard fstat(descriptor, &value) == 0, (value.st_mode & S_IFMT) == S_IFREG,
+          value.st_uid == owner, (value.st_mode & 0o022) == 0 else {
+        throw StateError.message("DNS 适配拒绝组件权限异常。")
+    }
+    guard value.st_size == expectedSize else { return false }
+    var hash = SHA256()
+    var buffer = [UInt8](repeating: 0, count: 1_048_576)
+    while true {
+        let count = Darwin.read(descriptor, &buffer, buffer.count)
+        guard count >= 0 else { throw StateError.message("DNS 适配读取组件失败。") }
+        if count == 0 { break }
+        hash.update(data: Data(buffer.prefix(count)))
+    }
+    return lowercaseHex(hash.finalize()) == expectedHash
+}
+
+/// Run only while the shared proxy is stopped. Stage the deterministic source
+/// before publishing its config reference; a failed config write leaves inert
+/// source, never a reference to a missing/partially-written overlay.
+private func prepareDNSOverlay(in object: inout [String: Any], stateDirectory: String,
+                               componentMatches: Bool, owner: uid_t = 0) throws {
+    guard object["hotfix_records"] == nil || object["hotfix_records"] is [String: Any] else {
+        throw StateError.message("hotfix_records 结构异常；未覆盖原配置。")
+    }
+    var records = object["hotfix_records"] as? [String: Any] ?? [:]
+    let target = stateDirectory + "/launcher-dns-tcp-633-v1.py"
+    if let existing = records[dnsOverlayID] {
+        guard let record = existing as? [String: Any],
+              record["owner"] as? String == "IdentityVOnMac",
+              record["target_module"] as? String == "mitm_proxy",
+              record["target_path"] as? String == target,
+              record["target_kind"] as? String == "overlay_py" else {
+            throw StateError.message("DNS 适配记录与受管身份冲突；未覆盖。")
+        }
+    }
+    // Retire only the exact temporary repair witnessed in the diagnosis. A
+    // reused key, missing file or modified source is not ownership evidence.
+    var retired: Set<String> = [dnsOverlayID]
+    if let legacy = records["dns-tcp-fallback"] as? [String: Any],
+       legacy["target_module"] as? String == "mitm_proxy",
+       legacy["target_kind"] as? String == "overlay_py",
+       legacy["target_path"] as? String == stateDirectory + "/local-dns-tcp-633.py",
+       let read = try? readRegular(stateDirectory + "/local-dns-tcp-633.py"),
+       read.1.uid == owner, (read.1.mode & 0o022) == 0,
+       lowercaseHex(SHA256.hash(data: read.0)) == legacyDNSOverlaySHA256 {
+        retired.insert("dns-tcp-fallback")
+    }
+    let enabled = componentMatches && object["launcher_dns_tcp_fallback_disabled"] as? Bool != true
+    if enabled {
+        for (key, value) in records where !retired.contains(key) {
+            guard let record = value as? [String: Any] else { continue }
+            if record["target_module"] as? String == "mitm_proxy",
+               ["applied", "pending_validate"].contains(record["status"] as? String ?? "") {
+                throw StateError.message("已有其他有效 mitm_proxy 热修复；DNS 适配拒绝叠层，请维护者复核。")
+            }
+        }
+        if lstatMetadata(target) != nil {
+            let read = try readRegular(target)
+            guard read.1.uid == owner, (read.1.mode & 0o022) == 0 else {
+                throw StateError.message("DNS 覆盖层权限异常；未覆盖。")
+            }
+        }
+        try atomicWrite(idvLoginDNSOverlay, to: target, metadata: FileMetadata(uid: owner, gid: getgid(), mode: 0o600))
+    }
+    for key in retired { records.removeValue(forKey: key) }
+    if enabled {
+        records[dnsOverlayID] = [
+            "owner": "IdentityVOnMac", "target_module": "mitm_proxy",
+            "target_kind": "overlay_py", "target_path": target,
+            "status": "applied", "target_commit": dnsOverlayCommit,
+            "source_sha256": lowercaseHex(SHA256.hash(data: idvLoginDNSOverlay)),
+            "note": "Official 6.3.3 only: managed authentication DNS UDP then TCP; TLS unchanged"
+        ]
+    }
+    object["hotfix_records"] = records
+    if let pending = object["hotfix_pending_validate"] as? [String] {
+        object["hotfix_pending_validate"] = pending.filter { !retired.contains($0) }
+    }
+}
+
+private func prepareConfig(home: String, staffGID: gid_t, enforceUserRoot: Bool = true,
+                           dnsComponentMatches: Bool? = nil) throws {
     let canonicalHome = URL(fileURLWithPath: home, isDirectory: true).standardizedFileURL.path
     guard (!enforceUserRoot || canonicalHome.hasPrefix("/Users/")), realDirectory(canonicalHome) else {
         throw StateError.message("桌面用户主目录无效。")
@@ -214,6 +324,9 @@ private func prepareConfig(home: String, staffGID: gid_t, enforceUserRoot: Bool 
     object["proxy_mode"] = "compat"
     // Remove only our former update blocker. Keep upstream/user overlays,
     // pending validation and private pre-policy backups intact.
+    try prepareDNSOverlay(in: &object, stateDirectory: stateDirectory,
+                          componentMatches: try dnsComponentMatches ?? officialDNSComponentMatches(),
+                          owner: enforceUserRoot ? 0 : geteuid())
     var records = object["hotfix_records"] as? [String: Any] ?? [:]
     records.removeValue(forKey: "launcher-pinned-update-policy")
     object["hotfix_records"] = records
@@ -717,6 +830,15 @@ private func runSelfTest() throws {
     let state = home.appendingPathComponent("Library/Application Support/idv-login", isDirectory: true)
     try fileManager.createDirectory(at: state, withIntermediateDirectories: true)
     let config = state.appendingPathComponent("config.json")
+    let binaryFixture = state.appendingPathComponent("binary-fixture")
+    let binaryBytes = Data(repeating: 0x4d, count: 1_048_577) // crosses a streaming block
+    try binaryBytes.write(to: binaryFixture)
+    let binaryHash = lowercaseHex(SHA256.hash(data: binaryBytes))
+    guard try dnsComponentMatches(path: binaryFixture.path, expectedSize: off_t(binaryBytes.count), expectedHash: binaryHash, owner: geteuid()),
+          try !dnsComponentMatches(path: binaryFixture.path, expectedSize: off_t(binaryBytes.count), expectedHash: official633SHA256, owner: geteuid()),
+          try !dnsComponentMatches(path: binaryFixture.path, expectedSize: 0, expectedHash: binaryHash, owner: geteuid()) else {
+        throw StateError.message("DNS exact size/SHA streaming gate failed")
+    }
     let secret = "do-not-change"
     let fixture: [String: Any] = [
         "hotfix_records": ["launcher-pinned-update-policy": ["target_module": "cloudRes"], "upstream": ["keep": "yes"]],
@@ -754,8 +876,8 @@ private func runSelfTest() throws {
         ]
     ]
     try JSONSerialization.data(withJSONObject: fixture).write(to: config)
-    try prepareConfig(home: home.path, staffGID: getgid(), enforceUserRoot: false)
-    try prepareConfig(home: home.path, staffGID: getgid(), enforceUserRoot: false)
+    try prepareConfig(home: home.path, staffGID: getgid(), enforceUserRoot: false, dnsComponentMatches: true)
+    try prepareConfig(home: home.path, staffGID: getgid(), enforceUserRoot: false, dnsComponentMatches: true)
     let migrated = try JSONSerialization.jsonObject(with: Data(contentsOf: config)) as! [String: Any]
     let accounts = migrated["account_records"] as! [[String: String]]
     let games = migrated["game_settings"] as! [String: [String: Any]]
@@ -773,6 +895,50 @@ private func runSelfTest() throws {
           ((games["international"]?["should_auto_start"] as? Bool) == false) else {
         throw StateError.message("config 保留/迁移自检失败。")
     }
+    // Exercise real atomic overlay publication and lifecycle transitions while
+    // leaving accounts and unrelated upstream hotfix state intact.
+    let overlayPath = state.appendingPathComponent("launcher-dns-tcp-633-v1.py")
+    guard try Data(contentsOf: overlayPath) == idvLoginDNSOverlay,
+          ((migrated["hotfix_records"] as? [String: Any])?[dnsOverlayID] as? [String: Any])?["source_sha256"] as? String == lowercaseHex(SHA256.hash(data: idvLoginDNSOverlay)),
+          hasRunningIDVLogin("/Library/Application Support/IdentityVOnMac/Components/idv-login/6.3.3/idv-login"),
+          !hasRunningIDVLogin("/bin/zsh -c inspect /Library/Application Support/IdentityVOnMac/Components/idv-login/6.3.3/idv-login") else {
+        throw StateError.message("DNS source publication/process identity regression failed")
+    }
+    var upgraded = migrated
+    try prepareDNSOverlay(in: &upgraded, stateDirectory: state.path, componentMatches: false, owner: geteuid())
+    guard (upgraded["hotfix_records"] as? [String: Any])?[dnsOverlayID] == nil,
+          ((upgraded["hotfix_records"] as? [String: Any])?["upstream"] as? [String: String])?["keep"] == "yes",
+          (upgraded["account_records"] as? [[String: String]])?.first?["token"] == secret else {
+        throw StateError.message("DNS version-gate exit/account preservation failed")
+    }
+    upgraded["launcher_dns_tcp_fallback_disabled"] = true
+    try prepareDNSOverlay(in: &upgraded, stateDirectory: state.path, componentMatches: true, owner: geteuid())
+    guard (upgraded["hotfix_records"] as? [String: Any])?[dnsOverlayID] == nil else {
+        throw StateError.message("DNS explicit opt-out failed")
+    }
+    var conflicted: [String: Any] = ["hotfix_records": ["foreign": ["target_module": "mitm_proxy", "status": "pending_validate"]]]
+    var conflictRejected = false
+    do { try prepareDNSOverlay(in: &conflicted, stateDirectory: state.path, componentMatches: true, owner: geteuid()) }
+    catch { conflictRejected = true }
+    guard conflictRejected, (conflicted["hotfix_records"] as? [String: Any])?["foreign"] != nil else {
+        throw StateError.message("DNS foreign overlay collision was not preserved/rejected")
+    }
+    var malformed: [String: Any] = ["hotfix_records": ["do-not-discard"]]
+    var malformedRejected = false
+    do { try prepareDNSOverlay(in: &malformed, stateDirectory: state.path, componentMatches: true, owner: geteuid()) }
+    catch { malformedRejected = true }
+    guard malformedRejected else { throw StateError.message("Malformed hotfix state was overwritten") }
+    // An overlay symlink must not redirect a root write, even when it points
+    // at an existing harmless fixture.
+    try fileManager.removeItem(at: overlayPath)
+    try fileManager.createSymbolicLink(at: overlayPath, withDestinationURL: config)
+    var symlinkRejected = false
+    var clean: [String: Any] = [:]
+    do { try prepareDNSOverlay(in: &clean, stateDirectory: state.path, componentMatches: true, owner: geteuid()) }
+    catch { symlinkRejected = true }
+    guard symlinkRejected else { throw StateError.message("DNS overlay symlink was accepted") }
+    try fileManager.removeItem(at: overlayPath)
+
     let cache = migrated["game_installation_settings_v1"] as! [String: Any]
     let cacheMainland = cache[longMainlandGameID] as! [String: Any]
     let cacheInternational = cache["international"] as! [String: Any]
@@ -918,6 +1084,10 @@ private struct IdentityVPrivilegedStateTool {
             try withStateLock {
                 if arguments.count == 3, arguments[0] == "prepare-config",
                    arguments[1] == "--home" {
+                    let snapshot = try runCommand("/bin/ps", arguments: ["-axo", "command="])
+                    guard !hasRunningIDVLogin(String(decoding: snapshot, as: UTF8.self)) else {
+                        throw StateError.message("IDV Login 仍在运行；未改写配置或DNS覆盖层，请先停止组件。")
+                    }
                     try prepareConfig(home: arguments[2], staffGID: 20)
                 } else if arguments == ["ensure-hosts"] {
                     try updateHosts(path: systemHostsPath, ensure: true)

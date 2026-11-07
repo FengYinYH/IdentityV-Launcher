@@ -242,7 +242,7 @@ enum AgentCLI {
             let helperText = (helperValues?.isRegularFile == true && helperValues?.isSymbolicLink != true && (helperValues?.fileSize ?? 0) > 0 && (helperValues?.fileSize ?? 0) <= 262144) ? try? String(contentsOf: helper, encoding: .utf8) : nil
             if let installedVersion = installedObject?["version"] as? String, !installedVersion.isEmpty,
                installedVersion.compare(version, options: .numeric) != .orderedAscending,
-               let helperText, [8, 9, 10].contains(where: { helperText.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"\($0)\"") }) {
+               let helperText, helperText.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"11\"") {
                 record["output"] = ["schemaVersion": 1, "installed": true, "alreadyInstalled": true]
                 record["exitCode"] = 0; try state("succeeded"); try event("result", ["exitCode": 0]); return 0
             }
@@ -480,7 +480,7 @@ enum AgentCLI {
             let helperText = (helperValues?.isRegularFile == true && helperValues?.isSymbolicLink != true && (helperValues?.fileSize ?? 0) > 0 && (helperValues?.fileSize ?? 0) <= 262144) ? try? String(contentsOf: helper, encoding: .utf8) : nil
             guard let version = object?["version"] as? String, !version.isEmpty,
                   FileManager.default.isExecutableFile(atPath: helper.path),
-                  let helperText, [8, 9, 10].contains(where: { helperText.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"\($0)\"") }) else {
+                  let helperText, [8, 9, 10, 11].contains(where: { helperText.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"\($0)\"") }) else {
                 record["error"] = "login_component_unavailable"; record["exitCode"] = 1
                 try state("failed"); return 1
             }

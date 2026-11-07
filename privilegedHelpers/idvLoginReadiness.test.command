@@ -7,7 +7,7 @@ HELPER="$ROOT/start-idv-login.sh"
 FIXTURE="$(/usr/bin/mktemp -d)"
 trap '/bin/rm -rf "$FIXTURE"' EXIT
 
-[[ "$(/bin/zsh "$HELPER" --contract)" == "IDV_LOGIN_STATUS_CONTRACT=10" ]] || {
+[[ "$(/bin/zsh "$HELPER" --contract)" == "IDV_LOGIN_STATUS_CONTRACT=11" ]] || {
   print -u2 -- "start helper 未声明预期 status contract。"
   exit 1
 }
@@ -202,3 +202,33 @@ if ca_import_needs_foreground_retry "$FIXTURE/recovery.log" 0; then exit 1; fi
 /bin/ln -s "$FIXTURE/recovery.log" "$FIXTURE/recovery-link"
 if ca_import_needs_foreground_retry "$FIXTURE/recovery-link" 0; then exit 1; fi
 print 'First CA import recovery evidence tests passed.'
+
+# Replay the actual production start branch with inert command doubles. This
+# catches preparation accidentally moving before the running-service guard.
+branch_source="$(/usr/bin/awk '/^if \[\[ -n .*idv_login_pids_from/ {capture=1} capture {print} capture && /^fi$/ {exit}' "$HELPER")"
+[[ -n "$branch_source" ]]
+STATE_TOOL="$FIXTURE/state-tool"
+EVENTS="$FIXTURE/start-events"
+export EVENTS
+printf '#!/bin/zsh\nprint -r -- "state:$*" >> "$EVENTS"\n' > "$STATE_TOOL"
+chmod 755 "$STATE_TOOL"
+USER_HOME="$FIXTURE/home"
+USER_NAME="tester"
+IDV_BIN="$FIXTURE/inert-component"
+LOG_FILE="$FIXTURE/inert-log"
+IDV_JOB_SERVICE="fixture"
+process_snapshot() { print -r -- "$fixture_running_pid"; }
+idv_login_pids_from() { /bin/cat; }
+log() { :; }
+prepare_user_runtime_directory() { print directory >> "$EVENTS"; }
+ensure_compat_hosts() { print hosts >> "$EVENTS"; }
+idv_job_start() { print start >> "$EVENTS"; }
+fixture_running_pid=123
+: > "$EVENTS"
+eval "$branch_source" >/dev/null
+[[ ! -s "$EVENTS" ]] || { print -u2 'Running proxy triggered config/runtime writes'; exit 1; }
+fixture_running_pid=""
+eval "$branch_source"
+expected="$(printf 'directory\nstate:prepare-config --home %s\nhosts\nstart' "$USER_HOME")"
+[[ "$(<"$EVENTS")" == "$expected" ]] || { print -u2 'Stopped preparation/start order failed'; exit 1; }
+print 'Stopped-only config/overlay preparation branch passed.'

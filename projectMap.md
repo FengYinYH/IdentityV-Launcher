@@ -24,6 +24,7 @@ flowchart LR
 
 | 文件夹 | 用途与重要子目录 |
 | --- | --- |
+| `.github/workflows/` | 按能力命名的持续合约检查与手动安装/图形实验；测试精确checkout提交，不以营销版本命名长期工作流。入口、真实历史与验收边界见 `docs/ciWorkflow.md`。 |
 | `playerLauncherApp/` | 玩家 App。`Sources/` 是界面和业务逻辑，`Resources/currentRoute.md` 是打进 App 的用户说明，`Assets/` 放图标，`Tests/` 放自检（含 `LauncherUpdateCheckerSelfTest.swift` 的手动更新检测合约），`PromptHelper/` 和 `MicHelper/` 负责对应系统提示，`UpdateHelper/` 在明确确认更新后接续同址替换、回退和重启回执；`build/` 是可再生产物。 |
 | `maintenanceToolboxApp/` | 维护者 App。`Sources/` 是浮窗、采集和界面，`Assets/` 放图标；`build/` 是可再生产物。 |
 | `gameRunnerApp/` | 内嵌 runner 的两个模板 `IdentityV-Mac.app`、`IdentityV-AGTK.app` 及 `tests/`；当前玩家 App 出货的是前者，后者保留供历史/开发测试。模板的 `Contents/` 中有启动脚本、资源和受控预编译输入；`AGTK` 是历史名称，不代表当前主路线使用 Apple GPTK。 |
@@ -35,7 +36,7 @@ flowchart LR
 | `manifestPlanner/` | 比对远端与本地文件清单，规划下载和修复。 |
 | `runtimeManifest/` | Wine 运行环境目录、哈希和部署目标审计；符号链接根必须扫描真实路径，零 Mach-O 明确失败，相关回归进入玩家 App 构建。 |
 | `runtimeBootstrap/` | 取得、校验和安装共享运行环境；`releasePayloads/` 是四枚按哈希锁定的**已签补丁构建输入**，不是自动生成缓存。 |
-| `idvLoginComponent/` | 可选登录组件的来源、下载与安装接入；`downloader/` 是相应源码和测试。 |
+| `idvLoginComponent/` | 可选登录组件的来源、下载与安装接入；`downloader/` 是相应源码和测试。`dnsTCPFallback.py`为精确资产门控的DNS窄适配源码，由原生状态工具嵌入并在停止状态准备；协议/冻结加载探针不启动真实代理。见 `docs/loginDnsFallback.md`。 |
 | `globalAdapter/` | 解析国际服官方清单与安装器地址；游戏文件传输由共享网易下载核心处理，`fixtures/` 用于测试。 |
 | `gameActivator/` | 将焦点交给游戏的辅助程序源码。 |
 | `functionKeyController/` | F 键控制辅助程序源码。 |
@@ -48,14 +49,14 @@ flowchart LR
 | `wineAudioPatch/` | 默认设备相关源码补丁、精确来源/模块核验与隔离候选构建；`stageDefaultDeviceRuntime.command` 从已核验audio1克隆新的本地运行包，不改当前选择或启动游戏。 |
 | `wineEmojiPatch/` | 表情与文字兼容补丁；`repro/` 是复现源码和测试材料，`licenses/` 是所用数据许可。 |
 | `wineKeyboardPatch/` | 游戏原生辅助模块：键盘映射、音量键和随启动器语言的宿主名称；包含无窗口的名称缓存回归。 |
-| `wineMousePatch/` | 鼠标输入兼容补丁源码。 |
+| `wineMousePatch/` | 鼠标输入兼容补丁；`buildCandidate.command`只在调用者新目录构建独立winemac，状态修补/显式会话诊断默认不部署。证据与开关/记录边界见 `docs/mouseCaptureEscape.md`。 |
 | `wineNetworkInterposer/` | 网络兼容插桩源码和测试。 |
 | `diagnostics/` | **只保留产品使用的诊断导出源码与合约测试**；个人日志、截图、按日期的实机记录不在本仓。 |
 | `runtimeAssembly/` | 运行环境补丁 `patches/` 与隔离候选的源码/合约测试；真实本机 runtime、prefix 和旧实验现场不在本仓。 |
 | `testFixtures/` | 无账号、无真实用户现场的合成测试样本。 |
 | `notices/` | 第三方许可、来源及对应源码材料生成入口；默认`.build/`是生成目录，`IDENTITYV_NOTICES_BUILD_ROOT`可将材料构建移到已核验的外部绝对路径，`IDENTITYV_NOTICES_CACHE_ROOT`可只读复用逐项验hash的原厂材料。 |
 | `signing/` | entitlements、签名/公证脚本及候选第一方 ID 的只读验证；证书私钥留在系统安全存储，不进入 Git。 |
-| `releasePackaging/` | 版本约定、DMG 封包、`releaseIdentity.py` 包内身份核对及发行说明；`build/`、`.venv/` 是本机生成目录。 |
+| `releasePackaging/` | 版本约定、DMG 封包、`releaseIdentity.py` 包内身份核对及发行说明；`build/`、`.venv/` 是本机生成目录。另有只允许临时macOS Actions环境执行的 `ciFullInstall.py`、图形/OCR探针与监督器测试，供手动集成实验复用，不在用户Mac运行。 |
 | `offlinePackaging/` | **私有离线整包**，不是公开发行路径：把基础 Wine runtime、idv-login 与网易下载核心预先打进 App，供只能访问网易的目标用户首装。`prepareOfflinePayloads.command` 取件校验、`stageOfflinePayloads.command` 注入 App、`verifyOfflinePayloads.command` 独立复核、`buildOfflinePackage.command` 全流程封包；再分发边界见 `payloadProvenance.md`；`build/` 是本机生成目录。 |
 | `docs/` | 可公开的开发者框架、原因、取舍、历史命令和验证边界；从 `developerGuide.md` 进入，`engineeringDecisions.md` 解释工程组织，`firstPartyIdentity.md` 记录身份与旧安装兼容。 |
 | `local/` | 本机忽略的隔离候选与临时验证文件；不属于公开源码或已安装版。 |

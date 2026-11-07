@@ -1,0 +1,70 @@
+Subject: [PATCH] winemac: Validate native confinement before reusing a clip request.
+
+A cached screen rect alone cannot establish that the native window still owns
+that confinement. Reapply on an owner/geometry/native-state change. This is a
+state-repair candidate, not evidence of a fix for high-speed cursor escape.
+
+--- a/dlls/winemac.drv/cocoa_cursorclipping.h
++++ b/dlls/winemac.drv/cocoa_cursorclipping.h
+@@ -35,6 +35,10 @@
+     - (void) setRetinaMode:(BOOL)mode;
+ 
+     @optional
++    /* Check native state as well as the cached rect before skipping a request.
++     * Handlers without window-bound native state may keep the cached check. */
++    - (BOOL) isClippingCursorToRect:(CGRect)rect;
++
+     /* If provided, should reposition the cursor as needed given the current
+      * clipping rect. If not provided, the location will be clipped by
+      * -clipCursorLocation, and the cursor will be warped normally.
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -1335,7 +1335,9 @@
+                 clipCursorHandler = [[WineEventTapClipCursorHandler alloc] init];
+         }
+ 
+-        if (self.clippingCursor && CGRectEqualToRect(rect, clipCursorHandler.cursorClipRect))
++        if (self.clippingCursor && CGRectEqualToRect(rect, clipCursorHandler.cursorClipRect) &&
++            (![clipCursorHandler respondsToSelector:@selector(isClippingCursorToRect:)] ||
++             [clipCursorHandler isClippingCursorToRect:rect]))
+             return TRUE;
+ 
+         if (![clipCursorHandler startClippingCursor:rect])
+--- a/dlls/winemac.drv/cocoa_cursorclipping.m
++++ b/dlls/winemac.drv/cocoa_cursorclipping.m
+@@ -452,11 +452,23 @@
+         return [window convertRectFromScreen:intersection];
+     }
+ 
+-    - (BOOL) startClippingCursor:(CGRect)rect
++    - (BOOL) isClippingCursorToRect:(CGRect)rect
+     {
+-        if (clippingCursor && ![self stopClippingCursor])
++        WineWindow *ownerWindow = [[WineApplicationController sharedController] frontWineWindow];
++        NSRect expected;
++
++        if (!clippingCursor || !CGRectEqualToRect(rect, cursorClipRect) ||
++            !ownerWindow || ownerWindow.windowNumber != clippingWindowNumber)
+             return FALSE;
+ 
++        expected = [WineConfinementClipCursorHandler rectForScreenRect:rect inWindow:ownerWindow];
++        return !NSIsEmptyRect(expected) && NSEqualRects(expected, [ownerWindow mouseConfinementRect]);
++    }
++
++    - (BOOL) startClippingCursor:(CGRect)rect
++    {
++        /* Resolve the new target before releasing the old constraint. A failed
++         * request must not silently turn an existing capture into free mode. */
+         WineWindow *ownerWindow = [[WineApplicationController sharedController] frontWineWindow];
+         if (!ownerWindow)
+         {
+@@ -475,6 +490,9 @@
+             return FALSE;
+         }
+ 
++        if (clippingCursor && ![self stopClippingCursor])
++            return FALSE;
++
+         [ownerWindow setMouseConfinementRect:clipRectInWindowCoords];
+ 
+         clippingWindowNumber = ownerWindow.windowNumber;

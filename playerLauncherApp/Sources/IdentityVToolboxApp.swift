@@ -19,6 +19,14 @@ enum IdentityVLauncherEntry {
         if LauncherEntryRouting.isAgentOperation(args) {
             exit(await LauncherUpdateAgent.run(Array(args.dropFirst())))
         }
+        if args.first == "--preview-launcher-update" {
+            guard let language = LauncherUpdatePreview.language(arguments: args) else {
+                FileHandle.standardError.write(Data("Usage: --preview-launcher-update [--preview-language zh-Hans|zh-Hant|en]\n".utf8))
+                exit(64)
+            }
+            LauncherUpdatePreview.run(language: language)
+            return
+        }
         IdentityVToolboxApp.main()
     }
 }
@@ -116,12 +124,15 @@ struct IdentityVToolboxApp: App {
 final class ToolboxAppDelegate: NSObject, NSApplicationDelegate {
     func showAbout(applicationName: String) {
         // Use the system layout and typography, as in Apple's own apps.
-        // Suppress the internal build suffix; the full release label includes RC.
+        // Let AppKit format the release and actual CFBundleVersion as version (build).
         NSApplication.shared.orderFrontStandardAboutPanel(options: [
             .applicationName: applicationName,
             .applicationVersion: LauncherRelease.displayVersion,
-            .version: ""
+            .version: LauncherRelease.buildNumber
         ])
+        if let panel = NSApplication.shared.keyWindow as? NSPanel {
+            panel.setFrame(NSRect(origin: panel.frame.origin, size: LauncherPanelGeometry.frameSize), display: true)
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

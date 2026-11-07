@@ -1,0 +1,171 @@
+Subject: [PATCH] winemac: Add bounded, opt-in capture-session diagnostics.
+
+Apply after confinement-state-validation.patch. No timer or event modification.
+
+--- a/dlls/winemac.drv/cocoa_cursorclipping.h
++++ b/dlls/winemac.drv/cocoa_cursorclipping.h
+@@ -38,6 +38,8 @@
+     /* Check native state as well as the cached rect before skipping a request.
+      * Handlers without window-bound native state may keep the cached check. */
+     - (BOOL) isClippingCursorToRect:(CGRect)rect;
++    /* Explicit-session diagnostics; never alters an event or cursor. */
++    - (void) diagnoseCursorEventAt:(CGPoint)point;
+ 
+     /* If provided, should reposition the cursor as needed given the current
+      * clipping rect. If not provided, the location will be clipped by
+@@ -69,6 +71,9 @@
+      * mouseConfinementRect set). Using this rather than a WineWindow* to avoid
+      * tricky retain situations. */
+     NSInteger clippingWindowNumber;
++    BOOL diagnosticEnabled;
++    unsigned diagnosticRecords, diagnosticEpoch, diagnosticAnomalyKinds;
++    NSTimeInterval diagnosticLastCheck;
+ }
+ 
+     /* Returns true if the API in use by this handler is available. */
+--- a/dlls/winemac.drv/cocoa_cursorclipping.m
++++ b/dlls/winemac.drv/cocoa_cursorclipping.m
+@@ -22,6 +22,11 @@
+ #import "cocoa_app.h"
+ #import "cocoa_cursorclipping.h"
+ #import "cocoa_window.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
+ 
+ #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+ 
+@@ -426,6 +431,80 @@
+ 
+ @synthesize clippingCursor, cursorClipRect;
+ 
++    - (id) init
++    {
++        self = [super init];
++        if (self)
++        {
++            const char *value = getenv("IDENTITYV_CAPTURE_DIAGNOSTICS");
++            diagnosticEnabled = value && !strcmp(value, "1");
++        }
++        return self;
++    }
++
++    /* Called only at capture transitions or after an existing event has crossed
++     * the cached clip rect. No timer, input hook, or continuous position log. */
++    - (void) diagnoseCursorState:(const char*)reason eventPoint:(CGPoint)eventPoint hasEvent:(BOOL)hasEvent
++    {
++        if (!diagnosticEnabled || diagnosticRecords >= 64) return;
++
++        WineApplicationController *controller = [WineApplicationController sharedController];
++        NSWindow *owner = [NSApp windowWithWindowNumber:clippingWindowNumber];
++        NSWindow *key = [NSApp keyWindow];
++        NSWindow *ancestor = owner;
++        BOOL eligible = NO;
++        while (ancestor)
++        {
++            if (ancestor == key) { eligible = YES; break; }
++            ancestor = [ancestor parentWindow];
++        }
++        NSRect expected = owner ? [WineConfinementClipCursorHandler rectForScreenRect:cursorClipRect inWindow:owner] : NSZeroRect;
++        NSRect native = owner ? [owner mouseConfinementRect] : NSZeroRect;
++        BOOL nativeMatches = owner && !NSIsEmptyRect(expected) && NSEqualRects(expected, native);
++        BOOL active = [NSApp isActive];
++        CGPoint current = CGPointZero;
++        BOOL currentOutside = NO;
++        const char *kind = "transition";
++        if (hasEvent)
++        {
++            current = NSPointToCGPoint([controller flippedMouseLocation:[NSEvent mouseLocation]]);
++            currentOutside = !CGRectContainsPoint(cursorClipRect, current);
++            unsigned bit;
++            if (!nativeMatches) { kind = "native-constraint-mismatch"; bit = 1; }
++            else if (!active || !eligible) { kind = "inactive-or-nonkey"; bit = 2; }
++            else if (currentOutside) { kind = "native-present-pointer-outside"; bit = 4; }
++            else { kind = "event-outside-pointer-inside"; bit = 8; }
++            if (diagnosticAnomalyKinds & bit) return;
++            diagnosticAnomalyKinds |= bit;
++        }
++        diagnosticRecords++;
++        pid_t frontPID = [[[NSWorkspace sharedWorkspace] frontmostApplication] processIdentifier];
++        fprintf(stderr, "IDV_CAPTURE_DIAG v=1 pid=%d seq=%u epoch=%u uptime=%.6f reason=%s kind=%s capture=%d owner=%ld frontOwner=%ld key=%ld active=%d eligible=%d frontPID=%d nativeMatch=%d rect=%.3f,%.3f,%.3f,%.3f expected=%.3f,%.3f,%.3f,%.3f native=%.3f,%.3f,%.3f,%.3f",
++                getpid(), diagnosticRecords, diagnosticEpoch, [[NSProcessInfo processInfo] systemUptime], reason, kind, clippingCursor,
++                (long)[owner windowNumber], (long)[[controller frontWineWindow] windowNumber],
++                (long)[key windowNumber], active, eligible, frontPID, nativeMatches,
++                cursorClipRect.origin.x, cursorClipRect.origin.y, cursorClipRect.size.width, cursorClipRect.size.height,
++                expected.origin.x, expected.origin.y, expected.size.width, expected.size.height,
++                native.origin.x, native.origin.y, native.size.width, native.size.height);
++        if (hasEvent)
++            fprintf(stderr, " event=%.3f,%.3f current=%.3f,%.3f currentOutside=%d", eventPoint.x, eventPoint.y, current.x, current.y, currentOutside);
++        fprintf(stderr, "\n");
++    }
++
++    - (void) diagnoseCursorEventAt:(CGPoint)point
++    {
++        /* The event already exists. Cheap cached bounds testing is not a system
++         * position sample; native state is read only for a bounded anomaly. */
++        if (!diagnosticEnabled || !clippingCursor || diagnosticRecords >= 64 ||
++            diagnosticAnomalyKinds == 15 || CGRectContainsPoint(cursorClipRect, point)) return;
++        NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
++        if (diagnosticLastCheck && now - diagnosticLastCheck < 1.0) return;
++        diagnosticLastCheck = now;
++        [self diagnoseCursorState:"event-outside" eventPoint:point hasEvent:YES];
++    }
++
++
++
+     + (BOOL) isAvailable
+     {
+         NSOperatingSystemVersion requiredVersion = { 10, 13, 0 };
+@@ -487,6 +566,8 @@
+             return FALSE;
+         }
+ 
++        if (clippingCursor)
++            [self diagnoseCursorState:"rebind-before" eventPoint:CGPointZero hasEvent:NO];
+         if (clippingCursor && ![self stopClippingCursor])
+             return FALSE;
+ 
+@@ -495,6 +576,10 @@
+         clippingWindowNumber = ownerWindow.windowNumber;
+         cursorClipRect = rect;
+         clippingCursor = TRUE;
++        diagnosticEpoch++;
++        diagnosticAnomalyKinds = 0;
++        diagnosticLastCheck = 0;
++        [self diagnoseCursorState:"set" eventPoint:CGPointZero hasEvent:NO];
+ 
+         return TRUE;
+     }
+@@ -505,6 +590,7 @@
+         [ownerWindow setMouseConfinementRect:NSZeroRect];
+ 
+         clippingCursor = FALSE;
++        [self diagnoseCursorState:"release" eventPoint:CGPointZero hasEvent:NO];
+ 
+         return TRUE;
+     }
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -1445,6 +1445,8 @@
+ 
+     - (void) handleMouseMove:(NSEvent*)anEvent
+     {
++        if (self.clippingCursor && [clipCursorHandler respondsToSelector:@selector(diagnoseCursorEventAt:)] && [anEvent CGEvent])
++            [clipCursorHandler diagnoseCursorEventAt:CGEventGetLocation([anEvent CGEvent])];
+         WineWindow* targetWindow;
+         BOOL drag = [anEvent type] != NSEventTypeMouseMoved;
+ 
+@@ -1916,6 +1918,11 @@
+             [self handleMouseButton:anEvent];
+             ret = mouseCaptureWindow && ![windowsBeingDragged count];
+         }
++        else if (type == NSEventTypeMouseExited)
++        {
++            if (self.clippingCursor && [clipCursorHandler respondsToSelector:@selector(diagnoseCursorEventAt:)] && [anEvent CGEvent])
++                [clipCursorHandler diagnoseCursorEventAt:CGEventGetLocation([anEvent CGEvent])];
++        }
+         else if (type == NSEventTypeScrollWheel)
+         {
+             [self handleScrollWheel:anEvent];

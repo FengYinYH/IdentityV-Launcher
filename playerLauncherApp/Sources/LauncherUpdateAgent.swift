@@ -316,10 +316,16 @@ enum LoginAdmin {
               values.isRegularFile == true, values.isSymbolicLink != true,
               let size = values.fileSize, size > 0, size <= 256 * 1_024,
               let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
-        // 8–10 share the bounded status/start protocol. Later revisions add
-        // certificate recovery and update policy changes, not a new IPC shape.
-        // Keep unknown and pre-status helpers blocked at the execution boundary.
-        return [8, 9, 10].contains { text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"\($0)\"") }
+        // The bounded operation protocol remains compatible with 8–11, so an
+        // older installation can still be managed. Maintenance identity is a
+        // separate check: accepting old IPC must not skip the DNS repair upgrade.
+        return [8, 9, 10, 11].contains { text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"\($0)\"") }
+    }
+
+    nonisolated static func loginHelperContainsCurrentMaintenanceContract(at url: URL) -> Bool {
+        guard loginHelperContainsCurrentStatusContract(at: url),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        return text.contains("readonly IDV_LOGIN_STATUS_CONTRACT=\"11\"")
     }
 
     static let url = URL(string: "https://localhost/_idv-login/index")!
