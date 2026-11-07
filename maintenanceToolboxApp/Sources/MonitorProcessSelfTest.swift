@@ -4,7 +4,7 @@ import Metal
 
 #if MONITOR_PROCESS_SELF_TEST
 @main struct MonitorProcessSelfTest {
-    static func main() {
+    @MainActor static func main() async {
         if CommandLine.arguments.contains("--live-resource-probe") {
             let sampler = MonitorResourceSampler()
             _ = sampler.sample(targetPID: getpid())
@@ -18,9 +18,9 @@ import Metal
                 guard let command = queue.makeCommandBuffer(), let blit = command.makeBlitCommandEncoder() else { return }
                 blit.fill(buffer: buffer, range: 0..<buffer.length, value: 17); blit.endEncoding(); command.commit(); command.waitUntilCompleted()
             }
-            gpuWork(); Thread.sleep(forTimeInterval: 1.1); _ = sampler.sample(targetPID: getpid())
+            gpuWork(); try? await Task.sleep(nanoseconds: 1_100_000_000); _ = sampler.sample(targetPID: getpid())
             for _ in 0..<50 { gpuWork() }
-            Thread.sleep(forTimeInterval: 1.1)
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
             let gpu = sampler.sample(targetPID: getpid())
             print(String(decoding: (try? JSONEncoder().encode(gpu)) ?? Data(), as: UTF8.self))
             guard let share = gpu.gameGPUPercent, share > 0, gpu.gameGPULastSubmitted != nil else { exit(1) }
@@ -33,6 +33,8 @@ import Metal
         let securityChecks = fixtureSecurityChecks()
         let freezeChecks = FreezeStackCaptureController.fixtureChecks()
         let denseChecks = DenseMonitoringController.fixtureChecks()
+        let visualLifecycleChecks = await VisualCaptureControllerNative.lifecycleFixtureChecks()
+        let localCleanupChecks = await MonitorViewModel.localCleanupFixtureChecks()
         let checks = [
             processSnapshotEncodingCheck(),
             MonitorViewModel.refreshReentryChecks().allSatisfy { $0 },
@@ -49,6 +51,8 @@ import Metal
             MetalPerfTraceExportPlan.isMatchingTrace(URL(fileURLWithPath: "/private/tmp/identityv-pid-75512.atrc"), targetPID: 75512),
             VisualFrameAnalyzer.fixtureChecks().allSatisfy { $0 },
             VisualCaptureControllerNative.outputFixtureChecks().allSatisfy { $0 },
+            visualLifecycleChecks.allSatisfy { $0 },
+            localCleanupChecks.allSatisfy { $0 },
             freezeChecks.allSatisfy { $0 },
             MonitorResourceSampler.fixtureChecks().allSatisfy { $0 },
             GameHealthGate.fixtureChecks().allSatisfy { $0 },
@@ -64,7 +68,7 @@ import Metal
             !String(describing: CombinedCaptureRecord.self).contains("Sidecar"),
             GameAudioCaptureController.fixtureChecks().allSatisfy { $0 },
         ] + DenseMonitoringProcessMatcherSelfTest.checks()
-        guard checks.allSatisfy({ $0 }) else { FileHandle.standardError.write(Data("第五人格工具箱自检失败：\(checks) freeze=\(freezeChecks) dense=\(denseChecks)\n".utf8)); exit(1) }
+        guard checks.allSatisfy({ $0 }) else { FileHandle.standardError.write(Data("第五人格工具箱自检失败：\(checks) freeze=\(freezeChecks) dense=\(denseChecks) visualLifecycle=\(visualLifecycleChecks) localCleanup=\(localCleanupChecks)\n".utf8)); exit(1) }
     }
     /// Exercise a real BSD ps child under the same unset/C locale as a GUI
     /// launch. ASCII-only synthetic snapshots missed the installed Chinese path.

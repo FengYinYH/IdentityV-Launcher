@@ -63,8 +63,8 @@ struct VisualMetrics: Codable, Equatable {
     var targetPID: Int32
     var isUsable: Bool { status == "capturing" && perceptualVisualFPS != nil }
     var localizedDescription: String {
-        guard isUsable else { return "画面变化率：\(status)" }
-        return String(format: "画面 %.0f FPS · capture %.0f · sample %.0f · 静止 %.0fms", perceptualVisualFPS ?? 0, captureFPS ?? 0, sampleChangedFPS ?? 0, currentUnchangedRunMs ?? 0)
+        guard isUsable else { return "画面变化率：\(status == "未启动" ? "未采集" : status)" }
+        return String(format: "画面变化 %.0f 次/秒 · 采样 %.0f 次/秒 · 静止 %.0fms", perceptualVisualFPS ?? 0, captureFPS ?? 0, currentUnchangedRunMs ?? 0)
     }
 }
 
@@ -178,42 +178,123 @@ final class VisualCaptureControllerNative: NSObject, SCStreamOutput, SCStreamDel
         // usable frame. Keep evidence per record, including reused streams.
         var succeeded: Bool { numericWrites > 0 && !failed }
     }
-    private var stream: SCStream?; private var activePID: Int32?; private var output: OutputSession?; private var frames: [Double] = []; private var exact: [Double] = []; private var perceptual: [Double] = []; private var lastHash: UInt64?; private var lastGrid: [UInt8]?; private var lastTime: Double?; private var unchangedStart: Double?; private var maxUnchanged: Double = 0; private var lastEmit: Double = 0; private var generation: UInt64 = 0; private var pendingStart: Task<Void, Never>?; private var numericSamples = 0; private var currentMetrics = VisualMetrics(timestamp: 0, status: "未启动", captureFPS: nil, sampleChangedFPS: nil, perceptualVisualFPS: nil, meanSampleDelta: nil, changedSampleRatio: nil, currentUnchangedRunMs: nil, maxUnchangedRunMs: nil, targetPID: 0); private let freezeStacks = FreezeStackCaptureController(); private var targetWindowID: CGWindowID?; private var targetWindowVisible = false; private var lastVisibilityCheck: Double = 0; private var targetVisibilityConfirmedAt: Double?; private var visibilityRefreshInFlight = false
-    private let overlay = DisplayOverlayHelper()
+    private struct CaptureStream {
+        let native: SCStream?
+        let windowID: CGWindowID?
+        let isOnScreen: Bool
+        let start: @MainActor () async throws -> Void
+        let stop: @MainActor () async -> Void
+    }
+    private var pendingStop: Task<Void, Never>?
+#if MONITOR_PROCESS_SELF_TEST
+    private var testPermission: (() -> Bool)?
+    private var testStream: (@MainActor (Int32) async throws -> CaptureStream)?
+#endif
+    private var stream: CaptureStream?; private var activePID: Int32?; private var output: OutputSession?; private var frames: [Double] = []; private var exact: [Double] = []; private var perceptual: [Double] = []; private var lastHash: UInt64?; private var lastGrid: [UInt8]?; private var lastTime: Double?; private var unchangedStart: Double?; private var maxUnchanged: Double = 0; private var lastEmit: Double = 0; private var generation: UInt64 = 0; private var pendingStart: Task<Void, Never>?; private var numericSamples = 0; private var currentMetrics = VisualMetrics(timestamp: 0, status: "未启动", captureFPS: nil, sampleChangedFPS: nil, perceptualVisualFPS: nil, meanSampleDelta: nil, changedSampleRatio: nil, currentUnchangedRunMs: nil, maxUnchangedRunMs: nil, targetPID: 0); private let freezeStacks = FreezeStackCaptureController(); private var targetWindowID: CGWindowID?; private var targetWindowVisible = false; private var lastVisibilityCheck: Double = 0; private var targetVisibilityConfirmedAt: Double?; private var visibilityRefreshInFlight = false
+    private var overlay = DisplayOverlayHelper()
     func publishOverlay(_ snapshot: OverlayDisplaySnapshot) { overlay.publish(snapshot) }
     var statusDescription: String { currentMetrics.localizedDescription }
     @discardableResult func showOverlay() -> Bool { overlay.show() }
-    func hideOverlay(hasActiveRecord: Bool) { overlay.stop(); guard !hasActiveRecord else { return }; freezeStacks.disarm(); generation &+= 1; pendingStart?.cancel(); pendingStart = nil; let old = stream; stream = nil; activePID = nil; targetWindowID = nil; targetWindowVisible = false; targetVisibilityConfirmedAt = nil; Task { if let old { try? await old.stopCapture() }; self.publishStatus("未启动") } }
-    func armAutomaticFreezeStackCapture(captureDirectory: URL, targetPID: Int32) { freezeStacks.arm(captureDirectory: captureDirectory, targetPID: targetPID) }
-    func disarmAutomaticFreezeStackCapture() { freezeStacks.disarm() }
-    func beginStart(targetPID: Int32, outputURL: URL?) {
-        generation &+= 1; let token = generation; pendingStart?.cancel()
-        pendingStart = Task { [weak self] in await self?.performStart(targetPID: targetPID, outputURL: outputURL, token: token) }
+    // The display helper never owns a capture lease. Closing it must neither
+    // stop an explicit record nor keep a completed record's screen stream alive.
+    func hideOverlay() { overlay.stop() }
+
+    func beginStart(targetPID: Int32, outputURL: URL, automaticFreezeStacks: Bool = false) {
+        // A private, exclusive record output is mandatory. No overlay-only or
+        // permission-only caller can start sampling without a real record.
+        guard output == nil, stream == nil, pendingStart == nil else { return }
+        generation &+= 1
+        let token = generation
+        let previousStop = pendingStop
+        pendingStart = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await previousStop?.value
+            await self.performStart(targetPID: targetPID, outputURL: outputURL, automaticFreezeStacks: automaticFreezeStacks, token: token)
+            if self.generation == token { self.pendingStart = nil }
+        }
     }
-    private func performStart(targetPID: Int32, outputURL: URL?, token: UInt64) async {
-        if !CGPreflightScreenCaptureAccess() { emit(status: "screen-recording-denied"); return }
-        guard token == generation, !Task.isCancelled else { return }
-        if let outputURL, !prepareOutput(outputURL, token: token) { emit(status: "output-failed"); return }
-        if activePID == targetPID, stream != nil { return }
-        if let stream { try? await stream.stopCapture() }; guard token == generation else { return }; reset(pid: targetPID)
-        do {
-            let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
-            guard token == generation, !Task.isCancelled else { return }
-            guard let window = content.windows.filter({ $0.owningApplication?.processID == targetPID && $0.frame.width >= 500 && $0.frame.height >= 300 }).max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else { emit(status: "target-window-not-found"); return }
-            let config = SCStreamConfiguration(); let aspect = max(window.frame.width / max(window.frame.height, 1), 1); config.width = 480; config.height = max(180, Int(480 / aspect)); config.minimumFrameInterval = CMTime(value: 1, timescale: 120); config.queueDepth = 3; config.pixelFormat = kCVPixelFormatType_32BGRA; config.showsCursor = false; config.capturesAudio = false
-            let new = SCStream(filter: SCContentFilter(desktopIndependentWindow: window), configuration: config, delegate: self); try new.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue); try await new.startCapture(); guard token == generation, !Task.isCancelled else { try? await new.stopCapture(); return }; stream = new; targetWindowID = window.windowID; targetWindowVisible = window.isOnScreen; targetVisibilityConfirmedAt = nil; lastVisibilityCheck = 0; pendingStart = nil; emit(status: "capturing")
-        } catch { emit(status: "capture-start-failed") }
-    }
-    func finishRecord(outputURL: URL?, stopIfNoOverlay: Bool) async -> VisualFinishResult {
-        guard outputURL != nil else { return .init(succeeded: true, message: "画面变化率：本轮未选择") }
-        generation &+= 1; pendingStart?.cancel(); pendingStart = nil
+
+    /// Invalidate callbacks synchronously before Dense/ps can re-enter the main
+    /// loop. Await both an in-flight start and stop before reporting completion.
+    func stopRecording() {
         freezeStacks.disarm()
-        let old = stream; if stopIfNoOverlay { stream = nil; activePID = nil; targetWindowID = nil; targetWindowVisible = false; targetVisibilityConfirmedAt = nil; if let old { try? await old.stopCapture() } }
-        let completed = detachOutput(); let m = currentMetrics
-        return completed?.succeeded == true ? .init(succeeded: true, message: "画面变化率：已记录") : .init(succeeded: false, message: "画面变化率：未取得有效数值（\(m.status)）")
+        generation &+= 1
+        let starting = pendingStart
+        pendingStart = nil
+        starting?.cancel()
+        let old = stream
+        stream = nil
+        activePID = nil
+        targetWindowID = nil
+        targetWindowVisible = false
+        targetVisibilityConfirmedAt = nil
+        let previousStop = pendingStop
+        pendingStop = Task { @MainActor in
+            await previousStop?.value
+            await starting?.value
+            if let old { await old.stop() }
+        }
+        publishStatus("未采集")
+    }
+    @MainActor private func performStart(targetPID: Int32, outputURL: URL, automaticFreezeStacks: Bool, token: UInt64) async {
+        guard token == generation, !Task.isCancelled else { return }
+        var authorized = CGPreflightScreenCaptureAccess()
+#if MONITOR_PROCESS_SELF_TEST
+        if let testPermission { authorized = testPermission() }
+#endif
+        guard authorized else { emit(status: "screen-recording-denied"); return }
+        guard prepareOutput(outputURL, token: token) else { emit(status: "output-failed"); return }
+        reset(pid: targetPID)
+        if automaticFreezeStacks { freezeStacks.arm(captureDirectory: outputURL.deletingLastPathComponent(), targetPID: targetPID) }
+        do {
+            let new = try await makeStream(targetPID: targetPID)
+            guard token == generation, !Task.isCancelled else { return }
+            do { try await new.start() }
+            catch { await new.stop(); throw error }
+            guard token == generation, !Task.isCancelled else { await new.stop(); return }
+            stream = new
+            targetWindowID = new.windowID
+            targetWindowVisible = new.isOnScreen
+            targetVisibilityConfirmedAt = nil
+            lastVisibilityCheck = 0
+            emit(status: "capturing")
+        } catch {
+            guard token == generation, !Task.isCancelled else { return }
+            freezeStacks.disarm()
+            emit(status: "capture-start-failed")
+        }
+    }
+
+    @MainActor private func makeStream(targetPID: Int32) async throws -> CaptureStream {
+#if MONITOR_PROCESS_SELF_TEST
+        if let testStream { return try await testStream(targetPID) }
+#endif
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+        guard let window = content.windows.filter({ $0.owningApplication?.processID == targetPID && $0.frame.width >= 500 && $0.frame.height >= 300 }).max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
+            throw NSError(domain: "VisualCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "target-window-not-found"])
+        }
+        let config = SCStreamConfiguration()
+        let aspect = max(window.frame.width / max(window.frame.height, 1), 1)
+        config.width = 480; config.height = max(180, Int(480 / aspect))
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 120)
+        config.queueDepth = 3; config.pixelFormat = kCVPixelFormatType_32BGRA
+        config.showsCursor = false; config.capturesAudio = false
+        let native = SCStream(filter: SCContentFilter(desktopIndependentWindow: window), configuration: config, delegate: self)
+        try native.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+        return CaptureStream(native: native, windowID: window.windowID, isOnScreen: window.isOnScreen,
+                             start: { try await native.startCapture() }, stop: { try? await native.stopCapture() })
+    }
+
+    @MainActor func finishRecord(outputURL: URL?) async -> VisualFinishResult {
+        let status = currentMetrics.status
+        stopRecording()
+        await pendingStop?.value
+        let completed = detachOutput()
+        guard outputURL != nil else { return .init(succeeded: true, message: "画面变化率：本轮未选择") }
+        return completed?.succeeded == true ? .init(succeeded: true, message: "画面变化率：已记录") : .init(succeeded: false, message: "画面变化率：未取得有效数值（\(status)）")
     }
     func stream(_ outputStream: SCStream, didOutputSampleBuffer sample: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard self.stream === outputStream, type == .screen, sample.isValid, let attach = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]], let raw = attach.first?[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete, let pixel = sample.imageBuffer else { return }
+        guard self.stream?.native === outputStream, type == .screen, sample.isValid, let attach = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]], let raw = attach.first?[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete, let pixel = sample.imageBuffer else { return }
         let time = sample.presentationTimeStamp.seconds; guard time.isFinite else { return }; let sampled = sceneSamples(pixel); frames.append(time); let exactChanged = lastHash != nil && lastHash != sampled.exact; if exactChanged { exact.append(time) }; let compare: (changed: Bool, mean: Double, ratio: Double) = lastGrid.map { VisualFrameAnalyzer.perceptuallyChanged(previous: $0, current: sampled.grid) } ?? (changed: false, mean: 0, ratio: 0); if compare.changed { perceptual.append(time); unchangedStart = nil } else if unchangedStart == nil { unchangedStart = lastTime ?? time }; lastHash = sampled.exact; lastGrid = sampled.grid; lastTime = time
         let cutoff = time - 1; frames.removeAll { $0 < cutoff }; exact.removeAll { $0 < cutoff }; perceptual.removeAll { $0 < cutoff }; let unchanged = (unchangedStart.map { (time - $0) * 1000 }) ?? 0; maxUnchanged = max(maxUnchanged, unchanged)
         if time - lastVisibilityCheck >= 0.25 { lastVisibilityCheck = time; refreshTargetVisibility() }
@@ -221,15 +302,20 @@ final class VisualCaptureControllerNative: NSObject, SCStreamOutput, SCStreamDel
         freezeStacks.observe(timestamp: time, perceptuallyChanged: compare.changed, captureFPS: Double(frames.count), stillDurationMs: unchanged, streamIsActive: stream != nil && output != nil, targetVisible: targetWindowVisible && visibilityFresh)
         if time - lastEmit >= 0.25 { lastEmit = time; numericSamples += 1; emit(metrics: .init(timestamp: Date().timeIntervalSince1970, status: "capturing", captureFPS: Double(frames.count), sampleChangedFPS: Double(exact.count), perceptualVisualFPS: Double(perceptual.count), meanSampleDelta: compare.mean, changedSampleRatio: compare.ratio, currentUnchangedRunMs: unchanged, maxUnchangedRunMs: maxUnchanged, targetPID: activePID ?? 0)) }
     }
-    func stream(_ stopped: SCStream, didStopWithError error: Error) { guard stopped === stream else { return }; freezeStacks.disarm(); stream = nil; activePID = nil; targetWindowID = nil; targetWindowVisible = false; targetVisibilityConfirmedAt = nil; publishStatus("capture-stopped") }
+    func stream(_ stopped: SCStream, didStopWithError error: Error) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, stopped === self.stream?.native else { return }
+            self.stopRecording()
+            self.publishStatus("capture-stopped")
+        }
+    }
     private func reset(pid: Int32) { activePID = pid; frames = []; exact = []; perceptual = []; lastHash = nil; lastGrid = nil; lastTime = nil; unchangedStart = nil; maxUnchanged = 0; lastEmit = 0; numericSamples = 0; targetWindowID = nil; targetWindowVisible = false; targetVisibilityConfirmedAt = nil; lastVisibilityCheck = 0; visibilityRefreshInFlight = false }
     private func emit(status: String) { emit(metrics: .init(timestamp: Date().timeIntervalSince1970, status: status, captureFPS: nil, sampleChangedFPS: nil, perceptualVisualFPS: nil, meanSampleDelta: nil, changedSampleRatio: nil, currentUnchangedRunMs: nil, maxUnchangedRunMs: nil, targetPID: activePID ?? 0)) }
-    private func emit(metrics: VisualMetrics) { currentMetrics = metrics; if let data = try? JSONEncoder().encode(metrics) { append(data, isNumeric: metrics.isUsable) }; DispatchQueue.main.async { self.onUpdate?(metrics) } }
-    private func publishStatus(_ status: String) { let value = VisualMetrics(timestamp: Date().timeIntervalSince1970, status: status, captureFPS: nil, sampleChangedFPS: nil, perceptualVisualFPS: nil, meanSampleDelta: nil, changedSampleRatio: nil, currentUnchangedRunMs: nil, maxUnchangedRunMs: maxUnchanged, targetPID: activePID ?? 0); currentMetrics = value; DispatchQueue.main.async { self.onUpdate?(value) } }
+    private func emit(metrics: VisualMetrics) { currentMetrics = metrics; if let data = try? JSONEncoder().encode(metrics) { append(data, isNumeric: metrics.isUsable) }; let token = generation; DispatchQueue.main.async { if self.generation == token { self.onUpdate?(metrics) } } }
+    private func publishStatus(_ status: String) { let value = VisualMetrics(timestamp: Date().timeIntervalSince1970, status: status, captureFPS: nil, sampleChangedFPS: nil, perceptualVisualFPS: nil, meanSampleDelta: nil, changedSampleRatio: nil, currentUnchangedRunMs: nil, maxUnchangedRunMs: maxUnchanged, targetPID: activePID ?? 0); currentMetrics = value; let token = generation; DispatchQueue.main.async { if self.generation == token { self.onUpdate?(value) } } }
     private func prepareOutput(_ url: URL, token: UInt64) -> Bool {
-        // Showing the overlay may re-enter start during this same capture.
-        // Keep the exclusively opened handle and advance its generation;
-        // reopening the existing path fails and strands subsequent writes.
+        // Keep evidence and file ownership per explicit record. Revalidating
+        // the same output must never reopen or truncate its exclusive handle.
         if let current = output {
             guard current.url == url, !current.failed else { return false }
             output = .init(generation: token, url: current.url, handle: current.handle, writes: current.writes, numericWrites: current.numericWrites, failed: false)
@@ -243,9 +329,8 @@ final class VisualCaptureControllerNative: NSObject, SCStreamOutput, SCStreamDel
     private func append(_ data: Data, isNumeric: Bool = false) {
         guard var session = output, session.generation == generation, !session.failed else { return }
         do { try session.handle.write(contentsOf: data); try session.handle.write(contentsOf: Data([10])); session.writes += 1; if isNumeric { session.numericWrites += 1 }; output = session }
-        catch { session.failed = true; output = session; _ = detachOutput(); freezeStacks.disarm(); publishStatus("output-failed") }
+        catch { session.failed = true; output = session; _ = detachOutput(); stopRecording(); publishStatus("output-failed") }
     }
-    private func stopCurrentStream() async { freezeStacks.disarm(); if let current = stream { try? await current.stopCapture() }; stream = nil; activePID = nil; targetWindowID = nil; targetWindowVisible = false; targetVisibilityConfirmedAt = nil; emit(status: "未启动") }
     private func refreshTargetVisibility() {
         guard !visibilityRefreshInFlight, let expectedID = targetWindowID, let expectedPID = activePID else { return }
         visibilityRefreshInFlight = true
@@ -258,6 +343,81 @@ final class VisualCaptureControllerNative: NSObject, SCStreamOutput, SCStreamDel
             self.targetVisibilityConfirmedAt = self.targetWindowVisible ? self.lastTime : nil
         }
     }
+#if MONITOR_PROCESS_SELF_TEST
+    @MainActor static func lifecycleFixtureChecks() async -> [Bool] {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("idv-visual-lifecycle-\(UUID().uuidString)", isDirectory: true)
+        guard MonitorSecureFS.createDirectoryOneLevel(root) else { return [false] }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controller = VisualCaptureControllerNative()
+        // A pipe-only stand-in exercises display-helper ownership, without a
+        // window, game, ScreenCaptureKit call or permission request.
+        controller.overlay = DisplayOverlayHelper(executableURL: URL(fileURLWithPath: "/bin/cat"))
+        controller.testPermission = { true }
+        var created = 0, starts = 0, stops = 0
+        controller.testStream = { _ in
+            created += 1
+            return CaptureStream(native: nil, windowID: nil, isOnScreen: true,
+                                 start: { starts += 1 }, stop: { stops += 1 })
+        }
+        let overlayStarted = controller.showOverlay()
+        controller.publishOverlay(.init(cpuLine: "CPU 3%", gpuLine: "GPU 2%  20%", targetPID: 42, hasLiveData: true))
+        let overlayOnlyDoesNotCapture = overlayStarted && created == 0 && controller.stream == nil && controller.output == nil
+        let firstURL = root.appendingPathComponent("first.jsonl")
+        controller.beginStart(targetPID: 42, outputURL: firstURL)
+        await controller.pendingStart?.value
+        let explicitStart = created == 1 && starts == 1 && controller.stream != nil
+        controller.hideOverlay()
+        let hidingPreservesRecord = controller.stream != nil && stops == 0
+        _ = controller.showOverlay()
+        let sample = VisualMetrics(timestamp: 1, status: "capturing", captureFPS: 60, sampleChangedFPS: 0, perceptualVisualFPS: 0, meanSampleDelta: 0, changedSampleRatio: 0, currentUnchangedRunMs: 1000, maxUnchangedRunMs: 1000, targetPID: 42)
+        controller.emit(metrics: sample)
+        let first = await controller.finishRecord(outputURL: firstURL)
+        let completedKeepsOnlyOverlay = first.succeeded && controller.overlay.isRunning && controller.stream == nil && controller.output == nil && stops == 1
+        let noFakeFPS = !sample.localizedDescription.contains("FPS") && !controller.currentMetrics.isUsable && controller.statusDescription.contains("未采集")
+
+        let noVisualURL = root.appendingPathComponent("cleanup-without-output-argument.jsonl")
+        controller.beginStart(targetPID: 42, outputURL: noVisualURL)
+        await controller.pendingStart?.value
+        let unselected = await controller.finishRecord(outputURL: nil)
+        let nilStillStops = unselected.succeeded && stops == 2 && controller.stream == nil && controller.output == nil && controller.overlay.isRunning
+
+        var resumeStart: CheckedContinuation<Void, Never>?
+        controller.testStream = { _ in
+            created += 1
+            return CaptureStream(native: nil, windowID: nil, isOnScreen: true, start: {
+                starts += 1
+                await withCheckedContinuation { resumeStart = $0 }
+            }, stop: { stops += 1 })
+        }
+        let pendingURL = root.appendingPathComponent("pending.jsonl")
+        controller.beginStart(targetPID: 42, outputURL: pendingURL)
+        for _ in 0..<1000 where resumeStart == nil { await Task.yield() }
+        guard let resumeStart else { controller.hideOverlay(); return [false] }
+        controller.stopRecording()
+        let invalidatedImmediately = controller.stream == nil && controller.activePID == nil && !controller.currentMetrics.isUsable
+        resumeStart.resume()
+        let pending = await controller.finishRecord(outputURL: pendingURL)
+        let cancelledStartCannotResurrect = !pending.succeeded && controller.stream == nil && controller.pendingStart == nil && stops == 3
+
+        // Stopping before the task even runs must not deadlock against its own
+        // cleanup task, create an output file, or enumerate shareable windows.
+        let before = created
+        let immediateURL = root.appendingPathComponent("immediate.jsonl")
+        controller.beginStart(targetPID: 42, outputURL: immediateURL)
+        _ = await controller.finishRecord(outputURL: immediateURL)
+        let immediateStop = created == before && MonitorSecureFS.lstat(immediateURL) == nil
+        controller.testPermission = { false }
+        let deniedURL = root.appendingPathComponent("denied.jsonl")
+        controller.beginStart(targetPID: 42, outputURL: deniedURL)
+        await controller.pendingStart?.value
+        let deniedDoesNotStart = created == before && MonitorSecureFS.lstat(deniedURL) == nil
+        _ = await controller.finishRecord(outputURL: deniedURL)
+        controller.hideOverlay()
+        return [overlayOnlyDoesNotCapture, explicitStart, hidingPreservesRecord, completedKeepsOnlyOverlay, noFakeFPS,
+                nilStillStops, invalidatedImmediately, cancelledStartCannotResurrect, immediateStop, deniedDoesNotStart]
+    }
+#endif
+
     static func outputFixtureChecks() -> [Bool] {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("idv-visual-fixture-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }

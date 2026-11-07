@@ -46,6 +46,9 @@ enum CombinedCapturePhase: Equatable {
     case idle, recording, recordingWithoutVisual, recordingDenseOnly, exporting, completed, partialFailure
     var title: String { switch self { case .idle: return "未在采集"; case .recording: return "联合采集中（高密度 + Metal + 画面变化率）"; case .recordingWithoutVisual: return "采集中（高密度 + Metal）"; case .recordingDenseOnly: return "采集中（仅高密度）"; case .exporting: return "正在导出 Metal trace"; case .completed: return "联合采集完成"; case .partialFailure: return "完成（部分数据失败）" } }
     var systemImage: String { switch self { case .idle: return "circle"; case .recording, .recordingWithoutVisual, .recordingDenseOnly: return "record.circle.fill"; case .exporting: return "arrow.down.circle.fill"; case .completed: return "checkmark.circle.fill"; case .partialFailure: return "exclamationmark.triangle.fill" } }
+    var isRecording: Bool {
+        switch self { case .recording, .recordingWithoutVisual, .recordingDenseOnly: return true; default: return false }
+    }
 }
 
 /// Keep the macOS privacy grant separate from the capture lifecycle.  A
@@ -112,7 +115,7 @@ enum MetalHUDSettings {
 }
 
 @MainActor final class MonitorViewModel: ObservableObject {
-    @Published private(set) var gamePID: Int32?; @Published private(set) var monitoringState: DenseMonitoringState = .idle; @Published private(set) var outputDirectory: URL; @Published private(set) var message: String?; @Published private(set) var combinedPhase: CombinedCapturePhase = .idle; @Published private(set) var visualCaptureStatus = "画面变化率：未启动"; @Published private(set) var screenRecordingAuthorization: ScreenRecordingAuthorizationState = .notAuthorized; @Published private(set) var overlayEnabled = false
+    @Published private(set) var gamePID: Int32?; @Published private(set) var monitoringState: DenseMonitoringState = .idle; @Published private(set) var outputDirectory: URL; @Published private(set) var message: String?; @Published private(set) var combinedPhase: CombinedCapturePhase = .idle; @Published private(set) var visualCaptureStatus = "画面变化率：未采集"; @Published private(set) var screenRecordingAuthorization: ScreenRecordingAuthorizationState = .notAuthorized; @Published private(set) var overlayEnabled = false
     @Published var includeVisual = true
     @Published var includeMetal = true
     // A sample can briefly suspend the game and contaminate the freeze being measured.
@@ -128,6 +131,8 @@ enum MetalHUDSettings {
     private var resourceInFlight = false
     private var resources: MonitorResourceSnapshot?
     private var watchedIdentity: GameProcessIdentity?
+    private var recordIdentity: GameProcessIdentity?
+    private var localCleanupTask: Task<Void, Never>?
     private var resourceOutput: FileHandle?
     private let gameAudio = GameAudioCaptureController()
     @Published private(set) var gameAudioPhase: GameAudioCapturePhase = .idle
@@ -150,6 +155,12 @@ enum MetalHUDSettings {
         guard observedRecord == record else { return }
         gamePID = MonitorGameProcessMatcher.gamePID(in: snap)
         if let controller { monitoringState = controller.status(gamePID: gamePID, snapshot: snap) }
+        if let current = record, let identity = recordIdentity,
+           combinedPhase.isRecording, GameProcessIdentity.read(current.targetPID) != identity {
+            // Stop the visual lease even if Dense is still exiting or its
+            // ownership metadata is unavailable. A new PID is never followed.
+            stop(reason: "游戏已退出")
+        }
         refreshScreenRecordingAuthorization()
         refreshLiveMonitoring()
         if combinedPhase == .idle { visualCaptureStatus = visual.statusDescription }
@@ -173,7 +184,61 @@ enum MetalHUDSettings {
         let preserved = model.gamePID == 111 && model.combinedPhase == .idle
         model.record = nil
         model.refresh(readSnapshot: { "222 \(getuid()) C:\\Games\\IdentityV\\dwrg.exe" })
-        return [preserved, model.gamePID == 222]
+        let discovered = model.gamePID == 222
+        // A reused target PID must stop visual ownership even if Dense's file
+        // is missing. The user's resource-overlay intent remains independent.
+        let pid = getpid()
+        model.record = CombinedCaptureRecord(startedAtEpoch: 2, targetPID: pid, captureDirectory: "/unused-refresh-exit-fixture", visualOutputPath: nil, includesMetal: false)
+        model.recordIdentity = .init(pid: pid, startSeconds: 0, startMicros: 0)
+        model.combinedPhase = .recording
+        model.visualIsCapturing = true
+        model.overlayEnabled = true
+        model.resourceInFlight = false
+        model.refresh(readSnapshot: { "\(pid) \(getuid()) C:\\Games\\IdentityV\\dwrg.exe" })
+        let exitedStopped = !model.visualIsCapturing && model.screenRecordingAuthorization != .capturing && model.combinedPhase == .exporting
+        let resourcesContinue = model.overlayEnabled && model.resourceInFlight
+        model.overlayEnabled = false
+        model.record = nil
+        model.recordIdentity = nil
+        return [preserved, discovered, exitedStopped, resourcesContinue]
+    }
+
+    static func localCleanupFixtureChecks() async -> [Bool] {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("idv-local-record-cleanup-\(UUID().uuidString)")
+        guard MonitorSecureFS.createDirectoryOneLevel(root), let identity = GameProcessIdentity.read(getpid()) else { return [false] }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = root.appendingPathComponent("resource.jsonl")
+        guard let output = MonitorSecureFS.createExclusiveFile(path) else { return [false] }
+        let fd = output.fileDescriptor
+        let model = MonitorViewModel()
+        model.poller?.cancel(); model.activationObserver?.cancel()
+        let record = CombinedCaptureRecord(startedAtEpoch: 1, targetPID: getpid(), captureDirectory: root.path, visualOutputPath: nil, includesMetal: false)
+        model.record = record
+        model.recordIdentity = identity
+        model.resourceOutput = output
+        model.combinedPhase = .recordingDenseOnly
+        model.overlayEnabled = true
+        let sample = MonitorResourceSnapshot(timestamp: 2, targetPID: getpid(), gameCPUPercent: 1, containerCPUPercent: nil, systemCPUPercent: 1, systemGPUPercent: 1, gameGPUPercent: 1, gameGPULastSubmitted: 1, sampleIntervalSeconds: 1, gameResidentBytes: 1)
+        model.appendResourceSample(sample, identity: identity, observedRecord: record)
+        let accepted = model.resourceSamples == 1
+        let reused = GameProcessIdentity(pid: identity.pid, startSeconds: identity.startSeconds + 1, startMicros: identity.startMicros)
+        model.appendResourceSample(sample, identity: reused, observedRecord: record)
+        let stale = CombinedCaptureRecord(startedAtEpoch: 0, targetPID: getpid(), captureDirectory: root.path, visualOutputPath: nil, includesMetal: false)
+        model.appendResourceSample(sample, identity: identity, observedRecord: stale)
+        model.combinedPhase = .partialFailure
+        model.appendResourceSample(sample, identity: identity, observedRecord: record)
+        let rejected = model.resourceSamples == 1
+        model.combinedPhase = .recordingDenseOnly
+        // Actual missing sampler metadata path: local resources close, without
+        // signalling a Dense PID or requiring a ScreenCaptureKit stream.
+        model.stop(reason: "fixture-missing-metadata")
+        let closedImmediately = model.resourceOutput == nil && fcntl(fd, F_GETFD) == -1 && errno == EBADF
+        let writeOwnershipRevoked = model.record == nil && model.recordIdentity == nil
+        await model.localCleanupTask?.value
+        let ended = model.combinedPhase == .partialFailure && model.overlayEnabled && model.localCleanupTask == nil
+        let rows = (try? String(contentsOf: path, encoding: .utf8))?.split(whereSeparator: \.isNewline).count
+        model.overlayEnabled = false
+        return [accepted, rejected, closedImmediately, writeOwnershipRevoked, ended, rows == 1]
     }
 #endif
     func requestVisualPermission() {
@@ -201,7 +266,7 @@ enum MetalHUDSettings {
     func toggleOverlay() {
         if overlayEnabled {
             overlayEnabled = false
-            visual.hideOverlay(hasActiveRecord: record != nil)
+            visual.hideOverlay()
         } else {
             guard gamePID != nil else { message = "未发现正在运行的 dwrg.exe。"; return }
             guard visual.showOverlay() else { message = "性能浮窗辅助进程未能启动；请重新构建第五人格工具箱。"; return }
@@ -211,26 +276,31 @@ enum MetalHUDSettings {
         }
     }
     func start() {
+        guard record == nil, localCleanupTask == nil, combinedPhase != .exporting else { return }
         captureEndReason = nil
-        guard let controller else { message = "工具箱缺少高密度采集组件，请重新构建。"; return }; let snap = Self.snapshot(); guard let pid = MonitorGameProcessMatcher.gamePID(in: snap) else { message = "未发现正在运行的 dwrg.exe。"; return }; guard let sampler = controller.startNewRecord(gamePID: pid, snapshot: snap), let output = sampler.outputPath else { message = "高密度采集未能启动，或已有采集器正在记录；没有接管历史采集。"; return }
+        guard let controller else { message = "工具箱缺少高密度采集组件，请重新构建。"; return }; let snap = Self.snapshot(); guard let pid = MonitorGameProcessMatcher.gamePID(in: snap), let identity = GameProcessIdentity.read(pid) else { message = "未发现正在运行的 dwrg.exe。"; return }; guard let sampler = controller.startNewRecord(gamePID: pid, snapshot: snap), let output = sampler.outputPath else { message = "高密度采集未能启动，或已有采集器正在记录；没有接管历史采集。"; return }; recordIdentity = identity
         let directory = URL(fileURLWithPath: output).deletingLastPathComponent(); let new = CombinedCaptureRecord(startedAtEpoch: Date().timeIntervalSince1970, targetPID: pid, captureDirectory: directory.path, visualOutputPath: includeVisual ? directory.appendingPathComponent("visual-fps.jsonl").path : nil, includesMetal: includeMetal)
         guard Self.persist(new, directory) else { record = CombinedCaptureRecord(startedAtEpoch: new.startedAtEpoch, targetPID: new.targetPID, captureDirectory: new.captureDirectory, visualOutputPath: new.visualOutputPath, includesMetal: false); outputDirectory = directory; combinedPhase = .recordingDenseOnly; message = "高密度采集中；无法保存本轮恢复记录，本轮不会导出 Metal trace。"; return }; record = new; outputDirectory = directory
         resourceSamples = 0
         resourceOutput = MonitorSecureFS.createExclusiveFile(directory.appendingPathComponent("resource-metrics.jsonl"))
         resourceCaptureStatus = resourceOutput == nil ? "CPU/GPU 记录：创建失败" : "CPU/GPU 记录：采集中"
-        guard includeVisual else { combinedPhase = includeMetal ? .recordingWithoutVisual : .recordingDenseOnly; message = "高密度采集已启动。"; return }; guard CGPreflightScreenCaptureAccess() else { combinedPhase = .recordingWithoutVisual; visualCaptureStatus = "画面变化率：部分失败（未授予工具箱屏幕录制权限）"; message = "高密度与 Metal 正在采集；画面变化率未启动。"; return }; combinedPhase = .recording; message = includeAutomaticFreezeStack ? "联合采集已启动；画面静止时可自动采样线程。" : "联合采集已启动；自动线程采样已关闭。"
-        if includeAutomaticFreezeStack { visual.armAutomaticFreezeStackCapture(captureDirectory: directory, targetPID: pid) }
-        else { visual.disarmAutomaticFreezeStackCapture() }
-        visual.beginStart(targetPID: pid, outputURL: new.visualOutputURL)
+        guard includeVisual else { combinedPhase = includeMetal ? .recordingWithoutVisual : .recordingDenseOnly; message = "高密度采集已启动。"; return }; guard CGPreflightScreenCaptureAccess() else { combinedPhase = includeMetal ? .recordingWithoutVisual : .recordingDenseOnly; visualCaptureStatus = "画面变化率：部分失败（未授予工具箱屏幕录制权限）"; message = "高密度采集已启动；画面变化率未启动。"; return }; combinedPhase = .recording; message = includeAutomaticFreezeStack ? "联合采集已启动；画面静止时可自动采样线程。" : "联合采集已启动；自动线程采样已关闭。"
+        if let visualOutput = new.visualOutputURL {
+            visual.beginStart(targetPID: pid, outputURL: visualOutput, automaticFreezeStacks: includeAutomaticFreezeStack)
+        }
     }
     func stop() {
         stop(reason: "手动停止")
     }
     private func stop(reason: String) {
         guard combinedPhase != .exporting else { return }
+        visual.stopRecording()
+        visualIsCapturing = false
+        refreshScreenRecordingAuthorization()
         guard let controller, let current = record,
               let sampler = Self.sampler(directory: URL(fileURLWithPath: current.captureDirectory, isDirectory: true)) else {
-            combinedPhase = .partialFailure; message = "缺少本窗口采集记录，无法收尾。已有数据保留在输出目录。"; return
+            finishLocalFailure("缺少采集器记录；未停止其他采集器。", reason: reason)
+            return
         }
         // Process.waitUntilExit can service the main run loop while reading ps
         // or stopping Dense. Lock BEFORE either call: otherwise the refresh
@@ -246,11 +316,38 @@ enum MetalHUDSettings {
             combinedPhase = previousPhase
             message = "采集器尚未退出，请重试停止。已有数据保留在输出目录。"
         case .notOwned:
-            combinedPhase = .partialFailure
-            message = "本窗口未持有这次采集，无法自动收尾。已有数据保留在输出目录。"
+            finishLocalFailure("本窗口未持有这次采集器记录；未停止其他采集器。", reason: reason)
         }
     }
-    private func complete(_ current: CombinedCaptureRecord) async { let visualResult = await visual.finishRecord(outputURL: current.visualOutputURL, stopIfNoOverlay: true); if resourceOutput != nil { resourceCaptureStatus = resourceSamples > 0 ? "CPU/GPU 记录：已记录" : "CPU/GPU 记录：未取得样本" }; try? resourceOutput?.close(); resourceOutput = nil; visualCaptureStatus = visualResult.message; record = nil; monitoringState = .idle; outputDirectory = URL(fileURLWithPath: current.captureDirectory, isDirectory: true); guard current.includesMetal else { combinedPhase = visualResult.succeeded || !includeVisual ? .completed : .partialFailure; message = "高密度采集已停止。\(visualResult.message)"; return }; combinedPhase = .exporting; message = "高密度采集已停止，正在导出 Metal trace…"; let end = Date().timeIntervalSince1970; let result = await Task.detached(priority: .utility) { Self.exportMetal(record: current, ended: end) }.value; combinedPhase = result.succeeded && (!includeVisual || visualResult.succeeded) ? .completed : .partialFailure; message = result.message + " " + visualResult.message }
+    private func closeResourceOutput() {
+        if resourceOutput != nil { resourceCaptureStatus = resourceSamples > 0 ? "CPU/GPU 记录：已记录" : "CPU/GPU 记录：未取得样本" }
+        try? resourceOutput?.close()
+        resourceOutput = nil
+    }
+
+    /// Missing or foreign Dense metadata cannot authorize a signal, but never
+    /// owns this window's file handles. End local outputs and forget their
+    /// write admission before allowing new live-resource samples to arrive.
+    private func finishLocalFailure(_ failure: String, reason: String) {
+        let outputURL = record?.visualOutputURL
+        combinedPhase = .exporting
+        captureEndReason = reason
+        closeResourceOutput()
+        record = nil
+        recordIdentity = nil
+        visualIsCapturing = false
+        message = "正在结束本窗口的画面和负载记录…"
+        localCleanupTask = Task { [weak self] in
+            guard let self else { return }
+            let result = await self.visual.finishRecord(outputURL: outputURL)
+            self.visualCaptureStatus = result.message
+            self.combinedPhase = .partialFailure
+            self.message = failure + " 本窗口的画面和负载记录已结束，已有数据保留。"
+            self.localCleanupTask = nil
+        }
+    }
+
+    private func complete(_ current: CombinedCaptureRecord) async { let visualResult = await visual.finishRecord(outputURL: current.visualOutputURL); closeResourceOutput(); visualCaptureStatus = visualResult.message; record = nil; recordIdentity = nil; visualIsCapturing = false; monitoringState = .idle; outputDirectory = URL(fileURLWithPath: current.captureDirectory, isDirectory: true); guard current.includesMetal else { combinedPhase = visualResult.succeeded || current.visualOutputURL == nil ? .completed : .partialFailure; message = "高密度采集已停止。\(visualResult.message)"; return }; combinedPhase = .exporting; message = "高密度采集已停止，正在导出 Metal trace…"; let end = Date().timeIntervalSince1970; let result = await Task.detached(priority: .utility) { Self.exportMetal(record: current, ended: end) }.value; combinedPhase = result.succeeded && (current.visualOutputURL == nil || visualResult.succeeded) ? .completed : .partialFailure; message = result.message + " " + visualResult.message }
     // Resource polling is independent of screen callbacks: a frozen game
     // must not freeze its CPU/GPU readout. No screen permission is needed.
     private func refreshLiveMonitoring() {
@@ -266,20 +363,29 @@ enum MetalHUDSettings {
         guard !resourceInFlight else { return }
         resourceInFlight = true
         let sampler = resourceSampler
+        let observedRecord = record
         resourceQueue.async { [weak self] in
             let sample = sampler.sample(targetPID: pid)
             DispatchQueue.main.async {
                 guard let self else { return }; self.resourceInFlight = false
                 guard self.watchedIdentity == identity, GameProcessIdentity.read(pid) == identity else { return }
                 self.resources = sample
-                if self.record?.targetPID == pid, let data = try? JSONEncoder().encode(sample), let output = self.resourceOutput {
-                    do { try output.write(contentsOf: data + Data([10])); self.resourceSamples += 1 }
-                    catch { try? output.close(); self.resourceOutput = nil; self.resourceCaptureStatus = "CPU/GPU 记录：写入失败"; self.message = "负载日志写入失败；其他采集继续。" }
-                }
+                self.appendResourceSample(sample, identity: identity, observedRecord: observedRecord)
                 self.publishLoadOverlay()
             }
         }
     }
+    private func appendResourceSample(_ sample: MonitorResourceSnapshot, identity: GameProcessIdentity, observedRecord: CombinedCaptureRecord?) {
+        // The live-resource gate protects the overlay; recording additionally
+        // requires this exact record and process birth identity. A reused PID
+        // or an old in-flight sample must never enter a previous/new record.
+        guard combinedPhase.isRecording, let record, record == observedRecord,
+              record.targetPID == sample.targetPID, recordIdentity == identity,
+              let data = try? JSONEncoder().encode(sample), let output = resourceOutput else { return }
+        do { try output.write(contentsOf: data + Data([10])); resourceSamples += 1 }
+        catch { try? output.close(); resourceOutput = nil; resourceCaptureStatus = "CPU/GPU 记录：写入失败"; message = "负载日志写入失败；其他采集继续。" }
+    }
+
     private func publishLoadOverlay() {
         guard overlayEnabled else { return }
         func percent(_ value: Double?) -> String { value.map { String(format: "%.0f%%", $0) } ?? "--" }
@@ -327,19 +433,23 @@ enum MetalHUDSettings {
         gameAudioSecondsRemaining = update.secondsRemaining
         if let outputURL = update.outputURL { gameAudioOutputURL = outputURL }
     }
-    private func stopGameAudioForTermination() async { await gameAudio.stopForToolboxExit() }
+    private func stopGameAudioForTermination() async {
+        visualIsCapturing = false
+        _ = await visual.finishRecord(outputURL: record?.visualOutputURL)
+        await gameAudio.stopForToolboxExit()
+    }
     func setMetalHUD(_ enabled: Bool) { do { try MetalHUDSettings.write(enabled: enabled); metalHUDEnabled = enabled; message = "Metal HUD 已\(enabled ? "开启" : "关闭")；下次启动或重启游戏生效，当前游戏不变。" } catch { metalHUDEnabled = MetalHUDSettings.read(); message = "无法保存 Metal HUD 设置：\(error.localizedDescription)" } }
     private func visualUpdate(_ metrics: VisualMetrics) {
         visualCaptureStatus = metrics.localizedDescription
-        visualIsCapturing = metrics.status == "capturing" && (record != nil || overlayEnabled)
+        visualIsCapturing = metrics.status == "capturing" && combinedPhase.isRecording && record?.targetPID == metrics.targetPID
         refreshScreenRecordingAuthorization()
-        if let record, combinedPhase != .exporting {
+        if let record, combinedPhase.isRecording, record.visualOutputURL != nil {
             // The first frame (or a static game) need not be "usable motion".
             // Describe the active stream, and upgrade again when it starts.
             combinedPhase = metrics.status == "capturing" ? .recording : (record.includesMetal ? .recordingWithoutVisual : .recordingDenseOnly)
         }
     }
-    private func refreshScreenRecordingAuthorization() { screenRecordingAuthorization = .resolve(isAuthorized: CGPreflightScreenCaptureAccess(), isCapturing: visualIsCapturing && (record != nil || overlayEnabled)) }
+    private func refreshScreenRecordingAuthorization() { screenRecordingAuthorization = .resolve(isAuthorized: CGPreflightScreenCaptureAccess(), isCapturing: visualIsCapturing && record?.visualOutputURL != nil && combinedPhase.isRecording) }
     private static func persist(_ current: CombinedCaptureRecord, _ directory: URL) -> Bool { let file = directory.appendingPathComponent("combined-capture.json"); do { try JSONEncoder().encode(current).write(to: file, options: .atomic); try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path); return true } catch { return false } }
     private static func sampler(directory: URL) -> DenseSamplerRecord? { guard let data = try? Data(contentsOf: directory.appendingPathComponent("sampler.pid")) else { return nil }; return try? JSONDecoder().decode(DenseSamplerRecord.self, from: data) }
     private static func samplerEndReason(in directory: URL) -> String {
@@ -453,7 +563,7 @@ private struct MonitorView: View {
                         Spacer()
                         Toggle("Metal HUD", isOn: Binding(get: { model.metalHUDEnabled }, set: model.setMetalHUD)).toggleStyle(.switch)
                     }
-                    Text("CPU 的 100% 代表一个核心。GPU 依次为游戏时间占比、整机负载，两者不直接相减。浮窗随游戏前台状态自动显隐，无需画面采集权限。Metal HUD 下次启动生效。")
+                    Text("CPU 的 100% 代表一个核心。GPU 依次为游戏时间占比、整机负载，两者不直接相减。浮窗只读取资源负载，无需画面采集权限。画面变化率仅在联合采集中采样，不代表游戏 FPS；真实 FPS 请看 Metal HUD。HUD 下次启动生效。")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
