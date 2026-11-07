@@ -1,4 +1,8 @@
-# Wine CoreAudio：默认设备端点与切换候选
+# Wine CoreAudio：默认设备跟随与隔离边界候选
+
+## 2026-11-07 当前结论
+
+现行默认跟随模块仍为 `9588fcdd5b262e85e9255c647b6a5a43b077553b6d8531d5c7ab8d6eb27186d8`。本轮新增的 [`capture-ring-offset-normalization.patch`](capture-ring-offset-normalization.patch) 修复独立可复现的采集环读偏移越界，已有精确源码、3232例函数级对照、真实ASan及x86_64模块候选；它尚未接入默认runtime，也没有证明游戏回听气泡音的根因。重建、签名与未修超环callback边界见[复现说明](repro/README.md)和[音频专题](../docs/audioCapturePeriodicArtifact20260924.md#2026-11-07-rc6-定向复核)。下文按历史阶段保留默认输入枚举、audio1与双向跟随的来源和验证，旧阶段的“候选/尚未发布”不是当前默认状态。
 
 ## 目的与范围
 
@@ -79,7 +83,7 @@ CoreAudio、AudioUnit、AudioToolbox、CoreMIDI、AppKit 与 AVFoundation，说�
 
 ## 录音重采样边界候选
 
-`capture-resample-produced-frames.patch` 修复另一个可静态确认的缓冲区边界：转换器实际输出可能少于请求帧数，旧代码却按请求量发布，短帧时会暴露重采样缓冲区中的旧数据。它是调查三秒破音的一条合理假设，但尚无现场证据证明破音由此产生。
+`capture-resample-produced-frames.patch` 保留转换后字节数上限与零输出退出保护。**旧解释“原代码按请求量发布短帧、暴露旧尾部”不成立**：`wanted_frames` 是 AudioConverter 的输入输出参数，调用后已经是实际帧数。2026-11-07 的真实离线 AudioConverter 验证包括请求80/实际17、请求80/实际21、请求240/实际102，帧数与字节数一致。2026-09-25 的 audio1 游戏回听仍有气泡音，不能再次将此补丁作为新修复；本轮不移除已有保护或默认设备跟随。详见[专题](../docs/audioCapturePeriodicArtifact20260924.md)。
 
 2026-09-24 使用 CodeWeavers 26.1 源码包 SHA-256 `e4ec87d5821a009dd1f1d2e36ffe2e24b8fcbae9516375ea42f95a16928ab8fa`，以现存 llvm-mingw + Bison 3.8.2 工具链完成 x86_64 configure，并只构建 `dlls/winecoreaudio.drv/winecoreaudio.so`。源码补丁前 SHA-256 为 `635347dcfc86800ed64737c6487a808836240e7846c6af699493e7a683d3f42c`，补丁后为 `d55561d42cfa69ed75a1b288a2f907ab55c92de42275769fd60df3caa5b4c624`。候选为 x86_64 Mach-O，install name `@rpath/winecoreaudio.so`，rpath `@loader_path/`，macOS minimum `10.15`；依赖列表和 exports 与当前 runtime 模块相同。最初 SDK 默认输出 minOS `27.0`，因此按 `MACOSX_DEPLOYMENT_TARGET=10.15` 重新链接目标和临时 ntdll，再复核 load commands 与链接诊断后才签名。
 

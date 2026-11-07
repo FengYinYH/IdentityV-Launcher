@@ -1,0 +1,23 @@
+From: IdentityV on Mac maintainers
+Subject: [PATCH] winecoreaudio: normalize capture ring read offset after overflow
+
+The circular distance added to lcl_offs_frames can cross the end of the
+local capture ring. Keeping the unnormalised sum makes GetCaptureBuffer
+subtract a larger offset from bufsize_frames and return an out-of-bounds
+pointer. Preserve the existing overflow policy but keep the ring invariant.
+
+This fixes a reproducible buffer-boundary defect in CodeWeavers 26.1; it is
+not evidence that this overflow caused the reported voice-playback artifact.
+Apply after the current default-device-following patch series.
+
+--- a/dlls/winecoreaudio.drv/coreaudio.c
++++ b/dlls/winecoreaudio.drv/coreaudio.c
+@@ -1361,6 +1361,8 @@
+         if(stream->held_frames + produced_frames > stream->bufsize_frames){
+             stream->lcl_offs_frames += buf_ptr_diff(stream->lcl_offs_frames, stream->wri_offs_frames,
+                                                     stream->bufsize_frames);
++            /* The oldest retained frame must stay inside the circular buffer. */
++            stream->lcl_offs_frames %= stream->bufsize_frames;
+             stream->held_frames = stream->bufsize_frames;
+         }else
+             stream->held_frames += produced_frames;
